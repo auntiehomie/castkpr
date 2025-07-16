@@ -1,13 +1,21 @@
-    import { SavedCast } from '@/lib/supabase'
+import { SavedCast } from '@/lib/supabase'
 import { formatDistanceToNow } from 'date-fns'
+import Image from 'next/image'
 
 interface CastCardProps {
   cast: SavedCast
   compact?: boolean
 }
 
+interface ParsedData {
+  hashtags?: string[]
+  urls?: string[]
+  mentions?: string[]
+  word_count?: number
+}
+
 export default function CastCard({ cast, compact = false }: CastCardProps) {
-  const parsedData = cast.parsed_data as any
+  const parsedData = cast.parsed_data as ParsedData
 
   return (
     <div className={`bg-white/10 backdrop-blur-lg rounded-xl border border-white/20 transition-all hover:bg-white/15 ${
@@ -17,9 +25,11 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center space-x-3">
           {cast.author_pfp_url ? (
-            <img 
+            <Image 
               src={cast.author_pfp_url} 
               alt={cast.username}
+              width={40}
+              height={40}
               className="w-10 h-10 rounded-full"
             />
           ) : (
@@ -77,14 +87,14 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
           ))}
           
           {/* URLs indicator */}
-          {parsedData.urls?.length > 0 && (
+          {parsedData.urls?.length && parsedData.urls.length > 0 && (
             <span className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
               🔗 {parsedData.urls.length} link{parsedData.urls.length !== 1 ? 's' : ''}
             </span>
           )}
           
           {/* Mentions indicator */}
-          {parsedData.mentions?.length > 0 && (
+          {parsedData.mentions?.length && parsedData.mentions.length > 0 && (
             <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
               👥 {parsedData.mentions.length} mention{parsedData.mentions.length !== 1 ? 's' : ''}
             </span>

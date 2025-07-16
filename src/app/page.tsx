@@ -20,7 +20,7 @@ export default function Home() {
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
             <div className="text-purple-400 text-3xl mb-4">💾</div>
             <h3 className="text-xl font-semibold text-white mb-2">Auto-Save Casts</h3>
-            <p className="text-gray-300">Reply "@cstkpr save this" to automatically save any cast</p>
+            <p className="text-gray-300">Reply &quot;@cstkpr save this&quot; to automatically save any cast</p>
           </div>
           
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">

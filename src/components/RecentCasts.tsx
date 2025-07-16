@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { CastService, SavedCast } from '@/lib/supabase'
 import CastCard from './CastCard'
 import Link from 'next/link'
@@ -11,14 +11,10 @@ interface RecentCastsProps {
 
 export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) {
   const [casts, setCasts] = useState<SavedCast[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchRecentCasts()
-  }, [userId])
-
-  const fetchRecentCasts = async () => {
+  const fetchRecentCasts = useCallback(async (): Promise<void> => {
     try {
       setLoading(true)
       setError(null)
@@ -32,7 +28,11 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
     } finally {
       setLoading(false)
     }
-  }
+  }, [userId])
+
+  useEffect(() => {
+    fetchRecentCasts()
+  }, [fetchRecentCasts])
 
   if (loading) {
     return (
@@ -43,7 +43,7 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
         
         {/* Loading skeletons */}
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
+          {Array.from({ length: 3 }, (_, i) => (
             <div key={i} className="bg-white/10 rounded-xl p-4 animate-pulse">
               <div className="flex items-center space-x-3 mb-3">
                 <div className="w-10 h-10 bg-gray-600 rounded-full"></div>
@@ -73,6 +73,7 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
           <button 
             onClick={fetchRecentCasts}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
+            type="button"
           >
             Try Again
           </button>
@@ -103,7 +104,7 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
           <div className="text-6xl mb-4">📝</div>
           <h3 className="text-xl font-semibold text-white mb-2">No saved casts yet</h3>
           <p className="text-gray-400 mb-6">
-            Start saving casts by replying "@cstkpr save this" to any cast on Farcaster
+            Start saving casts by replying &quot;@cstkpr save this&quot; to any cast on Farcaster
           </p>
           
           {/* Quick demo instructions */}
@@ -111,14 +112,14 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
             <h4 className="font-semibold text-white mb-2">How to save casts:</h4>
             <ol className="text-sm text-gray-300 text-left space-y-1">
               <li>1. Find an interesting cast on Farcaster</li>
-              <li>2. Reply with "@cstkpr save this"</li>
+              <li>2. Reply with &quot;@cstkpr save this&quot;</li>
               <li>3. Your cast will appear here automatically!</li>
             </ol>
           </div>
         </div>
       ) : (
         <div className="space-y-4">
-          {casts.map((cast) => (
+          {casts.map((cast: SavedCast) => (
             <CastCard 
               key={cast.id} 
               cast={cast} 
