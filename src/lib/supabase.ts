@@ -250,7 +250,11 @@ export class CollectionService {
   }
 
   // Get casts in a collection
-  static async getCollectionCasts(collectionId: string): Promise<any[]> {
+  static async getCollectionCasts(collectionId: string): Promise<Array<{
+    cast_id: string;
+    added_at: string;
+    saved_casts: SavedCast[];
+  }>> {
     const { data, error } = await supabase
       .from('cast_collections')
       .select(`
@@ -265,7 +269,11 @@ export class CollectionService {
       throw error
     }
 
-    return data || []
+    return (data || []) as Array<{
+      cast_id: string;
+      added_at: string;
+      saved_casts: SavedCast[];
+    }>
   }
 }
 
