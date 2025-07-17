@@ -105,14 +105,16 @@ export async function POST(request: NextRequest) {
     // Test Supabase connection first
     console.log('🔍 Testing Supabase connection...')
     try {
+      // Try a simple test first
       const { data: testData, error: testError } = await supabase
         .from('saved_casts')
-        .select('count(*)', { count: 'exact', head: true })
+        .select('*')
+        .limit(1)
       
       if (testError) {
         console.error('❌ Supabase connection test failed:', testError)
         console.error('❌ Full Supabase error details:', JSON.stringify(testError, null, 2))
-        return NextResponse.json({ error: 'Database connection failed', details: testError.message }, { status: 500 })
+        return NextResponse.json({ error: 'Database connection failed', details: testError.message || 'Unknown database error' }, { status: 500 })
       }
       
       console.log('✅ Supabase connection test successful')
