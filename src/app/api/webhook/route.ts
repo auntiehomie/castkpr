@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
     
     // Fetch parent cast from Neynar API
     console.log('🔍 Fetching parent cast details...')
+    console.log('🔑 API Key available?', !!process.env.NEYNAR_API_KEY)
+    console.log('🔑 API Key length:', process.env.NEYNAR_API_KEY?.length || 0)
+    
     const parentCastResponse = await fetch(
       `https://api.neynar.com/v2/farcaster/cast?identifier=${parentHash}&type=hash`,
       {
@@ -93,10 +96,7 @@ export async function POST(request: NextRequest) {
         hashtags: extractHashtags(parentCast.text),
         mentions: extractMentions(parentCast.text),
         word_count: parentCast.text.split(' ').length
-      },
-      fid: parentCast.author.fid,
-      cast_hash: parentCast.hash,
-      tags: extractHashtags(parentCast.text)
+      }
     }
     
     console.log('💾 Saving cast data...')
