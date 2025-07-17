@@ -70,19 +70,40 @@ export interface CastCollection {
 // Helper functions for database operations
 export class CastService {
   // Save a new cast
-  static async saveCast(castData: Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>) {
+  static async saveCast(castData: Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>): Promise<SavedCast> {
+    console.log('💾 Attempting to save cast:', castData.cast_hash)
+    
+    // Check if cast already exists for this user
+    const { data: existing } = await supabase
+      .from('saved_casts')
+      .select('id')
+      .eq('cast_hash', castData.cast_hash)
+      .eq('saved_by_user_id', castData.saved_by_user_id)
+      .single()
+
+    if (existing) {
+      console.log('⚠️ Cast already exists for this user')
+      throw new Error('Cast already saved by this user')
+    }
+
+    // Insert new cast
     const { data, error } = await supabase
       .from('saved_casts')
-      .insert(castData)
+      .insert([castData])
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('❌ Error saving cast to database:', error)
+      throw error
+    }
+
+    console.log('✅ Cast saved successfully to database')
     return data
   }
 
   // Get all saved casts for a user
-  static async getUserCasts(userId: string, limit: number = 50) {
+  static async getUserCasts(userId: string, limit: number = 50): Promise<SavedCast[]> {
     const { data, error } = await supabase
       .from('saved_casts')
       .select('*')
@@ -90,12 +111,16 @@ export class CastService {
       .order('cast_timestamp', { ascending: false })
       .limit(limit)
 
-    if (error) throw error
-    return data
+    if (error) {
+      console.error('Error fetching user casts:', error)
+      throw error
+    }
+
+    return data || []
   }
 
   // Search casts
-  static async searchCasts(userId: string, query: string) {
+  static async searchCasts(userId: string, query: string): Promise<SavedCast[]> {
     const { data, error } = await supabase
       .from('saved_casts')
       .select('*')
@@ -103,35 +128,46 @@ export class CastService {
       .or(`cast_content.ilike.%${query}%,username.ilike.%${query}%,tags.cs.{${query}}`)
       .order('cast_timestamp', { ascending: false })
 
-    if (error) throw error
-    return data
+    if (error) {
+      console.error('Error searching casts:', error)
+      throw error
+    }
+
+    return data || []
   }
 
   // Get cast by hash
-  static async getCastByHash(castHash: string) {
+  static async getCastByHash(castHash: string): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .select('*')
       .eq('cast_hash', castHash)
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Error fetching cast by hash:', error)
+      throw error
+    }
+
     return data
   }
 
   // Delete a cast
-  static async deleteCast(castId: string, userId: string) {
+  static async deleteCast(castId: string, userId: string): Promise<void> {
     const { error } = await supabase
       .from('saved_casts')
       .delete()
       .eq('id', castId)
       .eq('saved_by_user_id', userId)
 
-    if (error) throw error
+    if (error) {
+      console.error('Error deleting cast:', error)
+      throw error
+    }
   }
 
   // Update cast notes or category
-  static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }) {
+  static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .update(updates)
@@ -140,12 +176,16 @@ export class CastService {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Error updating cast:', error)
+      throw error
+    }
+
     return data
   }
 
   // Get stats for a user
-  static async getUserStats(userId: string) {
+  static async getUserStats(userId: string): Promise<{ totalCasts: number }> {
     const { count } = await supabase
       .from('saved_casts')
       .select('*', { count: 'exact', head: true })
@@ -158,7 +198,7 @@ export class CastService {
 // Helper functions for collections
 export class CollectionService {
   // Create a new collection
-  static async createCollection(name: string, description: string, userId: string, isPublic: boolean = false) {
+  static async createCollection(name: string, description: string, userId: string, isPublic: boolean = false): Promise<Collection> {
     const { data, error } = await supabase
       .from('collections')
       .insert({
@@ -170,24 +210,32 @@ export class CollectionService {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Error creating collection:', error)
+      throw error
+    }
+
     return data
   }
 
   // Get user's collections
-  static async getUserCollections(userId: string) {
+  static async getUserCollections(userId: string): Promise<Collection[]> {
     const { data, error } = await supabase
       .from('collections')
       .select('*')
       .eq('created_by', userId)
       .order('created_at', { ascending: false })
 
-    if (error) throw error
-    return data
+    if (error) {
+      console.error('Error fetching user collections:', error)
+      throw error
+    }
+
+    return data || []
   }
 
   // Add cast to collection
-  static async addCastToCollection(castId: string, collectionId: string) {
+  static async addCastToCollection(castId: string, collectionId: string): Promise<void> {
     const { error } = await supabase
       .from('cast_collections')
       .insert({
@@ -195,11 +243,14 @@ export class CollectionService {
         collection_id: collectionId
       })
 
-    if (error) throw error
+    if (error) {
+      console.error('Error adding cast to collection:', error)
+      throw error
+    }
   }
 
   // Get casts in a collection
-  static async getCollectionCasts(collectionId: string) {
+  static async getCollectionCasts(collectionId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from('cast_collections')
       .select(`
@@ -209,8 +260,12 @@ export class CollectionService {
       `)
       .eq('collection_id', collectionId)
 
-    if (error) throw error
-    return data
+    if (error) {
+      console.error('Error fetching collection casts:', error)
+      throw error
+    }
+
+    return data || []
   }
 }
 

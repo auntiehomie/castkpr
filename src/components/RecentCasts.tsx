@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { CastService, SavedCast } from '@/lib/supabase'
+import { CastService } from '@/lib/supabase'
+import type { SavedCast } from '@/lib/supabase'
 import CastCard from './CastCard'
 import Link from 'next/link'
 

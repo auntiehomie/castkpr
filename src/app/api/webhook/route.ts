@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService } from '@/lib/supabase'
+import type { SavedCast } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,101 +46,78 @@ export async function POST(request: NextRequest) {
     // Check for parent hash
     const parentHash = cast.parent_hash
     console.log('👆 Parent hash:', parentHash)
+    console.log('📋 Full cast data keys:', Object.keys(cast))
+    console.log('📋 Cast parent data:', JSON.stringify({
+      parent_hash: cast.parent_hash,
+      parent_url: cast.parent_url,
+      parent_author: cast.parent_author,
+      thread_hash: cast.thread_hash
+    }, null, 2))
     
     if (!parentHash) {
       console.log('❌ No parent cast to save')
       return NextResponse.json({ message: 'No parent cast to save' })
     }
     
-    // Fetch parent cast from Neynar API
-    console.log('🔍 Fetching parent cast details...')
-    console.log('🔑 API Key available?', !!process.env.NEYNAR_API_KEY)
-    console.log('🔑 API Key length:', process.env.NEYNAR_API_KEY?.length || 0)
+    // Since the paid API is required, let's work with available webhook data
+    console.log('💡 Using webhook data instead of API call...')
     
-    const parentCastResponse = await fetch(
-      `https://api.neynar.com/v2/farcaster/cast?identifier=${parentHash}&type=hash`,
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.NEYNAR_API_KEY}`,
-          'accept': 'application/json'
-        }
-      }
-    )
-    
-    if (!parentCastResponse.ok) {
-      console.error('❌ Failed to fetch parent cast:', parentCastResponse.status)
-      return NextResponse.json({ error: 'Failed to fetch parent cast' }, { status: 500 })
-    }
-    
-    const parentCastData = await parentCastResponse.json()
-    const parentCast = parentCastData.cast
-    
-    console.log('📋 Parent cast fetched:', parentCast.hash)
-    console.log('📝 Parent cast author:', parentCast.author.username)
-    console.log('💬 Parent cast text preview:', parentCast.text.substring(0, 50) + '...')
-    
-    // Extract data for saving
+    // Create cast data that matches your SavedCast interface exactly
     const castData = {
-      fid: parentCast.author.fid, // Author's FID
-      cast_hash: parentCast.hash, // Cast hash
-      farcaster_cast_id: parentCast.hash, // Keep this if your schema has both
-      cast_url: `https://warpcast.com/${parentCast.author.username}/${parentCast.hash}`,
-      cast_content: parentCast.text,
-      cast_timestamp: parentCast.timestamp,
-      username: parentCast.author.username,
-      author_display_name: parentCast.author.display_name,
-      author_pfp_url: parentCast.author.pfp_url,
-      likes_count: parentCast.reactions?.likes_count || 0,
-      replies_count: parentCast.replies?.count || 0,
-      recasts_count: parentCast.reactions?.recasts_count || 0,
-      user_id: cast.author.username, // The person who mentioned the bot
-      tags: [], // Add empty tags array
+      // Required fields from your SavedCast interface
+      username: '[username not available]', // Will update when we get full parent cast
+      fid: cast.parent_author?.fid || 0,
+      cast_hash: parentHash,
+      cast_content: `[Parent cast - hash: ${parentHash}]`, // Placeholder
+      cast_timestamp: new Date().toISOString(),
+      tags: [] as string[],
+      likes_count: 0,
+      replies_count: 0,
+      recasts_count: 0,
+      
+      // Optional fields - use undefined instead of null
+      cast_url: `https://warpcast.com/i/cast/${parentHash}`,
+      author_pfp_url: undefined, // Changed from null to undefined
+      author_display_name: '[author not available]',
+      saved_by_user_id: cast.author.username, // The person who mentioned the bot
+      category: 'saved-via-bot',
+      notes: `Saved via @cstkpr bot mention by ${cast.author.username}`,
       parsed_data: {
-        urls: extractUrls(parentCast.text),
-        hashtags: extractHashtags(parentCast.text),
-        mentions: extractMentions(parentCast.text),
-        word_count: parentCast.text.split(' ').length
+        urls: [],
+        hashtags: [],
+        mentions: [],
+        word_count: 0,
+        sentiment: 'neutral' as const,
+        topics: []
       }
-    }
+      
+      // Note: id, created_at, updated_at will be handled by Supabase automatically
+    } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
     
     console.log('💾 Saving cast data...')
+    console.log('📋 Cast data structure:', Object.keys(castData))
     
     // Save to database
     try {
-      await CastService.saveCast(castData)
-      console.log('✅ Cast saved successfully:', castData.farcaster_cast_id)
+      const savedCast = await CastService.saveCast(castData)
+      console.log('✅ Cast saved successfully:', savedCast.cast_hash)
       
       return NextResponse.json({ 
         success: true, 
         message: 'Cast saved successfully',
-        cast_id: castData.farcaster_cast_id 
+        cast_id: savedCast.cast_hash,
+        saved_cast_id: savedCast.id
       })
       
     } catch (saveError) {
       console.error('❌ Error saving cast:', saveError)
-      return NextResponse.json({ error: 'Failed to save cast' }, { status: 500 })
+      console.error('❌ Save error details:', saveError instanceof Error ? saveError.message : saveError)
+      return NextResponse.json({ error: 'Failed to save cast', details: saveError instanceof Error ? saveError.message : 'Unknown error' }, { status: 500 })
     }
     
   } catch (error) {
     console.error('💥 Webhook error:', error)
+    console.error('💥 Webhook error details:', error instanceof Error ? error.message : error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
-
-// Helper functions to extract data
-function extractUrls(text: string): string[] {
-  const urlRegex = /(https?:\/\/[^\s]+)/g
-  return text.match(urlRegex) || []
-}
-
-function extractHashtags(text: string): string[] {
-  const hashtagRegex = /#(\w+)/g
-  const matches = text.match(hashtagRegex) || []
-  return matches.map(tag => tag.substring(1)) // Remove the # symbol
-}
-
-function extractMentions(text: string): string[] {
-  const mentionRegex = /@(\w+)/g
-  const matches = text.match(mentionRegex) || []
-  return matches.map(mention => mention.substring(1)) // Remove the @ symbol
 }
