@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     
     // Check for mentions
     const mentions = cast.mentioned_profiles || []
-    const mentionsBot = mentions.some((profile: any) => {
+    const mentionsBot = mentions.some((profile: { username?: string; fid?: number }) => {
       return profile.username === 'cstkpr'
     })
     
@@ -88,9 +88,6 @@ export async function POST(request: NextRequest) {
       replies_count: parentCast.replies?.count || 0,
       recasts_count: parentCast.reactions?.recasts_count || 0,
       user_id: cast.author.username, // The person who mentioned the bot
-      fid: parentCast.author.fid, // Add fid from parentCast.author
-      cast_hash: parentCast.hash, // Add cast_hash from parentCast
-      tags: extractHashtags(parentCast.text), // Add tags as array of hashtags
       parsed_data: {
         urls: extractUrls(parentCast.text),
         hashtags: extractHashtags(parentCast.text),
