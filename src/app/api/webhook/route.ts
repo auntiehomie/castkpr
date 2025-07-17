@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
     // Debug environment variables
     console.log('🔍 Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Set' : 'Missing')
     console.log('🔍 Supabase Key:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Set (length: ' + process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.length + ')' : 'Missing')
+    console.log('🔍 Actual Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
     
     const body = await request.json()
     console.log('📦 Webhook payload received')
@@ -110,6 +111,7 @@ export async function POST(request: NextRequest) {
       
       if (testError) {
         console.error('❌ Supabase connection test failed:', testError)
+        console.error('❌ Full Supabase error details:', JSON.stringify(testError, null, 2))
         return NextResponse.json({ error: 'Database connection failed', details: testError.message }, { status: 500 })
       }
       
