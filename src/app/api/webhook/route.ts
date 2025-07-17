@@ -80,7 +80,9 @@ export async function POST(request: NextRequest) {
     
     // Extract data for saving
     const castData = {
-      farcaster_cast_id: parentCast.hash,
+      fid: parentCast.author.fid, // Author's FID
+      cast_hash: parentCast.hash, // Cast hash
+      farcaster_cast_id: parentCast.hash, // Keep this if your schema has both
       cast_url: `https://warpcast.com/${parentCast.author.username}/${parentCast.hash}`,
       cast_content: parentCast.text,
       cast_timestamp: parentCast.timestamp,
@@ -91,6 +93,7 @@ export async function POST(request: NextRequest) {
       replies_count: parentCast.replies?.count || 0,
       recasts_count: parentCast.reactions?.recasts_count || 0,
       user_id: cast.author.username, // The person who mentioned the bot
+      tags: [], // Add empty tags array
       parsed_data: {
         urls: extractUrls(parentCast.text),
         hashtags: extractHashtags(parentCast.text),
