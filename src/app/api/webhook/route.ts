@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService } from '@/lib/supabase'
+import { CastService, supabase } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
@@ -100,6 +100,24 @@ export async function POST(request: NextRequest) {
     
     console.log('💾 Saving cast data...')
     console.log('📋 Cast data structure:', Object.keys(castData))
+    
+    // Test Supabase connection first
+    console.log('🔍 Testing Supabase connection...')
+    try {
+      const { data: testData, error: testError } = await supabase
+        .from('saved_casts')
+        .select('count(*)', { count: 'exact', head: true })
+      
+      if (testError) {
+        console.error('❌ Supabase connection test failed:', testError)
+        return NextResponse.json({ error: 'Database connection failed', details: testError.message }, { status: 500 })
+      }
+      
+      console.log('✅ Supabase connection test successful')
+    } catch (connectionError) {
+      console.error('❌ Supabase connection error:', connectionError)
+      return NextResponse.json({ error: 'Database connection error', details: connectionError instanceof Error ? connectionError.message : 'Unknown error' }, { status: 500 })
+    }
     
     // Save to database
     try {
