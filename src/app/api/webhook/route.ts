@@ -70,30 +70,30 @@ export async function POST(request: NextRequest) {
     // Create cast data that matches your SavedCast interface exactly
     const castData = {
       // Required fields from your SavedCast interface
-      username: '[username not available]', // Will update when we get full parent cast
+      username: `user-${cast.parent_author?.fid || 'unknown'}`, // Use FID as identifier
       fid: cast.parent_author?.fid || 0,
       cast_hash: parentHash,
-      cast_content: `[Parent cast - hash: ${parentHash}]`, // Placeholder
+      cast_content: `🔗 Cast saved from Farcaster - Hash: ${parentHash}`, // More user-friendly placeholder
       cast_timestamp: new Date().toISOString(),
-      tags: [] as string[],
+      tags: ['saved-via-bot'] as string[],
       likes_count: 0,
       replies_count: 0,
       recasts_count: 0,
       
       // Optional fields - use undefined instead of null
-      cast_url: `https://warpcast.com/i/cast/${parentHash}`,
-      author_pfp_url: undefined, // Changed from null to undefined
-      author_display_name: '[author not available]',
+      cast_url: `https://warpcast.com/~/conversations/${parentHash}`, // Better cast URL format
+      author_pfp_url: undefined,
+      author_display_name: `User ${cast.parent_author?.fid || 'Unknown'}`, // More friendly display
       saved_by_user_id: cast.author.username, // The person who mentioned the bot
       category: 'saved-via-bot',
-      notes: `Saved via @cstkpr bot mention by ${cast.author.username}`,
+      notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
       parsed_data: {
-        urls: [],
-        hashtags: [],
-        mentions: [],
+        urls: [`https://warpcast.com/~/conversations/${parentHash}`],
+        hashtags: ['cstkpr', 'saved'],
+        mentions: ['cstkpr'],
         word_count: 0,
         sentiment: 'neutral' as const,
-        topics: []
+        topics: ['saved-cast']
       }
       
       // Note: id, created_at, updated_at will be handled by Supabase automatically
