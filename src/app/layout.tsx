@@ -20,14 +20,14 @@ export const metadata: Metadata = {
     // Mini App embed for sharing
     "fc:miniapp": JSON.stringify({
       version: "1",
-      imageUrl: "https://your-domain.vercel.app/og-image.png", // You'll need to create this
+      imageUrl: "https://castkpr.vercel.app/image.png",
       button: {
-        title: "Open CastKPR",
+        title: "save it",
         action: {
-          type: "launch_miniapp",
-          name: "CastKPR",
-          url: "https://your-domain.vercel.app",
-          splashImageUrl: "https://your-domain.vercel.app/logo.png", // You'll need this too
+          type: "launch_miniapp", 
+          name: "CASTKPR",
+          url: "https://castkpr.vercel.app",
+          splashImageUrl: "https://castkpr.vercel.app/logo.png",
           splashBackgroundColor: "#7c3aed"
         }
       }
