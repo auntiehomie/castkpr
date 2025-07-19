@@ -283,9 +283,14 @@ export async function POST(request: NextRequest) {
       console.log('✅ Parent cast fetched successfully')
       console.log('📝 Parent cast author:', parentCast.author.username)
       console.log('📝 Parent cast text length:', parentCast.text.length)
+      console.log('🖼️ Profile picture URL:', parentCast.author.pfp_url || 'Not available')
       
       // Parse the content for additional data
       const parsedData = ContentParser.parseContent(parentCast.text)
+      
+      // Generate fallback avatar if no pfp_url
+      const authorPfpUrl = parentCast.author.pfp_url || 
+        `https://api.dicebear.com/7.x/avataaars/svg?seed=${parentCast.author.fid || parentCast.author.username}`
       
       // Create cast data with actual parent cast information
       const castData = {
@@ -299,10 +304,10 @@ export async function POST(request: NextRequest) {
         replies_count: parentCast.replies?.count || 0,
         recasts_count: parentCast.reactions?.recasts?.length || 0,
         
-        // Optional fields with actual data
+        // Optional fields with actual data and fallbacks
         cast_url: `https://warpcast.com/${parentCast.author.username}/${parentHash.slice(0, 10)}`,
-        author_pfp_url: parentCast.author.pfp_url,
-        author_display_name: parentCast.author.display_name,
+        author_pfp_url: authorPfpUrl, // Use actual pfp or generated fallback
+        author_display_name: parentCast.author.display_name || parentCast.author.username,
         saved_by_user_id: cast.author.username, // The person who mentioned the bot
         category: 'saved-via-bot',
         notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
@@ -316,6 +321,7 @@ export async function POST(request: NextRequest) {
       } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
       
       console.log('💾 Saving cast data...')
+      console.log('🖼️ Final avatar URL being saved:', authorPfpUrl)
       
       // Save to database
       try {
@@ -328,7 +334,8 @@ export async function POST(request: NextRequest) {
           cast_id: savedCast.cast_hash,
           saved_cast_id: savedCast.id,
           author: parentCast.author.username,
-          content_preview: parentCast.text.slice(0, 100) + (parentCast.text.length > 100 ? '...' : '')
+          content_preview: parentCast.text.slice(0, 100) + (parentCast.text.length > 100 ? '...' : ''),
+          pfp_saved: !!authorPfpUrl
         })
         
       } catch (saveError) {
