@@ -284,7 +284,18 @@ export class CollectionService {
       throw error
     }
 
-    return data || []
+    // Transform the data to ensure saved_casts is a single object
+    const transformedData = (data || []).map(item => ({
+      cast_id: item.cast_id,
+      added_at: item.added_at,
+      saved_casts: Array.isArray(item.saved_casts) ? item.saved_casts[0] : item.saved_casts
+    })).filter(item => item.saved_casts) // Filter out any items without saved_casts
+
+    return transformedData as Array<{
+      cast_id: string;
+      added_at: string;
+      saved_casts: SavedCast;
+    }>
   }
 
   // Delete a collection
