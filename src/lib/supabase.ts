@@ -249,11 +249,25 @@ export class CollectionService {
     }
   }
 
+  // Remove cast from collection
+  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
+    const { error } = await supabase
+      .from('cast_collections')
+      .delete()
+      .eq('cast_id', castId)
+      .eq('collection_id', collectionId)
+
+    if (error) {
+      console.error('Error removing cast from collection:', error)
+      throw error
+    }
+  }
+
   // Get casts in a collection
   static async getCollectionCasts(collectionId: string): Promise<Array<{
     cast_id: string;
     added_at: string;
-    saved_casts: SavedCast[];
+    saved_casts: SavedCast;
   }>> {
     const { data, error } = await supabase
       .from('cast_collections')
@@ -263,17 +277,159 @@ export class CollectionService {
         saved_casts (*)
       `)
       .eq('collection_id', collectionId)
+      .order('added_at', { ascending: false })
 
     if (error) {
       console.error('Error fetching collection casts:', error)
       throw error
     }
 
-    return (data || []) as Array<{
-      cast_id: string;
-      added_at: string;
-      saved_casts: SavedCast[];
-    }>
+    return data || []
+  }
+
+  // Delete a collection
+  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('collections')
+      .delete()
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+
+    if (error) {
+      console.error('Error deleting collection:', error)
+      throw error
+    }
+  }
+
+  // Update collection
+  static async updateCollection(collectionId: string, userId: string, updates: { name?: string; description?: string; is_public?: boolean }): Promise<Collection> {
+    const { data, error } = await supabase
+      .from('collections')
+      .update(updates)
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating collection:', error)
+      throw error
+    }
+
+    return data
+  }
+}
+
+// User management functions
+export class UserService {
+  // Create or update user profile
+  static async upsertUser(userData: {
+    fid: number
+    username: string
+    display_name?: string
+    pfp_url?: string
+    bio?: string
+  }): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .upsert({
+        fid: userData.fid,
+        username: userData.username,
+        display_name: userData.display_name,
+        pfp_url: userData.pfp_url,
+        bio: userData.bio,
+        last_login: new Date().toISOString()
+      }, {
+        onConflict: 'fid',
+        ignoreDuplicates: false
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error upserting user:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user by FID
+  static async getUserByFid(fid: number): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('fid', fid)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') { // No rows returned
+        return null
+      }
+      console.error('Error fetching user by FID:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user activity stats
+  static async getUserActivity(userId: string): Promise<{
+    totalSaves: number
+    averagePerWeek: number
+    topTags: string[]
+    streak: number
+  }> {
+    // Get saves from last 30 days
+    const { data: weeklyStats } = await supabase
+      .from('saved_casts')
+      .select('created_at, tags')
+      .eq('saved_by_user_id', userId)
+      .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+
+    const saves = weeklyStats || []
+
+    return {
+      totalSaves: saves.length,
+      averagePerWeek: Math.round(saves.length / 4),
+      topTags: this.getTopTags(saves),
+      streak: this.calculateSaveStreak(saves)
+    }
+  }
+
+  private static getTopTags(saves: Array<{ tags: string[] }>): string[] {
+    const tagCounts: Record<string, number> = {}
+    saves.forEach(save => {
+      save.tags?.forEach((tag: string) => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1
+      })
+    })
+    
+    return Object.entries(tagCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 5)
+      .map(([tag]) => tag)
+  }
+
+  private static calculateSaveStreak(saves: Array<{ created_at: string }>): number {
+    // Calculate consecutive days with saves
+    const dates = saves.map(s => new Date(s.created_at).toDateString())
+    const uniqueDates = [...new Set(dates)].sort()
+    
+    let streak = 0
+    
+    for (let i = uniqueDates.length - 1; i >= 0; i--) {
+      const date = new Date(uniqueDates[i])
+      const daysDiff = Math.floor((new Date().getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+      
+      if (daysDiff === streak) {
+        streak++
+      } else {
+        break
+      }
+    }
+    
+    return streak
   }
 }
 

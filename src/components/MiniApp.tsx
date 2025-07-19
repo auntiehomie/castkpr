@@ -6,6 +6,8 @@ import { sdk } from '@farcaster/miniapp-sdk'
 import SavedCasts from './SavedCasts'
 import RecentCasts from './RecentCasts'
 import AIChatPanel from './AIChatPanel'
+import CollectionManager from './CollectionManager'
+import { UserService } from '@/lib/supabase'
 
 interface User {
   fid: number
@@ -19,7 +21,7 @@ export default function MiniApp() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isInMiniApp, setIsInMiniApp] = useState(false)
-  const [activeView, setActiveView] = useState<'home' | 'dashboard' | 'ai'>('home')
+  const [activeView, setActiveView] = useState<'home' | 'dashboard' | 'ai' | 'collections'>('home')
 
   useEffect(() => {
     async function initializeMiniApp() {
@@ -32,12 +34,29 @@ export default function MiniApp() {
           // Get user from context (context is async, so await it)
           const context = await sdk.context
           if (context?.user) {
-            setUser({
+            const userData = {
               fid: context.user.fid,
               username: context.user.username,
               displayName: context.user.displayName,
               pfpUrl: context.user.pfpUrl
-            })
+            }
+            
+            setUser(userData)
+
+            // Save/update user in database
+            try {
+              if (userData.username && userData.fid) {
+                await UserService.upsertUser({
+                  fid: userData.fid,
+                  username: userData.username,
+                  display_name: userData.displayName,
+                  pfp_url: userData.pfpUrl
+                })
+              }
+            } catch (dbError) {
+              console.error('Failed to save user to database:', dbError)
+              // Don't fail the whole app if user save fails
+            }
           }
 
           // Signal that the app is ready
@@ -121,7 +140,7 @@ export default function MiniApp() {
           <div className="bg-white/10 backdrop-blur-lg rounded-lg p-1 border border-white/20">
             <button
               onClick={() => setActiveView('home')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+              className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${
                 activeView === 'home'
                   ? 'bg-purple-600 text-white'
                   : 'text-gray-300 hover:text-white'
@@ -131,7 +150,7 @@ export default function MiniApp() {
             </button>
             <button
               onClick={() => setActiveView('dashboard')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+              className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${
                 activeView === 'dashboard'
                   ? 'bg-purple-600 text-white'
                   : 'text-gray-300 hover:text-white'
@@ -140,8 +159,18 @@ export default function MiniApp() {
               All Saved
             </button>
             <button
+              onClick={() => setActiveView('collections')}
+              className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${
+                activeView === 'collections'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Collections
+            </button>
+            <button
               onClick={() => setActiveView('ai')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+              className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${
                 activeView === 'ai'
                   ? 'bg-purple-600 text-white'
                   : 'text-gray-300 hover:text-white'
@@ -158,6 +187,8 @@ export default function MiniApp() {
             <RecentCasts userId={userIdForDb} />
           ) : activeView === 'dashboard' ? (
             <SavedCasts userId={userIdForDb} />
+          ) : activeView === 'collections' ? (
+            <CollectionManager userId={userIdForDb} />
           ) : (
             <AIChatPanel userId={userIdForDb} />
           )}
@@ -194,7 +225,16 @@ export default function MiniApp() {
           </div>
 
           <div className="text-center text-sm text-gray-400">
-            Bot Commands: <code className="bg-black/30 px-1 rounded">@cstkpr save this</code> • <code className="bg-black/30 px-1 rounded">@cstkpr help</code> • <code className="bg-black/30 px-1 rounded">@cstkpr analyze</code>
+            <div className="mb-2">
+              <strong>Bot Commands:</strong>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2 text-xs">
+              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr save this</code>
+              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr analyze this</code>
+              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr help</code>
+              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr stats</code>
+              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr insights</code>
+            </div>
           </div>
         </div>
       </div>
