@@ -2,6 +2,23 @@
 
 import { useState } from 'react'
 
+// Define proper TypeScript interfaces
+interface RetagResult {
+  hash: string
+  newTags: string[]
+  category: string
+  success?: boolean
+  error?: string
+}
+
+interface RetagResponse {
+  success: boolean
+  processed: number
+  errors: number
+  results?: RetagResult[]
+  error?: string
+}
+
 interface AITaggingPanelProps {
   userId: string
   onRetagComplete?: () => void
@@ -9,7 +26,7 @@ interface AITaggingPanelProps {
 
 export default function AITaggingPanel({ userId, onRetagComplete }: AITaggingPanelProps) {
   const [isRetagging, setIsRetagging] = useState(false)
-  const [results, setResults] = useState<any>(null)
+  const [results, setResults] = useState<RetagResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleBulkRetag = async () => {
@@ -31,7 +48,7 @@ export default function AITaggingPanel({ userId, onRetagComplete }: AITaggingPan
         })
       })
 
-      const data = await response.json()
+      const data: RetagResponse = await response.json()
 
       if (data.success) {
         setResults(data)
@@ -101,7 +118,7 @@ export default function AITaggingPanel({ userId, onRetagComplete }: AITaggingPan
               <details className="mt-3">
                 <summary className="cursor-pointer text-green-300 font-medium">View Sample Results</summary>
                 <div className="mt-2 space-y-2">
-                  {results.results.slice(0, 3).map((result: any, index: number) => (
+                  {results.results.slice(0, 3).map((result: RetagResult, index: number) => (
                     <div key={index} className="bg-black/20 rounded p-2 text-xs">
                       <p><strong>Cast:</strong> {result.hash.slice(0, 12)}...</p>
                       <p><strong>New Tags:</strong> {result.newTags.join(', ')}</p>
