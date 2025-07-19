@@ -170,10 +170,15 @@ export async function POST(request: NextRequest) {
 }
 
 // Helper function to extract URLs from embeds
-function extractEmbeds(embeds: any[]): string[] {
+interface CastEmbed {
+  url?: string;
+  [key: string]: unknown;
+}
+
+function extractEmbeds(embeds: CastEmbed[] | undefined): string[] {
   if (!embeds || !Array.isArray(embeds)) return []
   
   return embeds
-    .filter(embed => embed.url)
+    .filter((embed): embed is CastEmbed & { url: string } => typeof embed?.url === 'string')
     .map(embed => embed.url)
 }
