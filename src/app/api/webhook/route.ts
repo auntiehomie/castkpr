@@ -1,15 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, supabase } from '@/lib/supabase'
+import { CastService, ContentParser } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
+
+// Add your Neynar API key to your environment variables
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY
+
+async function fetchCastByHash(castHash: string) {
+  if (!NEYNAR_API_KEY) {
+    console.error('❌ NEYNAR_API_KEY not set')
+    return null
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.neynar.com/v2/farcaster/cast?identifier=${castHash}&type=hash`,
+      {
+        headers: {
+          'accept': 'application/json',
+          'api_key': NEYNAR_API_KEY
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.error(`❌ Neynar API error: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const data = await response.json()
+    return data.cast
+  } catch (error) {
+    console.error('❌ Error fetching cast from Neynar:', error)
+    return null
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🎯 Webhook received!')
-    
-    // Debug environment variables
-    console.log('🔍 Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Set' : 'Missing')
-    console.log('🔍 Supabase Key:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Set (length: ' + process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.length + ')' : 'Missing')
-    console.log('🔍 Actual Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
     
     const body = await request.json()
     console.log('📦 Webhook payload received')
@@ -51,77 +79,57 @@ export async function POST(request: NextRequest) {
     // Check for parent hash
     const parentHash = cast.parent_hash
     console.log('👆 Parent hash:', parentHash)
-    console.log('📋 Full cast data keys:', Object.keys(cast))
-    console.log('📋 Cast parent data:', JSON.stringify({
-      parent_hash: cast.parent_hash,
-      parent_url: cast.parent_url,
-      parent_author: cast.parent_author,
-      thread_hash: cast.thread_hash
-    }, null, 2))
     
     if (!parentHash) {
       console.log('❌ No parent cast to save')
       return NextResponse.json({ message: 'No parent cast to save' })
     }
     
-    // Since the paid API is required, let's work with available webhook data
-    console.log('💡 Using webhook data instead of API call...')
+    // Fetch the actual parent cast data from Neynar
+    console.log('🔍 Fetching parent cast data from Neynar...')
+    const parentCast = await fetchCastByHash(parentHash)
     
-    // Create cast data that matches your SavedCast interface exactly
+    if (!parentCast) {
+      console.log('❌ Failed to fetch parent cast data')
+      return NextResponse.json({ error: 'Could not fetch parent cast data' }, { status: 500 })
+    }
+    
+    console.log('✅ Parent cast fetched successfully')
+    console.log('📝 Parent cast author:', parentCast.author.username)
+    console.log('📝 Parent cast text length:', parentCast.text.length)
+    
+    // Parse the content for additional data
+    const parsedData = ContentParser.parseContent(parentCast.text)
+    
+    // Create cast data with actual parent cast information
     const castData = {
-      // Required fields from your SavedCast interface
-      username: `user-${cast.parent_author?.fid || 'unknown'}`, // Use FID as identifier
-      fid: cast.parent_author?.fid || 0,
+      username: parentCast.author.username,
+      fid: parentCast.author.fid,
       cast_hash: parentHash,
-      cast_content: `🔗 Cast saved from Farcaster - Hash: ${parentHash}`, // More user-friendly placeholder
-      cast_timestamp: new Date().toISOString(),
-      tags: ['saved-via-bot'] as string[],
-      likes_count: 0,
-      replies_count: 0,
-      recasts_count: 0,
+      cast_content: parentCast.text,
+      cast_timestamp: parentCast.timestamp,
+      tags: [...(parsedData.hashtags || []), 'saved-via-bot'] as string[],
+      likes_count: parentCast.reactions?.likes?.length || 0,
+      replies_count: parentCast.replies?.count || 0,
+      recasts_count: parentCast.reactions?.recasts?.length || 0,
       
-      // Optional fields - use undefined instead of null
-      cast_url: `https://warpcast.com/~/conversations/${parentHash}`, // Better cast URL format
-      author_pfp_url: undefined,
-      author_display_name: `User ${cast.parent_author?.fid || 'Unknown'}`, // More friendly display
+      // Optional fields with actual data
+      cast_url: `https://warpcast.com/${parentCast.author.username}/${parentHash.slice(0, 10)}`,
+      author_pfp_url: parentCast.author.pfp_url,
+      author_display_name: parentCast.author.display_name,
       saved_by_user_id: cast.author.username, // The person who mentioned the bot
       category: 'saved-via-bot',
       notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
       parsed_data: {
-        urls: [`https://warpcast.com/~/conversations/${parentHash}`],
-        hashtags: ['cstkpr', 'saved'],
-        mentions: ['cstkpr'],
-        word_count: 0,
-        sentiment: 'neutral' as const,
-        topics: ['saved-cast']
+        ...parsedData,
+        urls: [...(parsedData.urls || []), ...extractEmbeds(parentCast.embeds)],
+        mentions: [...(parsedData.mentions || []), 'cstkpr'],
+        hashtags: [...(parsedData.hashtags || []), 'cstkpr', 'saved'],
+        topics: [...(parsedData.topics || []), 'saved-cast']
       }
-      
-      // Note: id, created_at, updated_at will be handled by Supabase automatically
     } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
     
     console.log('💾 Saving cast data...')
-    console.log('📋 Cast data structure:', Object.keys(castData))
-    
-    // Test Supabase connection first
-    console.log('🔍 Testing Supabase connection...')
-    try {
-      // Try a simple test first
-      const { data: testData, error: testError } = await supabase
-        .from('saved_casts')
-        .select('*')
-        .limit(1)
-      
-      if (testError) {
-        console.error('❌ Supabase connection test failed:', testError)
-        console.error('❌ Full Supabase error details:', JSON.stringify(testError, null, 2))
-        return NextResponse.json({ error: 'Database connection failed', details: testError.message || 'Unknown database error' }, { status: 500 })
-      }
-      
-      console.log('✅ Supabase connection test successful')
-    } catch (connectionError) {
-      console.error('❌ Supabase connection error:', connectionError)
-      return NextResponse.json({ error: 'Database connection error', details: connectionError instanceof Error ? connectionError.message : 'Unknown error' }, { status: 500 })
-    }
     
     // Save to database
     try {
@@ -132,18 +140,40 @@ export async function POST(request: NextRequest) {
         success: true, 
         message: 'Cast saved successfully',
         cast_id: savedCast.cast_hash,
-        saved_cast_id: savedCast.id
+        saved_cast_id: savedCast.id,
+        author: parentCast.author.username,
+        content_preview: parentCast.text.slice(0, 100) + (parentCast.text.length > 100 ? '...' : '')
       })
       
     } catch (saveError) {
       console.error('❌ Error saving cast:', saveError)
-      console.error('❌ Save error details:', saveError instanceof Error ? saveError.message : saveError)
-      return NextResponse.json({ error: 'Failed to save cast', details: saveError instanceof Error ? saveError.message : 'Unknown error' }, { status: 500 })
+      
+      // Handle duplicate save gracefully
+      if (saveError instanceof Error && saveError.message.includes('already saved')) {
+        return NextResponse.json({ 
+          success: false,
+          message: 'Cast already saved by this user',
+          duplicate: true
+        })
+      }
+      
+      return NextResponse.json({ 
+        error: 'Failed to save cast', 
+        details: saveError instanceof Error ? saveError.message : 'Unknown error' 
+      }, { status: 500 })
     }
     
   } catch (error) {
     console.error('💥 Webhook error:', error)
-    console.error('💥 Webhook error details:', error instanceof Error ? error.message : error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
+}
+
+// Helper function to extract URLs from embeds
+function extractEmbeds(embeds: any[]): string[] {
+  if (!embeds || !Array.isArray(embeds)) return []
+  
+  return embeds
+    .filter(embed => embed.url)
+    .map(embed => embed.url)
 }
