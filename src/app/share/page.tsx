@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CastService, ContentParser } from '@/lib/supabase'
+import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
 interface SharedCastData {
@@ -11,7 +11,7 @@ interface SharedCastData {
   viewerFid?: string
 }
 
-export default function SharePage() {
+function ShareContent() {
   const searchParams = useSearchParams()
   const [sharedCast, setSharedCast] = useState<SharedCastData | null>(null)
   const [saving, setSaving] = useState(false)
@@ -171,5 +171,24 @@ export default function SharePage() {
         </div>
       </div>
     </div>
+  )
+}
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400 mx-auto mb-4"></div>
+        <p className="text-white">Loading shared cast...</p>
+      </div>
+    </div>
+  )
+}
+
+export default function SharePage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ShareContent />
+    </Suspense>
   )
 }
