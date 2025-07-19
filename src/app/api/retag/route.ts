@@ -1,133 +1,157 @@
+// src/app/api/retag/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService } from '@/lib/supabase'
-import { AITaggingService } from '@/lib/ai-tagging'
+import OpenAI from 'openai'
+import { CastService, type ParsedData } from '@/lib/supabase'
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
+
+interface RetagResult {
+  hash: string
+  newTags: string[]
+  category: string
+  success: boolean
+  error?: string
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, castId, mode = 'single' } = await request.json()
+    const { userId, mode } = await request.json()
 
-    console.log('🏷️ Starting AI retagging process...')
-    console.log('👤 User ID:', userId)
-    console.log('📝 Mode:', mode)
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'OpenAI API key not configured' 
+      }, { status: 500 })
+    }
 
-    if (mode === 'single' && castId) {
-      // Retag a single cast
-      const cast = await CastService.getCastByHash(castId)
-      
-      if (!cast || cast.saved_by_user_id !== userId) {
-        return NextResponse.json({ error: 'Cast not found or not owned by user' }, { status: 404 })
-      }
+    console.log(`🧠 Starting AI retagging for user: ${userId}`)
 
-      console.log('🧠 Analyzing single cast:', cast.cast_hash)
-      const analysis = await AITaggingService.analyzeAndTag(cast.cast_content, cast.username)
-      
-      // Combine new AI tags with existing manual tags
-      const existingTags = cast.tags || []
-      const manualTags = existingTags.filter(tag => 
-        !['saved-via-bot', 'general', 'shared-cast'].includes(tag)
-      )
-      
-      const newTags = [
-        ...analysis.tags,
-        ...manualTags,
-        'ai-tagged'
-      ].filter((tag, index, array) => array.indexOf(tag) === index) // Remove duplicates
-
-      const updatedCast = await CastService.updateCast(cast.id, userId, {
-        tags: newTags,
-        category: analysis.category,
-        notes: cast.notes ? 
-          `${cast.notes}\n\n🤖 AI retagged on ${new Date().toLocaleDateString()}` :
-          `🤖 AI tagged on ${new Date().toLocaleDateString()}`
-      })
-
-      return NextResponse.json({
-        success: true,
-        message: 'Cast retagged successfully',
-        cast: {
-          id: updatedCast.id,
-          oldTags: existingTags,
-          newTags: newTags,
-          category: analysis.category
-        }
-      })
-
-    } else if (mode === 'bulk') {
-      // Retag all casts for a user
-      const userCasts = await CastService.getUserCasts(userId, 100)
-      
-      if (userCasts.length === 0) {
-        return NextResponse.json({ 
-          success: true, 
-          message: 'No casts found to retag',
-          processed: 0 
-        })
-      }
-
-      console.log(`🔄 Bulk retagging ${userCasts.length} casts...`)
-      
-      const results = []
-      let processed = 0
-      let errors = 0
-
-      for (const cast of userCasts) {
-        try {
-          console.log(`🏷️ Processing cast ${processed + 1}/${userCasts.length}`)
-          
-          const analysis = await AITaggingService.analyzeAndTag(cast.cast_content, cast.username)
-          
-          // Combine new AI tags with existing manual tags
-          const existingTags = cast.tags || []
-          const manualTags = existingTags.filter(tag => 
-            !['saved-via-bot', 'general', 'shared-cast', 'ai-tagged'].includes(tag)
-          )
-          
-          const newTags = [
-            ...analysis.tags,
-            ...manualTags,
-            'ai-tagged'
-          ].filter((tag, index, array) => array.indexOf(tag) === index)
-
-          await CastService.updateCast(cast.id, userId, {
-            tags: newTags,
-            category: analysis.category
-          })
-
-          results.push({
-            id: cast.id,
-            hash: cast.cast_hash,
-            oldTags: existingTags,
-            newTags: newTags,
-            category: analysis.category
-          })
-
-          processed++
-          
-          // Rate limiting: wait 1 second between requests
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          
-        } catch (error) {
-          console.error(`❌ Error processing cast ${cast.cast_hash}:`, error)
-          errors++
-        }
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: `Bulk retagging completed`,
-        processed,
-        errors,
-        results: results.slice(0, 10) // Return first 10 for preview
+    // Get all user's casts
+    const casts = await CastService.getUserCasts(userId, 1000) // Get more casts
+    
+    if (casts.length === 0) {
+      return NextResponse.json({ 
+        success: true, 
+        processed: 0, 
+        errors: 0, 
+        results: [] 
       })
     }
 
-    return NextResponse.json({ error: 'Invalid mode specified' }, { status: 400 })
+    console.log(`📊 Found ${casts.length} casts to process`)
+
+    const results: RetagResult[] = []
+    let processed = 0
+    let errors = 0
+
+    // Process casts in batches to avoid rate limits
+    for (let i = 0; i < casts.length; i++) {
+      const cast = casts[i]
+      
+      try {
+        console.log(`🔄 Processing cast ${i + 1}/${casts.length}: ${cast.cast_hash.slice(0, 10)}...`)
+
+        // Generate AI tags and category
+        const prompt = `Analyze this social media post and provide relevant tags and category:
+
+Content: "${cast.cast_content}"
+Author: @${cast.username}
+
+Please respond with a JSON object containing:
+1. "tags": An array of 3-8 relevant lowercase tags (without # symbols)
+2. "category": A single category from: tech, social, business, crypto, news, entertainment, sports, science, politics, art, other
+
+Focus on the main topics, themes, and content type. Make tags specific and useful for searching.`
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.3,
+          max_tokens: 200
+        })
+
+        const aiResponse = completion.choices[0]?.message?.content
+        if (!aiResponse) {
+          throw new Error('No response from AI')
+        }
+
+        // Parse AI response
+        const aiData = JSON.parse(aiResponse)
+        const newTags = aiData.tags || []
+        const category = aiData.category || 'other'
+
+        // Combine existing tags with AI tags (preserve existing ones)
+        const existingTags = cast.tags || []
+        const combinedTags = [...new Set([...existingTags, ...newTags])]
+
+        // Handle parsed_data properly - create new object or merge with existing
+        const existingParsedData = cast.parsed_data || {}
+        const updatedParsedData: ParsedData = {
+          // Preserve existing parsed data
+          urls: existingParsedData.urls || [],
+          mentions: existingParsedData.mentions || [],
+          hashtags: existingParsedData.hashtags || [],
+          numbers: existingParsedData.numbers || [],
+          dates: existingParsedData.dates || [],
+          word_count: existingParsedData.word_count || 0,
+          sentiment: existingParsedData.sentiment || 'neutral',
+          // Add/update AI data
+          topics: newTags,
+          ai_category: category,
+          ai_tags: newTags
+        }
+
+        // Update the cast in database
+        await CastService.updateCast(cast.id, userId, {
+          tags: combinedTags,
+          category: category,
+          parsed_data: updatedParsedData
+        })
+
+        results.push({
+          hash: cast.cast_hash,
+          newTags,
+          category,
+          success: true
+        })
+
+        processed++
+        
+        // Add delay to respect rate limits
+        if (i < casts.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay
+        }
+
+      } catch (error) {
+        console.error(`❌ Error processing cast ${cast.cast_hash}:`, error)
+        errors++
+        
+        results.push({
+          hash: cast.cast_hash,
+          newTags: [],
+          category: 'other',
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+    }
+
+    console.log(`✅ AI retagging complete: ${processed} processed, ${errors} errors`)
+
+    return NextResponse.json({
+      success: true,
+      processed,
+      errors,
+      results
+    })
 
   } catch (error) {
-    console.error('💥 Error in retag API:', error)
+    console.error('💥 AI retagging error:', error)
     return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
 }

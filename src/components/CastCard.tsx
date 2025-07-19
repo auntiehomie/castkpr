@@ -12,10 +12,37 @@ interface ParsedData {
   urls?: string[]
   mentions?: string[]
   word_count?: number
+  topics?: string[]
+  ai_category?: string
+  ai_tags?: string[]
 }
 
 export default function CastCard({ cast, compact = false }: CastCardProps) {
   const parsedData = cast.parsed_data as ParsedData
+
+  // Combine all tags: manual tags, parsed hashtags, and AI tags
+  const getAllTags = () => {
+    const tags = new Set<string>()
+    
+    // Add manual tags from cast.tags
+    if (cast.tags) {
+      cast.tags.forEach(tag => tags.add(tag))
+    }
+    
+    // Add hashtags from parsed data
+    if (parsedData?.hashtags) {
+      parsedData.hashtags.forEach(tag => tags.add(tag))
+    }
+    
+    // Add AI-generated topics
+    if (parsedData?.ai_tags) {
+      parsedData.ai_tags.forEach(tag => tags.add(tag))
+    }
+    
+    return Array.from(tags)
+  }
+
+  const allTags = getAllTags()
 
   return (
     <div className={`bg-white/10 backdrop-blur-lg rounded-xl border border-white/20 transition-all hover:bg-white/15 ${
@@ -73,34 +100,70 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
         </p>
       </div>
       
-      {/* Parsed Data Tags */}
-      {parsedData && (
+      {/* Category Badge */}
+      {cast.category && cast.category !== 'other' && (
+        <div className="mb-3">
+          <span className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-xs font-medium">
+            📂 {cast.category}
+          </span>
+        </div>
+      )}
+      
+      {/* All Tags */}
+      {allTags.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">
-          {/* Hashtags */}
-          {parsedData.hashtags?.slice(0, 3).map((tag: string) => (
-            <span 
-              key={tag}
-              className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full text-xs"
-            >
-              #{tag}
-            </span>
-          ))}
+          {allTags.slice(0, compact ? 4 : 8).map((tag: string) => {
+            // Determine tag type for styling
+            const isAITag = parsedData?.ai_tags?.includes(tag)
+            const isHashtag = parsedData?.hashtags?.includes(tag)
+            const isManualTag = cast.tags?.includes(tag)
+            
+            let tagStyle = "bg-purple-500/20 text-purple-300" // default
+            let prefix = "#"
+            
+            if (isAITag && !isHashtag) {
+              tagStyle = "bg-blue-500/20 text-blue-300"
+              prefix = "🧠 "
+            } else if (isManualTag && tag === 'saved-via-bot') {
+              tagStyle = "bg-green-500/20 text-green-300"
+              prefix = "🤖 "
+            }
+            
+            return (
+              <span 
+                key={tag}
+                className={`${tagStyle} px-2 py-1 rounded-full text-xs`}
+                title={isAITag ? 'AI-generated tag' : isHashtag ? 'Hashtag from content' : 'Manual tag'}
+              >
+                {prefix}{tag}
+              </span>
+            )
+          })}
           
-          {/* URLs indicator */}
-          {parsedData.urls?.length && parsedData.urls.length > 0 && (
-            <span className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
-              🔗 {parsedData.urls.length} link{parsedData.urls.length !== 1 ? 's' : ''}
-            </span>
-          )}
-          
-          {/* Mentions indicator */}
-          {parsedData.mentions?.length && parsedData.mentions.length > 0 && (
-            <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
-              👥 {parsedData.mentions.length} mention{parsedData.mentions.length !== 1 ? 's' : ''}
+          {allTags.length > (compact ? 4 : 8) && (
+            <span className="bg-gray-500/20 text-gray-400 px-2 py-1 rounded-full text-xs">
+              +{allTags.length - (compact ? 4 : 8)} more
             </span>
           )}
         </div>
       )}
+      
+      {/* Metadata indicators */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {/* URLs indicator */}
+        {parsedData?.urls?.length && parsedData.urls.length > 0 && (
+          <span className="bg-cyan-500/20 text-cyan-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
+            🔗 {parsedData.urls.length} link{parsedData.urls.length !== 1 ? 's' : ''}
+          </span>
+        )}
+        
+        {/* Mentions indicator */}
+        {parsedData?.mentions?.length && parsedData.mentions.length > 0 && (
+          <span className="bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
+            👥 {parsedData.mentions.length} mention{parsedData.mentions.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
       
       {/* Engagement Stats */}
       <div className="flex items-center justify-between text-sm text-gray-400">
@@ -128,6 +191,9 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
       <div className="mt-3 pt-3 border-t border-white/10">
         <p className="text-xs text-gray-500">
           Saved {formatDistanceToNow(new Date(cast.created_at), { addSuffix: true })}
+          {parsedData?.ai_tags && parsedData.ai_tags.length > 0 && (
+            <span className="ml-2 text-blue-400">• AI-tagged</span>
+          )}
         </p>
       </div>
     </div>
