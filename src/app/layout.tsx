@@ -1,4 +1,3 @@
-// src/app/layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -16,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CastKPR - Save & Organize Farcaster Casts",
   description: "Save, organize, and recall your favorite Farcaster casts with AI-powered parsing",
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
   other: {
     // Mini App embed for sharing
     "fc:miniapp": JSON.stringify({
@@ -42,6 +46,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://auth.farcaster.xyz" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
