@@ -28,8 +28,8 @@ export default function MiniApp() {
         setIsInMiniApp(isMiniApp)
         
         if (isMiniApp) {
-          // Get user from context
-          const context = sdk.context
+          // Get user from context (context is async, so await it)
+          const context = await sdk.context
           if (context?.user) {
             setUser({
               fid: context.user.fid,
