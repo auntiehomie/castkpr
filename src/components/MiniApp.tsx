@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { sdk } from '@farcaster/miniapp-sdk'
 import SavedCasts from './SavedCasts'
 import RecentCasts from './RecentCasts'
+import AIChatPanel from './AIChatPanel'
 
 interface User {
   fid: number
@@ -18,7 +19,7 @@ export default function MiniApp() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isInMiniApp, setIsInMiniApp] = useState(false)
-  const [activeView, setActiveView] = useState<'home' | 'dashboard'>('home')
+  const [activeView, setActiveView] = useState<'home' | 'dashboard' | 'ai'>('home')
 
   useEffect(() => {
     async function initializeMiniApp() {
@@ -138,6 +139,16 @@ export default function MiniApp() {
             >
               All Saved
             </button>
+            <button
+              onClick={() => setActiveView('ai')}
+              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                activeView === 'ai'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              AI Chat
+            </button>
           </div>
         </div>
 
@@ -145,8 +156,10 @@ export default function MiniApp() {
         <div className="mb-8">
           {activeView === 'home' ? (
             <RecentCasts userId={userIdForDb} />
-          ) : (
+          ) : activeView === 'dashboard' ? (
             <SavedCasts userId={userIdForDb} />
+          ) : (
+            <AIChatPanel userId={userIdForDb} />
           )}
         </div>
 
@@ -181,7 +194,7 @@ export default function MiniApp() {
           </div>
 
           <div className="text-center text-sm text-gray-400">
-            Bot Commands: <code className="bg-black/30 px-1 rounded">@cstkpr save this</code> • <code className="bg-black/30 px-1 rounded">@cstkpr help</code>
+            Bot Commands: <code className="bg-black/30 px-1 rounded">@cstkpr save this</code> • <code className="bg-black/30 px-1 rounded">@cstkpr help</code> • <code className="bg-black/30 px-1 rounded">@cstkpr analyze</code>
           </div>
         </div>
       </div>

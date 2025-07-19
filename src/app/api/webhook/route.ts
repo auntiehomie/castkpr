@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService, ContentParser } from '@/lib/supabase'
+import { AIService } from '@/lib/ai'
 import type { SavedCast } from '@/lib/supabase'
 
 // Add your Neynar API key to your environment variables
@@ -64,104 +65,297 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Bot not mentioned' })
     }
     
-    // Check for save command
+    // Parse command from cast text
     const text = cast.text.toLowerCase()
     console.log('💬 Cast text:', text)
     
+    // Check for different command types
     const isSaveCommand = text.includes('save this') || text.includes('save')
-    console.log('💾 Is save command?', isSaveCommand)
+    const isAnalyzeCommand = text.includes('analyze this') || text.includes('analyze')
+    const isAskCommand = text.includes('ask ')
+    const isHelpCommand = text.includes('help')
+    const isStatsCommand = text.includes('stats')
+    const isInsightsCommand = text.includes('insights')
     
-    if (!isSaveCommand) {
-      console.log('❌ Not a save command, skipping')
-      return NextResponse.json({ message: 'Not a save command' })
-    }
-    
-    // Check for parent hash
-    const parentHash = cast.parent_hash
-    console.log('👆 Parent hash:', parentHash)
-    
-    if (!parentHash) {
-      console.log('❌ No parent cast to save')
-      return NextResponse.json({ message: 'No parent cast to save' })
-    }
-    
-    // Fetch the actual parent cast data from Neynar
-    console.log('🔍 Fetching parent cast data from Neynar...')
-    const parentCast = await fetchCastByHash(parentHash)
-    
-    if (!parentCast) {
-      console.log('❌ Failed to fetch parent cast data')
-      return NextResponse.json({ error: 'Could not fetch parent cast data' }, { status: 500 })
-    }
-    
-    console.log('✅ Parent cast fetched successfully')
-    console.log('📝 Parent cast author:', parentCast.author.username)
-    console.log('📝 Parent cast text length:', parentCast.text.length)
-    
-    // Parse the content for additional data
-    const parsedData = ContentParser.parseContent(parentCast.text)
-    
-    // Create cast data with actual parent cast information
-    const castData = {
-      username: parentCast.author.username,
-      fid: parentCast.author.fid,
-      cast_hash: parentHash,
-      cast_content: parentCast.text,
-      cast_timestamp: parentCast.timestamp,
-      tags: [...(parsedData.hashtags || []), 'saved-via-bot'] as string[],
-      likes_count: parentCast.reactions?.likes?.length || 0,
-      replies_count: parentCast.replies?.count || 0,
-      recasts_count: parentCast.reactions?.recasts?.length || 0,
-      
-      // Optional fields with actual data
-      cast_url: `https://warpcast.com/${parentCast.author.username}/${parentHash.slice(0, 10)}`,
-      author_pfp_url: parentCast.author.pfp_url,
-      author_display_name: parentCast.author.display_name,
-      saved_by_user_id: cast.author.username, // The person who mentioned the bot
-      category: 'saved-via-bot',
-      notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
-      parsed_data: {
-        ...parsedData,
-        urls: [...(parsedData.urls || []), ...extractEmbeds(parentCast.embeds)],
-        mentions: [...(parsedData.mentions || []), 'cstkpr'],
-        hashtags: [...(parsedData.hashtags || []), 'cstkpr', 'saved'],
-        topics: [...(parsedData.topics || []), 'saved-cast']
-      }
-    } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
-    
-    console.log('💾 Saving cast data...')
-    
-    // Save to database
-    try {
-      const savedCast = await CastService.saveCast(castData)
-      console.log('✅ Cast saved successfully:', savedCast.cast_hash)
-      
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Cast saved successfully',
-        cast_id: savedCast.cast_hash,
-        saved_cast_id: savedCast.id,
-        author: parentCast.author.username,
-        content_preview: parentCast.text.slice(0, 100) + (parentCast.text.length > 100 ? '...' : '')
+    console.log('🔍 Command detection:', {
+      save: isSaveCommand,
+      analyze: isAnalyzeCommand, 
+      ask: isAskCommand,
+      help: isHelpCommand,
+      stats: isStatsCommand,
+      insights: isInsightsCommand
+    })
+
+    // Handle HELP command
+    if (isHelpCommand) {
+      console.log('❓ Help command detected')
+      return NextResponse.json({
+        success: true,
+        message: 'CastKPR Bot Commands',
+        commands: [
+          '@cstkpr save this - Save any cast',
+          '@cstkpr analyze this - AI analysis of cast',
+          '@cstkpr ask "question" - Ask about your saves',
+          '@cstkpr stats - Your save statistics',
+          '@cstkpr insights - AI insights about your saves',
+          '@cstkpr help - Show this help'
+        ]
       })
-      
-    } catch (saveError) {
-      console.error('❌ Error saving cast:', saveError)
-      
-      // Handle duplicate save gracefully
-      if (saveError instanceof Error && saveError.message.includes('already saved')) {
-        return NextResponse.json({ 
+    }
+
+    // Handle STATS command
+    if (isStatsCommand) {
+      console.log('📊 Stats command detected')
+      try {
+        const stats = await CastService.getUserStats(cast.author.username)
+        return NextResponse.json({
+          success: true,
+          message: `Your CastKPR Stats`,
+          stats: {
+            totalCasts: stats.totalCasts,
+            user: cast.author.username
+          }
+        })
+      } catch (error) {
+        console.error('❌ Error fetching stats:', error)
+        return NextResponse.json({
           success: false,
-          message: 'Cast already saved by this user',
-          duplicate: true
+          message: 'Failed to fetch your stats'
         })
       }
-      
-      return NextResponse.json({ 
-        error: 'Failed to save cast', 
-        details: saveError instanceof Error ? saveError.message : 'Unknown error' 
-      }, { status: 500 })
     }
+
+    // Handle INSIGHTS command
+    if (isInsightsCommand) {
+      console.log('💡 Insights command detected')
+      try {
+        const userCasts = await CastService.getUserCasts(cast.author.username, 50)
+        
+        if (userCasts.length === 0) {
+          return NextResponse.json({
+            success: true,
+            message: "You don't have any saved casts yet! Start saving some casts first."
+          })
+        }
+
+        const castsForAI = userCasts.map(savedCast => ({
+          content: savedCast.cast_content,
+          author: savedCast.username
+        }))
+
+        const insights = await AIService.generateInsights(castsForAI)
+        
+        return NextResponse.json({
+          success: true,
+          message: 'AI Insights Generated',
+          insights: {
+            topTopics: insights.topTopics,
+            patterns: insights.interestingPatterns,
+            recommendedFollows: insights.recommendedFollows,
+            summary: insights.summary,
+            totalCasts: userCasts.length
+          }
+        })
+      } catch (error) {
+        console.error('❌ Error generating insights:', error)
+        return NextResponse.json({
+          success: false,
+          message: 'Failed to generate AI insights'
+        })
+      }
+    }
+
+    // Handle ASK command
+    if (isAskCommand) {
+      console.log('❓ Ask command detected')
+      try {
+        // Extract question from cast text
+        const questionMatch = text.match(/ask\s+["']([^"']+)["']/) || text.match(/ask\s+(.+)/)
+        const question = questionMatch?.[1]?.trim()
+        
+        if (!question) {
+          return NextResponse.json({
+            success: false,
+            message: 'Please provide a question after "ask". Example: @cstkpr ask "what topics am I interested in?"'
+          })
+        }
+
+        const userCasts = await CastService.getUserCasts(cast.author.username, 50)
+        
+        if (userCasts.length === 0) {
+          return NextResponse.json({
+            success: true,
+            message: "You don't have any saved casts yet! Start saving some casts first, then ask me questions about them."
+          })
+        }
+
+        const castsForAI = userCasts.map(savedCast => ({
+          content: savedCast.cast_content,
+          author: savedCast.username,
+          timestamp: savedCast.cast_timestamp
+        }))
+
+        const aiResponse = await AIService.chatAboutCasts(question, castsForAI)
+        
+        return NextResponse.json({
+          success: true,
+          message: 'AI Response',
+          question: question,
+          answer: aiResponse,
+          castsAnalyzed: userCasts.length
+        })
+      } catch (error) {
+        console.error('❌ Error processing ask command:', error)
+        return NextResponse.json({
+          success: false,
+          message: 'Failed to process your question'
+        })
+      }
+    }
+
+    // Handle ANALYZE command
+    if (isAnalyzeCommand) {
+      console.log('🔍 Analyze command detected')
+      const parentHash = cast.parent_hash
+      
+      if (!parentHash) {
+        return NextResponse.json({
+          success: false,
+          message: 'No cast to analyze. Reply to a cast with "@cstkpr analyze this"'
+        })
+      }
+
+      try {
+        const parentCast = await fetchCastByHash(parentHash)
+        
+        if (!parentCast) {
+          return NextResponse.json({
+            success: false,
+            message: 'Could not fetch cast data for analysis'
+          })
+        }
+
+        const analysis = await AIService.analyzeCast(parentCast.text, parentCast.author.username)
+        
+        return NextResponse.json({
+          success: true,
+          message: 'AI Analysis Complete',
+          analysis: {
+            sentiment: analysis.sentiment,
+            topics: analysis.topics,
+            keyInsights: analysis.keyInsights,
+            summary: analysis.summary,
+            author: parentCast.author.username,
+            contentPreview: parentCast.text.slice(0, 100) + (parentCast.text.length > 100 ? '...' : '')
+          }
+        })
+      } catch (error) {
+        console.error('❌ Error analyzing cast:', error)
+        return NextResponse.json({
+          success: false,
+          message: 'Failed to analyze cast'
+        })
+      }
+    }
+
+    // Handle SAVE command (existing functionality)
+    if (isSaveCommand) {
+      console.log('💾 Save command detected')
+      
+      // Check for parent hash
+      const parentHash = cast.parent_hash
+      console.log('👆 Parent hash:', parentHash)
+      
+      if (!parentHash) {
+        console.log('❌ No parent cast to save')
+        return NextResponse.json({ message: 'No parent cast to save' })
+      }
+      
+      // Fetch the actual parent cast data from Neynar
+      console.log('🔍 Fetching parent cast data from Neynar...')
+      const parentCast = await fetchCastByHash(parentHash)
+      
+      if (!parentCast) {
+        console.log('❌ Failed to fetch parent cast data')
+        return NextResponse.json({ error: 'Could not fetch parent cast data' }, { status: 500 })
+      }
+      
+      console.log('✅ Parent cast fetched successfully')
+      console.log('📝 Parent cast author:', parentCast.author.username)
+      console.log('📝 Parent cast text length:', parentCast.text.length)
+      
+      // Parse the content for additional data
+      const parsedData = ContentParser.parseContent(parentCast.text)
+      
+      // Create cast data with actual parent cast information
+      const castData = {
+        username: parentCast.author.username,
+        fid: parentCast.author.fid,
+        cast_hash: parentHash,
+        cast_content: parentCast.text,
+        cast_timestamp: parentCast.timestamp,
+        tags: [...(parsedData.hashtags || []), 'saved-via-bot'] as string[],
+        likes_count: parentCast.reactions?.likes?.length || 0,
+        replies_count: parentCast.replies?.count || 0,
+        recasts_count: parentCast.reactions?.recasts?.length || 0,
+        
+        // Optional fields with actual data
+        cast_url: `https://warpcast.com/${parentCast.author.username}/${parentHash.slice(0, 10)}`,
+        author_pfp_url: parentCast.author.pfp_url,
+        author_display_name: parentCast.author.display_name,
+        saved_by_user_id: cast.author.username, // The person who mentioned the bot
+        category: 'saved-via-bot',
+        notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
+        parsed_data: {
+          ...parsedData,
+          urls: [...(parsedData.urls || []), ...extractEmbeds(parentCast.embeds)],
+          mentions: [...(parsedData.mentions || []), 'cstkpr'],
+          hashtags: [...(parsedData.hashtags || []), 'cstkpr', 'saved'],
+          topics: [...(parsedData.topics || []), 'saved-cast']
+        }
+      } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
+      
+      console.log('💾 Saving cast data...')
+      
+      // Save to database
+      try {
+        const savedCast = await CastService.saveCast(castData)
+        console.log('✅ Cast saved successfully:', savedCast.cast_hash)
+        
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Cast saved successfully',
+          cast_id: savedCast.cast_hash,
+          saved_cast_id: savedCast.id,
+          author: parentCast.author.username,
+          content_preview: parentCast.text.slice(0, 100) + (parentCast.text.length > 100 ? '...' : '')
+        })
+        
+      } catch (saveError) {
+        console.error('❌ Error saving cast:', saveError)
+        
+        // Handle duplicate save gracefully
+        if (saveError instanceof Error && saveError.message.includes('already saved')) {
+          return NextResponse.json({ 
+            success: false,
+            message: 'Cast already saved by this user',
+            duplicate: true
+          })
+        }
+        
+        return NextResponse.json({ 
+          error: 'Failed to save cast', 
+          details: saveError instanceof Error ? saveError.message : 'Unknown error' 
+        }, { status: 500 })
+      }
+    }
+
+    // If no recognized command
+    console.log('❓ No recognized command')
+    return NextResponse.json({
+      success: false,
+      message: 'Command not recognized. Try: @cstkpr help'
+    })
     
   } catch (error) {
     console.error('💥 Webhook error:', error)
