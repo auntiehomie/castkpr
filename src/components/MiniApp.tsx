@@ -130,7 +130,6 @@ export default function MiniApp() {
           
           {isInMiniApp && (
             <p className="text-sm text-purple-300">
-              🚀 Running as Mini App
             </p>
           )}
         </div>

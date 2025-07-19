@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import MiniAppProvider from "@/components/MiniAppProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,16 +21,36 @@ export const metadata: Metadata = {
     shortcut: '/favicon.ico',
     apple: '/favicon.ico',
   },
+  openGraph: {
+    title: "CastKPR - Save & Organize Farcaster Casts",
+    description: "Save, organize, and recall your favorite Farcaster casts with AI-powered parsing",
+    images: ['/image.png'],
+  },
   other: {
     // Mini App embed for sharing
     "fc:miniapp": JSON.stringify({
       version: "1",
       imageUrl: "https://castkpr.vercel.app/image.png",
       button: {
-        title: "save it",
+        title: "Save Casts",
         action: {
-          type: "launch_miniapp", 
-          name: "CASTKPR",
+          type: "launch_frame",
+          name: "CastKPR",
+          url: "https://castkpr.vercel.app",
+          splashImageUrl: "https://castkpr.vercel.app/logo.png",
+          splashBackgroundColor: "#7c3aed"
+        }
+      }
+    }),
+    // Backward compatibility
+    "fc:frame": JSON.stringify({
+      version: "1",
+      imageUrl: "https://castkpr.vercel.app/image.png",
+      button: {
+        title: "Save Casts",
+        action: {
+          type: "launch_frame",
+          name: "CastKPR",
           url: "https://castkpr.vercel.app",
           splashImageUrl: "https://castkpr.vercel.app/logo.png",
           splashBackgroundColor: "#7c3aed"
@@ -52,7 +73,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <MiniAppProvider>
+          {children}
+        </MiniAppProvider>
       </body>
     </html>
   );
