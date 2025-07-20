@@ -187,12 +187,12 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
         )}
       </div>
       
-      {/* Save info */}
+      {/* Save info - IMPROVED VISIBILITY */}
       <div className="mt-3 pt-3 border-t border-white/10">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-300">
           Saved {formatDistanceToNow(new Date(cast.created_at), { addSuffix: true })}
           {parsedData?.ai_tags && parsedData.ai_tags.length > 0 && (
-            <span className="ml-2 text-blue-400">• AI-tagged</span>
+            <span className="ml-2 text-blue-300">• AI-tagged</span>
           )}
         </p>
       </div>
