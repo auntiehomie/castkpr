@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import { sdk } from '@farcaster/miniapp-sdk'
 import SavedCasts from './SavedCasts'
 import RecentCasts from './RecentCasts'
@@ -116,9 +117,11 @@ export default function MiniApp() {
           {user && (
             <div className="flex items-center justify-center gap-3 mb-4">
               {user.pfpUrl && (
-                <img 
+                <Image 
                   src={user.pfpUrl} 
                   alt={user.username || 'User'}
+                  width={32}
+                  height={32}
                   className="w-8 h-8 rounded-full"
                 />
               )}

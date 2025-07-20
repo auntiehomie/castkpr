@@ -115,7 +115,7 @@ Tags:`
       return {
         tags,
         analysis,
-        category: this.determineCategory(tags, castContent),
+        category: this.determineCategory(tags),
         sentiment: analysis.sentiment,
         topics: analysis.topics
       }
@@ -182,7 +182,7 @@ Analysis:`
   }
 
   // Determine main category from tags
-  static determineCategory(tags: string[], content: string): string {
+  static determineCategory(tags: string[]): string {
     const categoryMap = {
       'technology': ['tech', 'ai', 'crypto', 'blockchain', 'code', 'dev'],
       'social': ['social', 'community', 'farcaster', 'network'],

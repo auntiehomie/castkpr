@@ -1,6 +1,5 @@
 // src/lib/ai.ts
 import OpenAI from 'openai'
-import { CastService } from './supabase'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

@@ -226,7 +226,7 @@ export default function CollectionManager({ userId }: CollectionManagerProps) {
             <div className="text-center py-12">
               <div className="text-6xl mb-4">📁</div>
               <h3 className="text-xl font-semibold text-white mb-2">Empty Collection</h3>
-              <p className="text-gray-400 mb-4">This collection doesn't have any casts yet</p>
+              <p className="text-gray-400 mb-4">This collection doesn&apos;t have any casts yet</p>
               <button
                 onClick={handleShowAddCasts}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -285,7 +285,7 @@ export default function CollectionManager({ userId }: CollectionManagerProps) {
                 <textarea
                   value={newCollectionDescription}
                   onChange={(e) => setNewCollectionDescription(e.target.value)}
-                  placeholder="What's this collection about?"
+                  placeholder="What&apos;s this collection about?"
                   className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 h-20"
                 />
               </div>

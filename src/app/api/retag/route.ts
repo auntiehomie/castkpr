@@ -17,7 +17,7 @@ interface RetagResult {
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, mode } = await request.json()
+    const { userId } = await request.json()
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ 
