@@ -186,7 +186,10 @@ export default function MiniApp() {
         {/* Content */}
         <div className="mb-8">
           {activeView === 'home' ? (
-            <RecentCasts userId={userIdForDb} />
+            <RecentCasts 
+              userId={userIdForDb} 
+              onViewAllClick={() => setActiveView('dashboard')}
+            />
           ) : activeView === 'dashboard' ? (
             <SavedCasts userId={userIdForDb} />
           ) : activeView === 'collections' ? (

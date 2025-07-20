@@ -4,13 +4,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 import CastCard from './CastCard'
-import Link from 'next/link'
 
 interface RecentCastsProps {
   userId?: string
+  onViewAllClick?: () => void
 }
 
-export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) {
+export default function RecentCasts({ userId = 'demo-user', onViewAllClick }: RecentCastsProps) {
   const [casts, setCasts] = useState<SavedCast[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
@@ -89,13 +89,13 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white">Recent Casts</h2>
         
-        {casts.length > 0 && (
-          <Link 
-            href="/dashboard"
+        {casts.length > 0 && onViewAllClick && (
+          <button
+            onClick={onViewAllClick}
             className="text-purple-400 hover:text-purple-300 transition-colors text-sm font-medium"
           >
             View All →
-          </Link>
+          </button>
         )}
       </div>
 
@@ -125,6 +125,12 @@ export default function RecentCasts({ userId = 'demo-user' }: RecentCastsProps) 
               key={cast.id} 
               cast={cast} 
               compact={true}
+              userId={userId}
+              onUpdate={(updatedCast) => {
+                setCasts(prevCasts => 
+                  prevCasts.map(c => c.id === updatedCast.id ? updatedCast : c)
+                )
+              }}
             />
           ))}
         </div>

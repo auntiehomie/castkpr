@@ -1,10 +1,14 @@
 import { SavedCast } from '@/lib/supabase'
 import { formatDistanceToNow } from 'date-fns'
 import Image from 'next/image'
+import { useState } from 'react'
+import { CastService } from '@/lib/supabase'
 
 interface CastCardProps {
   cast: SavedCast
   compact?: boolean
+  userId?: string
+  onUpdate?: (updatedCast: SavedCast) => void
 }
 
 interface ParsedData {
@@ -17,7 +21,12 @@ interface ParsedData {
   ai_tags?: string[]
 }
 
-export default function CastCard({ cast, compact = false }: CastCardProps) {
+export default function CastCard({ cast, compact = false, userId, onUpdate }: CastCardProps) {
+  const [showNoteEditor, setShowNoteEditor] = useState(false)
+  const [noteText, setNoteText] = useState(cast.notes || '')
+  const [savingNote, setSavingNote] = useState(false)
+  const [noteError, setNoteError] = useState<string | null>(null)
+
   const parsedData = cast.parsed_data as ParsedData
 
   // Combine all tags: manual tags, parsed hashtags, and AI tags
@@ -40,6 +49,38 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
     }
     
     return Array.from(tags)
+  }
+
+  const handleSaveNote = async () => {
+    if (!userId) {
+      setNoteError('User ID required to save notes')
+      return
+    }
+
+    setSavingNote(true)
+    setNoteError(null)
+
+    try {
+      const updatedCast = await CastService.updateCast(cast.id, userId, {
+        notes: noteText.trim() || undefined
+      })
+      
+      setShowNoteEditor(false)
+      if (onUpdate) {
+        onUpdate(updatedCast)
+      }
+    } catch (error) {
+      console.error('Error saving note:', error)
+      setNoteError('Failed to save note. Please try again.')
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
+  const handleCancelNote = () => {
+    setNoteText(cast.notes || '')
+    setShowNoteEditor(false)
+    setNoteError(null)
   }
 
   const allTags = getAllTags()
@@ -76,19 +117,28 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
           </div>
         </div>
         
-        {/* Warpcast Link */}
-        {cast.cast_url && (
-          <a 
-            href={cast.cast_url} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-purple-400 hover:text-purple-300 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </a>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Notes indicator */}
+          {cast.notes && (
+            <div className="text-yellow-400" title="Has notes">
+              📝
+            </div>
+          )}
+          
+          {/* Warpcast Link */}
+          {cast.cast_url && (
+            <a 
+              href={cast.cast_url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-purple-400 hover:text-purple-300 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </a>
+          )}
+        </div>
       </div>
       
       {/* Cast Content */}
@@ -99,6 +149,72 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
           {cast.cast_content}
         </p>
       </div>
+
+      {/* Notes Section */}
+      {(cast.notes || showNoteEditor) && (
+        <div className="mb-4 p-3 bg-white/5 rounded-lg border border-yellow-400/20">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-yellow-300 flex items-center gap-1">
+              📝 My Notes
+            </span>
+            {!showNoteEditor && userId && (
+              <button
+                onClick={() => setShowNoteEditor(true)}
+                className="text-xs text-gray-400 hover:text-white transition-colors"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+          
+          {showNoteEditor ? (
+            <div className="space-y-2">
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Add your thoughts about this cast..."
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm resize-none"
+                rows={3}
+                disabled={savingNote}
+              />
+              {noteError && (
+                <p className="text-red-400 text-xs">{noteError}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveNote}
+                  disabled={savingNote}
+                  className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1 rounded text-xs transition-colors"
+                >
+                  {savingNote ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={handleCancelNote}
+                  disabled={savingNote}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : cast.notes ? (
+            <p className="text-sm text-yellow-100 whitespace-pre-wrap">{cast.notes}</p>
+          ) : null}
+        </div>
+      )}
+
+      {/* Add Note Button */}
+      {!cast.notes && !showNoteEditor && userId && (
+        <div className="mb-4">
+          <button
+            onClick={() => setShowNoteEditor(true)}
+            className="text-sm text-gray-400 hover:text-yellow-300 transition-colors flex items-center gap-1"
+          >
+            <span>📝</span>
+            Add note...
+          </button>
+        </div>
+      )}
       
       {/* Category Badge */}
       {cast.category && cast.category !== 'other' && (
@@ -193,6 +309,9 @@ export default function CastCard({ cast, compact = false }: CastCardProps) {
           Saved {formatDistanceToNow(new Date(cast.created_at), { addSuffix: true })}
           {parsedData?.ai_tags && parsedData.ai_tags.length > 0 && (
             <span className="ml-2 text-blue-300">• AI-tagged</span>
+          )}
+          {cast.notes && (
+            <span className="ml-2 text-yellow-300">• Has notes</span>
           )}
         </p>
       </div>

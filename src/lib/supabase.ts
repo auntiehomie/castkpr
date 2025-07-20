@@ -234,13 +234,13 @@ export class CastService {
     return data || []
   }
 
-  // Search casts
+  // Search casts including notes - UPDATED
   static async searchCasts(userId: string, query: string): Promise<SavedCast[]> {
     const { data, error } = await supabase
       .from('saved_casts')
       .select('*')
       .eq('saved_by_user_id', userId)
-      .or(`cast_content.ilike.%${query}%,username.ilike.%${query}%,tags.cs.{${query}}`)
+      .or(`cast_content.ilike.%${query}%,username.ilike.%${query}%,tags.cs.{${query}},notes.ilike.%${query}%`)
       .order('cast_timestamp', { ascending: false })
 
     if (error) {

@@ -61,6 +61,14 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
     }
   }
 
+  const handleCastUpdate = (updatedCast: SavedCast): void => {
+    setCasts(prevCasts => 
+      prevCasts.map(cast => 
+        cast.id === updatedCast.id ? updatedCast : cast
+      )
+    )
+  }
+
   useEffect(() => {
     fetchCasts()
   }, [fetchCasts])
@@ -136,7 +144,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
         <div className="relative">
           <input
             type="text"
-            placeholder="Search saved casts..."
+            placeholder="Search saved casts, notes, tags..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -147,6 +155,9 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
             </div>
           )}
         </div>
+        <p className="text-xs text-gray-500 mt-1">
+          💡 Tip: You can search cast content, author names, tags, and your notes!
+        </p>
       </div>
 
       {/* Casts */}
@@ -178,6 +189,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
                 <li>1. Find an interesting cast on Farcaster</li>
                 <li>2. Reply with &quot;@cstkpr save this&quot;</li>
                 <li>3. Your cast will appear here automatically!</li>
+                <li>4. Click &quot;Add note...&quot; to add your thoughts!</li>
               </ol>
             </div>
           )}
@@ -189,11 +201,13 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
               <CastCard 
                 cast={cast} 
                 compact={false}
+                userId={userId}
+                onUpdate={handleCastUpdate}
               />
               {/* Delete button */}
               <button
                 onClick={() => handleDelete(cast.id)}
-                className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm"
+                className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm z-10"
                 title="Delete saved cast"
                 type="button"
               >

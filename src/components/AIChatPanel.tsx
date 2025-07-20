@@ -8,6 +8,7 @@ interface Message {
   text: string
   isAi: boolean
   timestamp: Date
+  isError?: boolean
 }
 
 interface AIChatPanelProps {
@@ -37,37 +38,50 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
     }
 
     setMessages(prev => [...prev, userMessage])
+    const currentInput = input
     setInput('')
     setLoading(true)
 
     try {
+      console.log('🤖 Sending AI request:', { question: currentInput, userId })
+      
       // Call your AI API endpoint
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: input,
+          question: currentInput,
           userId: userId
         })
       })
 
+      console.log('📡 AI Response status:', response.status)
+      
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`)
+      }
+
       const data = await response.json()
+      console.log('📋 AI Response data:', data)
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: data.response || "I couldn't process that right now. Try asking about your saved casts!",
         isAi: true,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isError: !data.response
       }
 
       setMessages(prev => [...prev, aiMessage])
     } catch (error) {
-      console.error('AI chat error:', error)
+      console.error('❌ AI chat error:', error)
+      
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: "Sorry, I'm having trouble right now. Try again later!",
+        text: `Sorry, I'm having trouble right now. Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check if you have saved casts and try again!`,
         isAi: true,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isError: true
       }
       setMessages(prev => [...prev, errorMessage])
     } finally {
@@ -82,7 +96,7 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           🤖 Chat with CastKPR AI
         </h3>
-        <p className="text-sm text-gray-400">Ask about your saved casts</p>
+        <p className="text-sm text-gray-400">Ask about your saved casts • User: {userId}</p>
       </div>
 
       {/* Messages */}
@@ -95,13 +109,16 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
             <div
               className={`max-w-[80%] p-3 rounded-lg ${
                 message.isAi
-                  ? 'bg-purple-600/20 text-purple-100'
+                  ? message.isError 
+                    ? 'bg-red-600/20 text-red-100' 
+                    : 'bg-purple-600/20 text-purple-100'
                   : 'bg-blue-600/20 text-blue-100'
               }`}
             >
               <p className="text-sm">{message.text}</p>
               <p className="text-xs opacity-60 mt-1">
                 {message.timestamp.toLocaleTimeString()}
+                {message.isError && ' • Error'}
               </p>
             </div>
           </div>
@@ -126,7 +143,7 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
             placeholder="Ask about your saved casts..."
             className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
             disabled={loading}
@@ -150,7 +167,8 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
             <button
               key={suggestion}
               onClick={() => setInput(suggestion)}
-              className="text-xs bg-white/5 hover:bg-white/10 text-gray-300 px-2 py-1 rounded transition-colors"
+              disabled={loading}
+              className="text-xs bg-white/5 hover:bg-white/10 disabled:opacity-50 text-gray-300 px-2 py-1 rounded transition-colors"
             >
               {suggestion}
             </button>
