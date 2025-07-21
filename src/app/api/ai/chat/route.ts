@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Get user's casts
+    // Get user's casts with IDs for function calling
     console.log('📊 Fetching casts for user:', userId)
     const userCasts = await CastService.getUserCasts(userId, 50)
     console.log('✅ Found casts:', userCasts.length)
@@ -27,13 +27,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Format casts for AI
+    // Format casts for AI with IDs and tags for function calling
     const castsForAI = userCasts.map(cast => ({
+      id: cast.id,
       content: cast.cast_content,
       author: cast.username,
       timestamp: cast.cast_timestamp,
-      tags: cast.tags || [],
-      category: cast.category || 'uncategorized'
+      tags: cast.tags || []
     }))
     
     console.log('🔄 Sending to AI:', {
@@ -41,11 +41,98 @@ export async function POST(request: NextRequest) {
       question: question.slice(0, 50) + '...'
     })
 
-    // Get AI response
-    const aiResponse = await AIService.chatAboutCasts(question, castsForAI)
-    console.log('✅ AI Response received:', aiResponse.slice(0, 100) + '...')
+    // Get AI response with potential actions
+    const aiResult = await AIService.chatAboutCasts(question, castsForAI)
+    console.log('✅ AI Response received:', {
+      hasResponse: !!aiResult.response,
+      hasActions: !!aiResult.actions,
+      actionCount: aiResult.actions?.length || 0
+    })
+
+    // Execute any actions the AI requested
+    const executionResults: string[] = []
     
-    return NextResponse.json({ response: aiResponse })
+    if (aiResult.actions && aiResult.actions.length > 0) {
+      console.log('🎬 Executing AI actions:', aiResult.actions)
+      
+      for (const action of aiResult.actions) {
+        try {
+          switch (action.type) {
+            case 'add_tag':
+              console.log(`🏷️ Adding tag "${action.value}" to cast ${action.castId}`)
+              
+              // Get current cast
+              const cast = userCasts.find(c => c.id === action.castId)
+              if (!cast) {
+                executionResults.push(`❌ Cast not found: ${action.castId}`)
+                continue
+              }
+              
+              // Add tag if it doesn't exist
+              const currentTags = cast.tags || []
+              if (!currentTags.includes(action.value)) {
+                const updatedTags = [...currentTags, action.value]
+                await CastService.updateCast(action.castId, userId, {
+                  tags: updatedTags
+                })
+                executionResults.push(`✅ Added tag "${action.value}" to cast by @${cast.username}`)
+              } else {
+                executionResults.push(`⚠️ Tag "${action.value}" already exists on cast by @${cast.username}`)
+              }
+              break
+
+            case 'remove_tag':
+              console.log(`🗑️ Removing tag "${action.value}" from cast ${action.castId}`)
+              
+              const castToUntag = userCasts.find(c => c.id === action.castId)
+              if (!castToUntag) {
+                executionResults.push(`❌ Cast not found: ${action.castId}`)
+                continue
+              }
+              
+              const tagsAfterRemoval = (castToUntag.tags || []).filter(tag => tag !== action.value)
+              await CastService.updateCast(action.castId, userId, {
+                tags: tagsAfterRemoval
+              })
+              executionResults.push(`✅ Removed tag "${action.value}" from cast by @${castToUntag.username}`)
+              break
+
+            case 'add_note':
+              console.log(`📝 Adding note to cast ${action.castId}`)
+              
+              const castToNote = userCasts.find(c => c.id === action.castId)
+              if (!castToNote) {
+                executionResults.push(`❌ Cast not found: ${action.castId}`)
+                continue
+              }
+              
+              await CastService.updateCast(action.castId, userId, {
+                notes: action.value
+              })
+              executionResults.push(`✅ Added note to cast by @${castToNote.username}`)
+              break
+
+            default:
+              executionResults.push(`❌ Unknown action type: ${action.type}`)
+          }
+        } catch (actionError) {
+          console.error(`❌ Error executing action:`, actionError)
+          executionResults.push(`❌ Failed to execute action: ${actionError instanceof Error ? actionError.message : 'Unknown error'}`)
+        }
+      }
+    }
+
+    // Combine AI response with execution results
+    let finalResponse = aiResult.response
+    
+    if (executionResults.length > 0) {
+      finalResponse += '\n\n**Actions Completed:**\n' + executionResults.join('\n')
+    }
+    
+    return NextResponse.json({ 
+      response: finalResponse,
+      actionsExecuted: aiResult.actions?.length || 0
+    })
     
   } catch (error) {
     console.error('💥 AI Chat API Error:', error)

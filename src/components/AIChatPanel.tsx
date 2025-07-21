@@ -9,17 +9,19 @@ interface Message {
   isAi: boolean
   timestamp: Date
   isError?: boolean
+  hasActions?: boolean
 }
 
 interface AIChatPanelProps {
   userId: string
+  onCastUpdate?: () => void // Callback to refresh cast data
 }
 
-export default function AIChatPanel({ userId }: AIChatPanelProps) {
+export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "Hi! I'm your CastKPR AI assistant. Ask me anything about your saved casts! Try: 'What topics am I most interested in?' or 'Summarize my recent saves'",
+      text: "Hi! I'm your CastKPR AI assistant. I can help you understand your saved casts AND take actions on them!\n\nTry asking me:\n• \"Tag my crypto casts with 'defi'\"\n• \"Add a note to my latest cast\"\n• \"What are my top topics?\"\n• \"Remove the 'test' tag from my casts\"",
       isAi: true,
       timestamp: new Date()
     }
@@ -69,10 +71,18 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
         text: data.response || "I couldn't process that right now. Try asking about your saved casts!",
         isAi: true,
         timestamp: new Date(),
-        isError: !data.response
+        isError: !data.response,
+        hasActions: data.actionsExecuted > 0
       }
 
       setMessages(prev => [...prev, aiMessage])
+
+      // If actions were executed, refresh the cast data
+      if (data.actionsExecuted > 0 && onCastUpdate) {
+        console.log('🔄 Refreshing cast data after AI actions')
+        onCastUpdate()
+      }
+
     } catch (error) {
       console.error('❌ AI chat error:', error)
       
@@ -94,9 +104,9 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
       {/* Header */}
       <div className="p-4 border-b border-white/10">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-          🤖 Chat with CastKPR AI
+          🤖 CastKPR AI Assistant
         </h3>
-        <p className="text-sm text-gray-400">Ask about your saved casts • User: {userId}</p>
+        <p className="text-sm text-gray-400">Ask questions & take actions on your casts • User: {userId}</p>
       </div>
 
       {/* Messages */}
@@ -111,14 +121,17 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
                 message.isAi
                   ? message.isError 
                     ? 'bg-red-600/20 text-red-100' 
+                    : message.hasActions
+                    ? 'bg-green-600/20 text-green-100 border border-green-500/30'
                     : 'bg-purple-600/20 text-purple-100'
                   : 'bg-blue-600/20 text-blue-100'
               }`}
             >
-              <p className="text-sm">{message.text}</p>
-              <p className="text-xs opacity-60 mt-1">
+              <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+              <p className="text-xs opacity-60 mt-1 flex items-center gap-1">
                 {message.timestamp.toLocaleTimeString()}
                 {message.isError && ' • Error'}
+                {message.hasActions && ' • ⚡ Actions Executed'}
               </p>
             </div>
           </div>
@@ -129,7 +142,7 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
             <div className="bg-purple-600/20 text-purple-100 p-3 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
-                <span className="text-sm">Thinking...</span>
+                <span className="text-sm">Thinking and taking actions...</span>
               </div>
             </div>
           </div>
@@ -144,7 +157,7 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-            placeholder="Ask about your saved casts..."
+            placeholder="Ask me to tag, organize, or analyze your casts..."
             className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
             disabled={loading}
           />
@@ -157,12 +170,12 @@ export default function AIChatPanel({ userId }: AIChatPanelProps) {
           </button>
         </div>
         
-        {/* Suggested questions */}
+        {/* Suggested actions */}
         <div className="mt-2 flex flex-wrap gap-1">
           {[
+            "Tag crypto casts with 'defi'",
             "What are my top topics?",
-            "Who do I save most from?", 
-            "Summarize this week's saves"
+            "Add 'important' tag to latest cast"
           ].map((suggestion) => (
             <button
               key={suggestion}

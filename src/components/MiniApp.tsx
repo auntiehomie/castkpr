@@ -23,6 +23,12 @@ export default function MiniApp() {
   const [error, setError] = useState<string | null>(null)
   const [isInMiniApp, setIsInMiniApp] = useState(false)
   const [activeView, setActiveView] = useState<'home' | 'dashboard' | 'ai' | 'collections'>('home')
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  // Function to refresh cast data across all components
+  const refreshCastData = () => {
+    setRefreshTrigger(prev => prev + 1)
+  }
 
   useEffect(() => {
     async function initializeMiniApp() {
@@ -189,13 +195,23 @@ export default function MiniApp() {
             <RecentCasts 
               userId={userIdForDb} 
               onViewAllClick={() => setActiveView('dashboard')}
+              key={`recent-${refreshTrigger}`}
             />
           ) : activeView === 'dashboard' ? (
-            <SavedCasts userId={userIdForDb} />
+            <SavedCasts 
+              userId={userIdForDb} 
+              key={`saved-${refreshTrigger}`}
+            />
           ) : activeView === 'collections' ? (
-            <CollectionManager userId={userIdForDb} />
+            <CollectionManager 
+              userId={userIdForDb}
+              key={`collections-${refreshTrigger}`}
+            />
           ) : (
-            <AIChatPanel userId={userIdForDb} />
+            <AIChatPanel 
+              userId={userIdForDb}
+              onCastUpdate={refreshCastData}
+            />
           )}
         </div>
 
