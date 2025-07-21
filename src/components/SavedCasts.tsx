@@ -15,6 +15,16 @@ interface TagInfo {
   type: 'manual' | 'ai' | 'hashtag' | 'system'
 }
 
+interface ParsedData {
+  hashtags?: string[]
+  urls?: string[]
+  mentions?: string[]
+  word_count?: number
+  topics?: string[]
+  ai_category?: string
+  ai_tags?: string[]
+}
+
 export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   const [casts, setCasts] = useState<SavedCast[]>([])
   const [allCasts, setAllCasts] = useState<SavedCast[]>([]) // Store unfiltered casts
@@ -30,7 +40,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
     const tagMap = new Map<string, TagInfo>()
 
     allCasts.forEach(cast => {
-      const parsedData = cast.parsed_data as any
+      const parsedData = cast.parsed_data as ParsedData
 
       // Manual tags (in cast.tags but not in AI or hashtags)
       const manualTags = (cast.tags || []).filter(tag => 
