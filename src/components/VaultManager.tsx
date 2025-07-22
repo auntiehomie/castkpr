@@ -374,56 +374,6 @@ export default function VaultManager({ userId }: VaultManagerProps) {
           </p>
         </div>
 
-        {/* Debug Section - TEMPORARY */}
-        <div className="mb-6 p-4 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
-          <h3 className="text-yellow-300 font-medium mb-2">🔧 Debug Tools</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={async () => {
-                console.log('🔍 DEBUG: Checking vault creation...')
-                try {
-                  const userCasts = await CastService.getUserCasts(userId, 10)
-                  const userVaults = await CollectionService.getUserCollections(userId)
-                  
-                  console.log('📊 DEBUG Results:')
-                  console.log('- User casts:', userCasts.length)
-                  console.log('- User vaults:', userVaults.length)
-                  console.log('- Vault names:', userVaults.map(v => v.name))
-                  
-                  if (userCasts.length > 0) {
-                    const sampleCast = userCasts[0]
-                    console.log('- Sample cast tags:', sampleCast.tags)
-                    console.log('- Sample cast AI tags:', sampleCast.parsed_data?.ai_tags)
-                  }
-                  
-                  alert(`Debug: ${userCasts.length} casts, ${userVaults.length} vaults. Check console for details.`)
-                } catch (error) {
-                  console.error('Debug error:', error)
-                  alert(`Debug error: ${error}`)
-                }
-              }}
-              className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm"
-            >
-              Debug Vault Status
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  await autoCreateVaultsFromTags()
-                  await fetchVaults()
-                  alert('Manual vault creation triggered!')
-                } catch (error) {
-                  console.error('Manual creation error:', error)
-                  alert(`Error: ${error}`)
-                }
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm"
-            >
-              Manually Trigger Auto-Creation
-            </button>
-          </div>
-        </div>
-
         {/* Create vault form */}
         {showCreateForm && (
           <form onSubmit={handleCreateVault} className="mb-6 p-4 bg-white/10 rounded-lg">
