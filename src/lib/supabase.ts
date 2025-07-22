@@ -501,7 +501,7 @@ export class CollectionService {
     console.log('✅ Cast added to vault')
   }
 
-  // Get casts in a collection - FIXED VERSION
+  // Get casts in a collection - ENHANCED VERSION with better error handling
   static async getCollectionCasts(collectionId: string): Promise<Array<{
     cast_id: string;
     added_at: string;
@@ -509,32 +509,60 @@ export class CollectionService {
   }>> {
     console.log('🔍 Fetching casts for vault:', collectionId)
     
-    const { data, error } = await supabase
-      .from('cast_collections')
-      .select(`
-        cast_id,
-        added_at,
-        saved_casts (*)
-      `)
-      .eq('collection_id', collectionId)
-      .order('added_at', { ascending: false })
+    try {
+      const { data, error } = await supabase
+        .from('cast_collections')
+        .select(`
+          cast_id,
+          added_at,
+          saved_casts (*)
+        `)
+        .eq('collection_id', collectionId)
+        .order('added_at', { ascending: false })
 
-    if (error) {
-      console.error('❌ Error fetching vault casts:', error)
+      if (error) {
+        console.error('❌ Supabase error fetching vault casts:', error)
+        throw new Error(`Database error: ${error.message}`)
+      }
+
+      console.log('✅ Raw vault casts data:', data)
+      console.log('📊 Data structure sample:', data?.[0])
+
+      if (!data || data.length === 0) {
+        console.log('📭 No casts found in this vault')
+        return []
+      }
+
+      // Process the data to handle the Supabase join result properly
+      const processedData = data.map((item, index) => {
+        console.log(`🔍 Processing item ${index}:`, {
+          cast_id: item.cast_id,
+          added_at: item.added_at,
+          saved_casts_type: typeof item.saved_casts,
+          saved_casts_is_array: Array.isArray(item.saved_casts),
+          saved_casts_value: item.saved_casts
+        })
+
+        return {
+          cast_id: item.cast_id,
+          added_at: item.added_at,
+          saved_casts: Array.isArray(item.saved_casts) ? item.saved_casts[0] : item.saved_casts
+        }
+      }).filter(item => {
+        const isValid = item.saved_casts !== null && item.saved_casts !== undefined
+        if (!isValid) {
+          console.warn(`⚠️ Filtered out invalid cast: ${item.cast_id}`)
+        }
+        return isValid
+      })
+
+      console.log('✅ Processed vault casts:', processedData.length)
+      return processedData
+      
+    } catch (error) {
+      console.error('💥 Exception in getCollectionCasts:', error)
       throw error
     }
-
-    console.log('✅ Raw vault casts data:', data)
-
-    // Process the data to handle the Supabase join result properly
-    const processedData = (data || []).map(item => ({
-      cast_id: item.cast_id,
-      added_at: item.added_at,
-      saved_casts: Array.isArray(item.saved_casts) ? item.saved_casts[0] : item.saved_casts
-    })).filter(item => item.saved_casts !== null && item.saved_casts !== undefined)
-
-    console.log('✅ Processed vault casts:', processedData.length)
-    return processedData
   }
 
   // Remove cast from collection
