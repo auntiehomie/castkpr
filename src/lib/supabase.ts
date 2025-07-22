@@ -182,7 +182,7 @@ export class UserService {
   }
 }
 
-// Helper functions for database operations
+// Enhanced CastService with auto-vault creation
 export class CastService {
   // Save a new cast
   static async saveCast(castData: Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>): Promise<SavedCast> {
@@ -214,6 +214,14 @@ export class CastService {
     }
 
     console.log('✅ Cast saved successfully to database')
+    
+    // Auto-create vaults for initial tags
+    if (castData.tags && castData.tags.length > 0 && castData.saved_by_user_id) {
+      this.createVaultsForTags(castData.tags, castData.saved_by_user_id, data.id).catch(error => {
+        console.error('Background vault creation failed:', error)
+      })
+    }
+    
     return data
   }
 
@@ -234,7 +242,7 @@ export class CastService {
     return data || []
   }
 
-  // Search casts including notes - UPDATED
+  // Search casts including notes
   static async searchCasts(userId: string, query: string): Promise<SavedCast[]> {
     const { data, error } = await supabase
       .from('saved_casts')
@@ -281,7 +289,7 @@ export class CastService {
     }
   }
 
-  // Update cast notes, category, tags, or parsed_data
+  // Enhanced updateCast method that triggers auto-vault creation
   static async updateCast(
     castId: string, 
     userId: string, 
@@ -305,7 +313,104 @@ export class CastService {
       throw error
     }
 
+    // Auto-create vaults for new tags
+    if (updates.tags) {
+      // Don't await this - run in background
+      this.createVaultsForTags(updates.tags, userId, castId).catch(error => {
+        console.error('Background vault creation failed:', error)
+      })
+    }
+
     return data
+  }
+
+  // Update cast with automatic vault creation (explicit method)
+  static async updateCastWithAutoVaults(
+    castId: string, 
+    userId: string, 
+    updates: { 
+      notes?: string; 
+      category?: string; 
+      tags?: string[];
+      parsed_data?: ParsedData;
+    }
+  ): Promise<SavedCast> {
+    // First update the cast
+    const updatedCast = await this.updateCast(castId, userId, updates)
+    
+    // If tags were updated, create vaults for new tags
+    if (updates.tags) {
+      await this.createVaultsForTags(updates.tags, userId, castId)
+    }
+    
+    return updatedCast
+  }
+
+  // Create vaults for tags automatically
+  static async createVaultsForTags(tags: string[], userId: string, castId: string): Promise<void> {
+    try {
+      console.log('🏗️ Auto-creating vaults for tags:', tags)
+      
+      // Get existing vaults to avoid duplicates
+      const existingVaults = await CollectionService.getUserCollections(userId)
+      const existingVaultNames = new Set(existingVaults.map(v => v.name.toLowerCase()))
+      
+      for (const tag of tags) {
+        const cleanTag = tag.toLowerCase().trim()
+        
+        // Skip system tags and tags that already have vaults
+        if (cleanTag === 'saved-via-bot' || existingVaultNames.has(cleanTag) || cleanTag.length < 2) {
+          continue
+        }
+        
+        try {
+          // Create vault for this tag
+          const vault = await CollectionService.createCollection(
+            cleanTag,
+            `Auto-created vault for all casts tagged with "${cleanTag}"`,
+            userId,
+            false
+          )
+          
+          console.log(`✅ Created vault for tag: ${cleanTag}`)
+          
+          // Add this cast to the new vault
+          await CollectionService.addCastToCollection(castId, vault.id)
+          
+          // Find other casts with this tag and add them too
+          const allUserCasts = await this.getUserCasts(userId, 1000)
+          const castsWithTag = allUserCasts.filter(cast => {
+            const allCastTags = [
+              ...(cast.tags || []),
+              ...(cast.parsed_data?.ai_tags || []),
+              ...(cast.parsed_data?.hashtags || [])
+            ].map(t => t.toLowerCase())
+            
+            return allCastTags.includes(cleanTag) && cast.id !== castId
+          })
+          
+          // Add existing casts with this tag to the vault
+          for (const cast of castsWithTag) {
+            try {
+              await CollectionService.addCastToCollection(cast.id, vault.id)
+            } catch (addError) {
+              // Ignore errors (probably already in collection)
+              console.log(`Cast already in vault: ${cast.id}`)
+            }
+          }
+          
+          console.log(`📁 Added ${castsWithTag.length + 1} casts to vault "${cleanTag}"`)
+          
+        } catch (vaultError) {
+          console.error(`Error creating vault for tag "${cleanTag}":`, vaultError)
+          // Continue with other tags even if one fails
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error in auto-vault creation:', error)
+      // Don't throw - this is a nice-to-have feature
+    }
   }
 
   // Get stats for a user
@@ -319,11 +424,11 @@ export class CastService {
   }
 }
 
-// UPDATED CollectionService with FIXED getCollectionCasts method
+// UPDATED CollectionService (now VaultService)
 export class CollectionService {
   // Create a new collection
   static async createCollection(name: string, description: string, userId: string, isPublic: boolean = false): Promise<Collection> {
-    console.log('🆕 Creating collection:', { name, description, userId, isPublic })
+    console.log('🆕 Creating vault:', { name, description, userId, isPublic })
     
     const { data, error } = await supabase
       .from('collections')
@@ -337,17 +442,17 @@ export class CollectionService {
       .single()
 
     if (error) {
-      console.error('❌ Error creating collection:', error)
+      console.error('❌ Error creating vault:', error)
       throw error
     }
 
-    console.log('✅ Collection created:', data)
+    console.log('✅ Vault created:', data)
     return data
   }
 
   // Get user's collections
   static async getUserCollections(userId: string): Promise<Collection[]> {
-    console.log('🔍 Fetching collections for user:', userId)
+    console.log('🔍 Fetching vaults for user:', userId)
     
     const { data, error } = await supabase
       .from('collections')
@@ -356,17 +461,17 @@ export class CollectionService {
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('❌ Error fetching user collections:', error)
+      console.error('❌ Error fetching user vaults:', error)
       throw error
     }
 
-    console.log('✅ Found collections:', data?.length || 0)
+    console.log('✅ Found vaults:', data?.length || 0)
     return data || []
   }
 
   // Add cast to collection
   static async addCastToCollection(castId: string, collectionId: string): Promise<void> {
-    console.log('➕ Adding cast to collection:', { castId, collectionId })
+    console.log('➕ Adding cast to vault:', { castId, collectionId })
     
     // Check if cast is already in collection
     const { data: existing } = await supabase
@@ -377,7 +482,7 @@ export class CollectionService {
       .single()
 
     if (existing) {
-      console.log('⚠️ Cast already in collection')
+      console.log('⚠️ Cast already in vault')
       return // Don't throw error, just silently return
     }
 
@@ -389,11 +494,11 @@ export class CollectionService {
       })
 
     if (error) {
-      console.error('❌ Error adding cast to collection:', error)
+      console.error('❌ Error adding cast to vault:', error)
       throw error
     }
 
-    console.log('✅ Cast added to collection')
+    console.log('✅ Cast added to vault')
   }
 
   // Get casts in a collection - FIXED VERSION
@@ -402,7 +507,7 @@ export class CollectionService {
     added_at: string;
     saved_casts: SavedCast;
   }>> {
-    console.log('🔍 Fetching casts for collection:', collectionId)
+    console.log('🔍 Fetching casts for vault:', collectionId)
     
     const { data, error } = await supabase
       .from('cast_collections')
@@ -415,11 +520,11 @@ export class CollectionService {
       .order('added_at', { ascending: false })
 
     if (error) {
-      console.error('❌ Error fetching collection casts:', error)
+      console.error('❌ Error fetching vault casts:', error)
       throw error
     }
 
-    console.log('✅ Raw collection casts data:', data)
+    console.log('✅ Raw vault casts data:', data)
 
     // Process the data to handle the Supabase join result properly
     const processedData = (data || []).map(item => ({
@@ -428,13 +533,13 @@ export class CollectionService {
       saved_casts: Array.isArray(item.saved_casts) ? item.saved_casts[0] : item.saved_casts
     })).filter(item => item.saved_casts !== null && item.saved_casts !== undefined)
 
-    console.log('✅ Processed collection casts:', processedData.length)
+    console.log('✅ Processed vault casts:', processedData.length)
     return processedData
   }
 
   // Remove cast from collection
   static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
-    console.log('➖ Removing cast from collection:', { castId, collectionId })
+    console.log('➖ Removing cast from vault:', { castId, collectionId })
     
     const { error } = await supabase
       .from('cast_collections')
@@ -443,16 +548,16 @@ export class CollectionService {
       .eq('collection_id', collectionId)
 
     if (error) {
-      console.error('❌ Error removing cast from collection:', error)
+      console.error('❌ Error removing cast from vault:', error)
       throw error
     }
 
-    console.log('✅ Cast removed from collection')
+    console.log('✅ Cast removed from vault')
   }
 
   // Delete a collection
   static async deleteCollection(collectionId: string, userId: string): Promise<void> {
-    console.log('🗑️ Deleting collection:', { collectionId, userId })
+    console.log('🗑️ Deleting vault:', { collectionId, userId })
     
     // First delete all cast associations
     const { error: castError } = await supabase
@@ -472,11 +577,11 @@ export class CollectionService {
       .eq('created_by', userId)
 
     if (error) {
-      console.error('❌ Error deleting collection:', error)
+      console.error('❌ Error deleting vault:', error)
       throw error
     }
 
-    console.log('✅ Collection deleted')
+    console.log('✅ Vault deleted')
   }
 
   // Update collection
@@ -489,7 +594,7 @@ export class CollectionService {
       is_public?: boolean; 
     }
   ): Promise<Collection> {
-    console.log('📝 Updating collection:', { collectionId, userId, updates })
+    console.log('📝 Updating vault:', { collectionId, userId, updates })
     
     const { data, error } = await supabase
       .from('collections')
@@ -503,17 +608,17 @@ export class CollectionService {
       .single()
 
     if (error) {
-      console.error('❌ Error updating collection:', error)
+      console.error('❌ Error updating vault:', error)
       throw error
     }
 
-    console.log('✅ Collection updated')
+    console.log('✅ Vault updated')
     return data
   }
 
   // Get collection by ID (with ownership check)
   static async getCollectionById(collectionId: string, userId: string): Promise<Collection | null> {
-    console.log('🔍 Fetching collection by ID:', { collectionId, userId })
+    console.log('🔍 Fetching vault by ID:', { collectionId, userId })
     
     const { data, error } = await supabase
       .from('collections')
@@ -524,14 +629,14 @@ export class CollectionService {
 
     if (error) {
       if (error.code === 'PGRST116') {
-        console.log('❌ Collection not found or not owned by user')
+        console.log('❌ Vault not found or not owned by user')
         return null
       }
-      console.error('❌ Error fetching collection:', error)
+      console.error('❌ Error fetching vault:', error)
       throw error
     }
 
-    console.log('✅ Collection found')
+    console.log('✅ Vault found')
     return data
   }
 
@@ -543,7 +648,7 @@ export class CollectionService {
       .eq('collection_id', collectionId)
 
     if (error) {
-      console.error('Error getting collection stats:', error)
+      console.error('Error getting vault stats:', error)
       throw error
     }
 

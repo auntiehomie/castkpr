@@ -174,7 +174,7 @@ export default function MiniApp() {
                   : 'text-gray-300 hover:text-white'
               }`}
             >
-              Collections
+              Vaults
             </button>
             <button
               onClick={() => setActiveView('ai')}
@@ -184,7 +184,7 @@ export default function MiniApp() {
                   : 'text-gray-300 hover:text-white'
               }`}
             >
-              AI Chat
+              AI
             </button>
           </div>
         </div>
