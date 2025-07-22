@@ -7,7 +7,7 @@ import { sdk } from '@farcaster/miniapp-sdk'
 import SavedCasts from './SavedCasts'
 import RecentCasts from './RecentCasts'
 import AIChatPanel from './AIChatPanel'
-import CollectionManager from './CollectionManager'
+import VaultManager from './VaultManager'
 import { UserService } from '@/lib/supabase'
 
 interface User {
@@ -203,7 +203,7 @@ export default function MiniApp() {
               key={`saved-${refreshTrigger}`}
             />
           ) : activeView === 'collections' ? (
-            <CollectionManager 
+            <VaultManager 
               userId={userIdForDb}
               key={`collections-${refreshTrigger}`}
             />
