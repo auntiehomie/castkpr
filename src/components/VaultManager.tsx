@@ -52,7 +52,8 @@ export default function VaultManager({ userId }: VaultManagerProps) {
         )
         
         // Add all valid tags
-        [...manualTags, ...aiTags, ...hashtags].forEach(tag => {
+        const allValidTags = [...manualTags, ...aiTags, ...hashtags]
+        allValidTags.forEach(tag => {
           const cleanTag = tag.toLowerCase().trim()
           if (cleanTag && !existingVaultNames.has(cleanTag)) {
             allTags.add(cleanTag)
