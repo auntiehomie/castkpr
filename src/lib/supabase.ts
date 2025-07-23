@@ -393,7 +393,7 @@ export class CastService {
           for (const cast of castsWithTag) {
             try {
               await CollectionService.addCastToCollection(cast.id, vault.id)
-            } catch (addError) {
+            } catch (error) {
               // Ignore errors (probably already in collection)
               console.log(`Cast already in vault: ${cast.id}`)
             }
