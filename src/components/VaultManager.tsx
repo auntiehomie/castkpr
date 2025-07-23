@@ -25,100 +25,6 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   const [editDescription, setEditDescription] = useState('')
   const [deletingVault, setDeletingVault] = useState<string | null>(null)
 
-  // Auto-create vaults from tags
-  const autoCreateVaultsFromTags = useCallback(async () => {
-    try {
-      console.log('🏗️ Auto-creating vaults from tags...')
-      
-      // Get all user casts to analyze tags
-      const userCasts = await CastService.getUserCasts(userId, 1000)
-      const existingVaults = await CollectionService.getUserCollections(userId)
-      const existingVaultNames = new Set(existingVaults.map(v => v.name.toLowerCase()))
-      
-      // Collect all unique tags
-      const allTags = new Set<string>()
-      
-      userCasts.forEach(cast => {
-        // Manual tags
-        const manualTags = (cast.tags || []).filter(tag => 
-          tag !== 'saved-via-bot' && // Exclude system tags
-          tag.length > 1 && // Must be more than 1 character
-          tag.length < 50 // Reasonable length limit
-        )
-        
-        // AI tags
-        const aiTags = cast.parsed_data?.ai_tags || []
-        
-        // Hashtags (but clean them up)
-        const hashtags = (cast.parsed_data?.hashtags || []).filter(tag =>
-          tag.length > 1 && tag.length < 50
-        )
-        
-        // Add all valid tags
-        const allValidTags = [...manualTags, ...aiTags, ...hashtags]
-        allValidTags.forEach(tag => {
-          const cleanTag = tag.toLowerCase().trim()
-          if (cleanTag && !existingVaultNames.has(cleanTag)) {
-            allTags.add(cleanTag)
-          }
-        })
-      })
-      
-      console.log(`📊 Found ${allTags.size} unique tags to create vaults for`)
-      
-      // Create vaults for each unique tag
-      const createdVaults: Collection[] = []
-      
-      for (const tag of Array.from(allTags)) {
-        try {
-          // Create vault with tag name
-          const vault = await CollectionService.createCollection(
-            tag,
-            `Auto-created vault for all casts tagged with "${tag}"`,
-            userId,
-            false
-          )
-          
-          createdVaults.push(vault)
-          console.log(`✅ Created vault: ${tag}`)
-          
-          // Find all casts with this tag and add them to the vault
-          const castsWithTag = userCasts.filter(cast => {
-            const allCastTags = [
-              ...(cast.tags || []),
-              ...(cast.parsed_data?.ai_tags || []),
-              ...(cast.parsed_data?.hashtags || [])
-            ].map(t => t.toLowerCase())
-            
-            return allCastTags.includes(tag)
-          })
-          
-          // Add casts to vault
-          for (const cast of castsWithTag) {
-            try {
-              await CollectionService.addCastToCollection(cast.id, vault.id)
-            } catch (addError) {
-              console.error(`Error adding cast to vault ${tag}:`, addError)
-            }
-          }
-          
-          console.log(`📁 Added ${castsWithTag.length} casts to vault "${tag}"`)
-          
-        } catch (createError) {
-          console.error(`Error creating vault for tag "${tag}":`, createError)
-        }
-      }
-      
-      console.log(`🎉 Auto-created ${createdVaults.length} vaults from tags`)
-      
-      return createdVaults
-      
-    } catch (error) {
-      console.error('❌ Error in auto-vault creation:', error)
-      return []
-    }
-  }, [userId])
-
   const fetchVaults = useCallback(async () => {
     try {
       setLoading(true)
@@ -584,7 +490,7 @@ export default function VaultManager({ userId }: VaultManagerProps) {
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 max-w-md mx-4">
             <h3 className="text-lg font-semibold text-white mb-4">🗑️ Delete Vault</h3>
             <p className="text-gray-300 mb-6">
-              Are you sure you want to delete this vault? This will remove the vault and all its cast associations, but won't delete the actual saved casts.
+              Are you sure you want to delete this vault? This will remove the vault and all its cast associations, but won&apos;t delete the actual saved casts.
             </p>
             <div className="flex gap-3 justify-end">
               <button
