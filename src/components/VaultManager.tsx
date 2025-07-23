@@ -23,6 +23,7 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   const [showAddCasts, setShowAddCasts] = useState(false)
   const [editingVault, setEditingVault] = useState<string | null>(null)
   const [editDescription, setEditDescription] = useState('')
+  const [deletingVault, setDeletingVault] = useState<string | null>(null)
 
   // Auto-create vaults from tags
   const autoCreateVaultsFromTags = useCallback(async () => {
@@ -255,6 +256,34 @@ export default function VaultManager({ userId }: VaultManagerProps) {
     }
   }
 
+  const confirmDeleteVault = (vaultId: string) => {
+    setDeletingVault(vaultId)
+  }
+
+  const cancelDeleteVault = () => {
+    setDeletingVault(null)
+  }
+
+  const deleteVault = async (vaultId: string) => {
+    try {
+      await CollectionService.deleteCollection(vaultId, userId)
+      
+      // Update local state
+      setVaults(prev => prev.filter(vault => vault.id !== vaultId))
+      setDeletingVault(null)
+      
+      // If we were viewing this vault, go back to vault list
+      if (selectedVault?.id === vaultId) {
+        setSelectedVault(null)
+      }
+      
+    } catch (err) {
+      console.error('Error deleting vault:', err)
+      setError('Failed to delete vault')
+      setDeletingVault(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="bg-white/5 backdrop-blur-lg rounded-xl p-8 border border-white/10">
@@ -478,16 +507,28 @@ export default function VaultManager({ userId }: VaultManagerProps) {
                     <span className="text-xs text-gray-400">
                       {vault.is_public ? '🌍' : '🔒'}
                     </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        startEditingVault(vault)
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-purple-300 text-xs"
-                      title="Edit vault description"
-                    >
-                      ✏️
-                    </button>
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          startEditingVault(vault)
+                        }}
+                        className="text-gray-400 hover:text-purple-300 text-xs p-1"
+                        title="Edit vault description"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          confirmDeleteVault(vault.id)
+                        }}
+                        className="text-gray-400 hover:text-red-300 text-xs p-1"
+                        title="Delete vault"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 </div>
                 
@@ -536,6 +577,32 @@ export default function VaultManager({ userId }: VaultManagerProps) {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {deletingVault && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-white mb-4">🗑️ Delete Vault</h3>
+            <p className="text-gray-300 mb-6">
+              Are you sure you want to delete this vault? This will remove the vault and all its cast associations, but won't delete the actual saved casts.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={cancelDeleteVault}
+                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteVault(deletingVault)}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Delete Vault
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Tagging Panel */}
       <AITaggingPanel userId={userId} onRetagComplete={fetchVaults} />

@@ -1,320 +1,297 @@
-import { SavedCast } from '@/lib/supabase'
-import { formatDistanceToNow } from 'date-fns'
-import Image from 'next/image'
+'use client'
+
 import { useState } from 'react'
+import Image from 'next/image'
 import { CastService } from '@/lib/supabase'
+import type { SavedCast } from '@/lib/supabase'
 
 interface CastCardProps {
   cast: SavedCast
   compact?: boolean
   userId?: string
   onUpdate?: (updatedCast: SavedCast) => void
+  onDelete?: (castId: string) => void
 }
 
-interface ParsedData {
-  hashtags?: string[]
-  urls?: string[]
-  mentions?: string[]
-  word_count?: number
-  topics?: string[]
-  ai_category?: string
-  ai_tags?: string[]
-}
+export default function CastCard({ 
+  cast, 
+  compact = false, 
+  userId = 'demo-user',
+  onUpdate,
+  onDelete 
+}: CastCardProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [notes, setNotes] = useState(cast.notes || '')
+  const [tags, setTags] = useState<string[]>(cast.tags || [])
+  const [newTag, setNewTag] = useState('')
+  const [isUpdating, setIsUpdating] = useState(false)
 
-export default function CastCard({ cast, compact = false, userId, onUpdate }: CastCardProps) {
-  const [showNoteEditor, setShowNoteEditor] = useState(false)
-  const [noteText, setNoteText] = useState(cast.notes || '')
-  const [savingNote, setSavingNote] = useState(false)
-  const [noteError, setNoteError] = useState<string | null>(null)
-
-  const parsedData = cast.parsed_data as ParsedData
-
-  // Combine all tags: manual tags, parsed hashtags, and AI tags
-  const getAllTags = () => {
-    const tags = new Set<string>()
-    
-    // Add manual tags from cast.tags
-    if (cast.tags) {
-      cast.tags.forEach(tag => tags.add(tag))
-    }
-    
-    // Add hashtags from parsed data
-    if (parsedData?.hashtags) {
-      parsedData.hashtags.forEach(tag => tags.add(tag))
-    }
-    
-    // Add AI-generated topics
-    if (parsedData?.ai_tags) {
-      parsedData.ai_tags.forEach(tag => tags.add(tag))
-    }
-    
-    return Array.from(tags)
-  }
-
-  const handleSaveNote = async () => {
-    if (!userId) {
-      setNoteError('User ID required to save notes')
-      return
-    }
-
-    setSavingNote(true)
-    setNoteError(null)
+  const handleSaveChanges = async () => {
+    if (!userId) return
 
     try {
+      setIsUpdating(true)
       const updatedCast = await CastService.updateCast(cast.id, userId, {
-        notes: noteText.trim() || undefined
+        notes: notes.trim() || undefined,
+        tags: tags
       })
       
-      setShowNoteEditor(false)
       if (onUpdate) {
         onUpdate(updatedCast)
       }
+      
+      setIsEditing(false)
     } catch (error) {
-      console.error('Error saving note:', error)
-      setNoteError('Failed to save note. Please try again.')
+      console.error('Error updating cast:', error)
+      // Could add error toast here
     } finally {
-      setSavingNote(false)
+      setIsUpdating(false)
     }
   }
 
-  const handleCancelNote = () => {
-    setNoteText(cast.notes || '')
-    setShowNoteEditor(false)
-    setNoteError(null)
+  const handleAddTag = () => {
+    if (newTag.trim() && !tags.includes(newTag.trim())) {
+      setTags([...tags, newTag.trim()])
+      setNewTag('')
+    }
   }
 
-  const allTags = getAllTags()
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter(tag => tag !== tagToRemove))
+  }
+
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete(cast.id)
+    }
+  }
+
+  const handleUsernameClick = () => {
+    if (cast.cast_url) {
+      window.open(cast.cast_url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffTime = Math.abs(now.getTime() - date.getTime())
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 0) {
+      return 'Today'
+    } else if (diffDays === 1) {
+      return '1 day ago'
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`
+    } else {
+      return date.toLocaleDateString()
+    }
+  }
 
   return (
-    <div className={`bg-white/10 backdrop-blur-lg rounded-xl border border-white/20 transition-all hover:bg-white/15 ${
-      compact ? 'p-4' : 'p-6'
-    }`}>
-      {/* Author Info */}
-      <div className="flex items-start justify-between mb-3">
+    <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 transition-all hover:bg-white/15 group">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
-          {cast.author_pfp_url ? (
-            <Image 
-              src={cast.author_pfp_url} 
-              alt={cast.username}
+          {cast.author_pfp_url && (
+            <Image
+              src={cast.author_pfp_url}
+              alt={`${cast.username} avatar`}
               width={40}
               height={40}
-              className="w-10 h-10 rounded-full"
+              className="rounded-full"
             />
-          ) : (
-            <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">
-                {cast.username.charAt(0).toUpperCase()}
-              </span>
-            </div>
           )}
           <div>
-            <h3 className="font-semibold text-white">
-              {cast.author_display_name || `@${cast.username}`}
-            </h3>
-            <p className="text-sm text-gray-400">
-              @{cast.username} • {formatDistanceToNow(new Date(cast.cast_timestamp), { addSuffix: true })}
-            </p>
+            <button
+              onClick={handleUsernameClick}
+              className="font-semibold text-purple-300 hover:text-purple-200 transition-colors cursor-pointer underline decoration-dotted underline-offset-2"
+              title="View original cast"
+            >
+              {cast.author_display_name || cast.username}
+            </button>
+            <p className="text-gray-400 text-sm">@{cast.username} • {formatDate(cast.cast_timestamp)}</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          {/* Notes indicator */}
-          {cast.notes && (
-            <div className="text-yellow-400" title="Has notes">
-              📝
-            </div>
-          )}
-          
-          {/* Warpcast Link */}
-          {cast.cast_url && (
-            <a 
-              href={cast.cast_url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-purple-400 hover:text-purple-300 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </a>
-          )}
-        </div>
-      </div>
-      
-      {/* Cast Content */}
-      <div className="mb-4">
-        <p className={`text-gray-100 leading-relaxed ${
-          compact ? 'text-sm line-clamp-3' : ''
-        }`}>
-          {cast.cast_content}
-        </p>
+        {/* Delete button */}
+        <button
+          onClick={handleDelete}
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-300 p-2"
+          title="Delete saved cast"
+        >
+          🗑️
+        </button>
       </div>
 
-      {/* Notes Section */}
-      {(cast.notes || showNoteEditor) && (
-        <div className="mb-4 p-3 bg-white/5 rounded-lg border border-yellow-400/20">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-yellow-300 flex items-center gap-1">
-              📝 My Notes
+      {/* Content */}
+      <div className="mb-4">
+        <p className="text-white leading-relaxed">{cast.cast_content}</p>
+      </div>
+
+      {/* Engagement Stats */}
+      {!compact && (
+        <div className="flex items-center space-x-4 text-sm text-gray-400 mb-4">
+          <span>❤️ {cast.likes_count}</span>
+          <span>💬 {cast.replies_count}</span>
+          <span>🔄 {cast.recasts_count}</span>
+        </div>
+      )}
+
+      {/* Tags */}
+      <div className="mb-4">
+        <div className="flex flex-wrap gap-2 mb-2">
+          {/* Manual tags */}
+          {(cast.tags || []).filter(tag => 
+            !(cast.parsed_data?.hashtags || []).includes(tag) && 
+            !(cast.parsed_data?.ai_tags || []).includes(tag)
+          ).map(tag => (
+            <span 
+              key={tag} 
+              className="bg-green-500/20 text-green-300 px-2 py-1 rounded-full text-xs border border-green-500/30"
+              title="Manual tag"
+            >
+              🏷️ {tag}
             </span>
-            {!showNoteEditor && userId && (
-              <button
-                onClick={() => setShowNoteEditor(true)}
-                className="text-xs text-gray-400 hover:text-white transition-colors"
-              >
-                Edit
-              </button>
-            )}
-          </div>
+          ))}
           
-          {showNoteEditor ? (
-            <div className="space-y-2">
+          {/* AI tags */}
+          {(cast.parsed_data?.ai_tags || []).map(tag => (
+            <span 
+              key={tag} 
+              className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full text-xs border border-blue-500/30"
+              title="AI-generated tag"
+            >
+              🧠 {tag}
+            </span>
+          ))}
+          
+          {/* Hashtags */}
+          {(cast.parsed_data?.hashtags || []).map(tag => (
+            <span 
+              key={tag} 
+              className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full text-xs border border-purple-500/30"
+              title="Hashtag from content"
+            >
+              # {tag}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Notes */}
+      {cast.notes && (
+        <div className="mb-4 p-3 bg-white/5 rounded-lg border border-white/10">
+          <p className="text-gray-300 text-sm">
+            <span className="text-yellow-400">📝 Note:</span> {cast.notes}
+          </p>
+        </div>
+      )}
+
+      {/* Edit Form */}
+      {isEditing && (
+        <div className="mt-4 p-4 bg-white/10 rounded-lg border border-white/20">
+          <div className="space-y-4">
+            {/* Notes Input */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Personal Notes
+              </label>
               <textarea
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Add your thoughts about this cast..."
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm resize-none"
-                rows={3}
-                disabled={savingNote}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add your thoughts, context, or reminders about this cast..."
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 h-20"
               />
-              {noteError && (
-                <p className="text-red-400 text-xs">{noteError}</p>
-              )}
+            </div>
+
+            {/* Tag Management */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Tags
+              </label>
+              
+              {/* Existing Tags */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                {tags.map(tag => (
+                  <span 
+                    key={tag}
+                    className="bg-green-500/20 text-green-300 px-2 py-1 rounded-full text-xs border border-green-500/30 flex items-center gap-1"
+                  >
+                    🏷️ {tag}
+                    <button
+                      onClick={() => handleRemoveTag(tag)}
+                      className="hover:text-red-300 ml-1"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              {/* Add New Tag */}
               <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
+                  placeholder="Add a tag..."
+                  className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm"
+                />
                 <button
-                  onClick={handleSaveNote}
-                  disabled={savingNote}
-                  className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1 rounded text-xs transition-colors"
+                  onClick={handleAddTag}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
                 >
-                  {savingNote ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onClick={handleCancelNote}
-                  disabled={savingNote}
-                  className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-xs transition-colors"
-                >
-                  Cancel
+                  Add
                 </button>
               </div>
             </div>
-          ) : cast.notes ? (
-            <p className="text-sm text-yellow-100 whitespace-pre-wrap">{cast.notes}</p>
-          ) : null}
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setIsEditing(false)}
+                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                disabled={isUpdating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveChanges}
+                disabled={isUpdating}
+                className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+              >
+                {isUpdating ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Add Note Button */}
-      {!cast.notes && !showNoteEditor && userId && (
-        <div className="mb-4">
+      {/* Edit Toggle */}
+      {!isEditing && (
+        <div className="flex justify-between items-center mt-4">
           <button
-            onClick={() => setShowNoteEditor(true)}
-            className="text-sm text-gray-400 hover:text-yellow-300 transition-colors flex items-center gap-1"
+            onClick={() => setIsEditing(true)}
+            className="text-purple-400 hover:text-purple-300 text-sm transition-colors"
           >
-            <span>📝</span>
-            Add note...
+            ✏️ Edit Notes & Tags
           </button>
-        </div>
-      )}
-      
-      {/* Category Badge */}
-      {cast.category && cast.category !== 'other' && (
-        <div className="mb-3">
-          <span className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-xs font-medium">
-            📂 {cast.category}
-          </span>
-        </div>
-      )}
-      
-      {/* All Tags */}
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {allTags.slice(0, compact ? 4 : 8).map((tag: string) => {
-            // Determine tag type for styling
-            const isAITag = parsedData?.ai_tags?.includes(tag)
-            const isHashtag = parsedData?.hashtags?.includes(tag)
-            const isManualTag = cast.tags?.includes(tag)
-            
-            let tagStyle = "bg-purple-500/20 text-purple-300" // default
-            let prefix = "#"
-            
-            if (isAITag && !isHashtag) {
-              tagStyle = "bg-blue-500/20 text-blue-300"
-              prefix = "🧠 "
-            } else if (isManualTag && tag === 'saved-via-bot') {
-              tagStyle = "bg-green-500/20 text-green-300"
-              prefix = "🤖 "
-            }
-            
-            return (
-              <span 
-                key={tag}
-                className={`${tagStyle} px-2 py-1 rounded-full text-xs`}
-                title={isAITag ? 'AI-generated tag' : isHashtag ? 'Hashtag from content' : 'Manual tag'}
-              >
-                {prefix}{tag}
-              </span>
-            )
-          })}
           
-          {allTags.length > (compact ? 4 : 8) && (
-            <span className="bg-gray-500/20 text-gray-400 px-2 py-1 rounded-full text-xs">
-              +{allTags.length - (compact ? 4 : 8)} more
-            </span>
+          {cast.cast_url && (
+            <a
+              href={cast.cast_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 hover:text-purple-300 text-sm transition-colors"
+            >
+              🔗 View Original
+            </a>
           )}
         </div>
       )}
-      
-      {/* Metadata indicators */}
-      <div className="flex flex-wrap gap-2 mb-3">
-        {/* URLs indicator */}
-        {parsedData?.urls?.length && parsedData.urls.length > 0 && (
-          <span className="bg-cyan-500/20 text-cyan-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
-            🔗 {parsedData.urls.length} link{parsedData.urls.length !== 1 ? 's' : ''}
-          </span>
-        )}
-        
-        {/* Mentions indicator */}
-        {parsedData?.mentions?.length && parsedData.mentions.length > 0 && (
-          <span className="bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full text-xs flex items-center gap-1">
-            👥 {parsedData.mentions.length} mention{parsedData.mentions.length !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
-      
-      {/* Engagement Stats */}
-      <div className="flex items-center justify-between text-sm text-gray-400">
-        <div className="flex items-center space-x-4">
-          <span className="flex items-center gap-1">
-            ❤️ {cast.likes_count}
-          </span>
-          <span className="flex items-center gap-1">
-            💬 {cast.replies_count}
-          </span>
-          <span className="flex items-center gap-1">
-            🔄 {cast.recasts_count}
-          </span>
-        </div>
-        
-        {/* Word count */}
-        {parsedData?.word_count && (
-          <span className="text-xs">
-            {parsedData.word_count} words
-          </span>
-        )}
-      </div>
-      
-      {/* Save info - IMPROVED VISIBILITY */}
-      <div className="mt-3 pt-3 border-t border-white/10">
-        <p className="text-xs text-gray-300">
-          Saved {formatDistanceToNow(new Date(cast.created_at), { addSuffix: true })}
-          {parsedData?.ai_tags && parsedData.ai_tags.length > 0 && (
-            <span className="ml-2 text-blue-300">• AI-tagged</span>
-          )}
-          {cast.notes && (
-            <span className="ml-2 text-yellow-300">• Has notes</span>
-          )}
-        </p>
-      </div>
     </div>
   )
 }
