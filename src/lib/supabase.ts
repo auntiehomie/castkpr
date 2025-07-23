@@ -367,7 +367,7 @@ export class CastService {
           // Create vault for this tag
           const vault = await CollectionService.createCollection(
             cleanTag,
-            `Auto-created vault for all casts tagged with "${cleanTag}"`,
+            `AI created vault`,
             userId,
             false
           )
@@ -501,66 +501,68 @@ export class CollectionService {
     console.log('✅ Cast added to vault')
   }
 
-  // Get casts in a collection - ENHANCED VERSION with better error handling
+  // Get casts in a collection - ALTERNATIVE APPROACH with explicit join
   static async getCollectionCasts(collectionId: string): Promise<Array<{
     cast_id: string;
     added_at: string;
     saved_casts: SavedCast;
   }>> {
-    console.log('🔍 Fetching casts for vault:', collectionId)
+    console.log('🔍 Fetching casts for vault (alternative method):', collectionId)
     
     try {
-      const { data, error } = await supabase
+      // Use a more explicit approach: get cast IDs first, then fetch casts
+      const { data: castCollections, error: ccError } = await supabase
         .from('cast_collections')
-        .select(`
-          cast_id,
-          added_at,
-          saved_casts (*)
-        `)
+        .select('cast_id, added_at')
         .eq('collection_id', collectionId)
         .order('added_at', { ascending: false })
 
-      if (error) {
-        console.error('❌ Supabase error fetching vault casts:', error)
-        throw new Error(`Database error: ${error.message}`)
+      if (ccError) {
+        console.error('❌ Error fetching cast_collections:', ccError)
+        throw new Error(`Failed to fetch vault associations: ${ccError.message}`)
       }
 
-      console.log('✅ Raw vault casts data:', data)
-      console.log('📊 Data structure sample:', data?.[0])
+      console.log('✅ Found cast associations:', castCollections?.length || 0)
 
-      if (!data || data.length === 0) {
-        console.log('📭 No casts found in this vault')
+      if (!castCollections || castCollections.length === 0) {
+        console.log('📭 No cast associations found for this vault')
         return []
       }
 
-      // Process the data to handle the Supabase join result properly
-      const processedData = data.map((item, index) => {
-        console.log(`🔍 Processing item ${index}:`, {
-          cast_id: item.cast_id,
-          added_at: item.added_at,
-          saved_casts_type: typeof item.saved_casts,
-          saved_casts_is_array: Array.isArray(item.saved_casts),
-          saved_casts_value: item.saved_casts
-        })
+      // Get the actual cast data
+      const castIds = castCollections.map(cc => cc.cast_id)
+      
+      const { data: savedCasts, error: castError } = await supabase
+        .from('saved_casts')
+        .select('*')
+        .in('id', castIds)
 
+      if (castError) {
+        console.error('❌ Error fetching saved casts:', castError)
+        throw new Error(`Failed to fetch cast data: ${castError.message}`)
+      }
+
+      console.log('✅ Found saved casts:', savedCasts?.length || 0)
+
+      // Combine the data
+      const result = castCollections.map(cc => {
+        const savedCast = savedCasts?.find(sc => sc.id === cc.cast_id)
         return {
-          cast_id: item.cast_id,
-          added_at: item.added_at,
-          saved_casts: Array.isArray(item.saved_casts) ? item.saved_casts[0] : item.saved_casts
+          cast_id: cc.cast_id,
+          added_at: cc.added_at,
+          saved_casts: savedCast
         }
-      }).filter(item => {
-        const isValid = item.saved_casts !== null && item.saved_casts !== undefined
-        if (!isValid) {
-          console.warn(`⚠️ Filtered out invalid cast: ${item.cast_id}`)
-        }
-        return isValid
-      })
+      }).filter(item => item.saved_casts !== undefined)
 
-      console.log('✅ Processed vault casts:', processedData.length)
-      return processedData
+      console.log('✅ Final processed vault casts:', result.length)
+      return result as Array<{
+        cast_id: string;
+        added_at: string;
+        saved_casts: SavedCast;
+      }>
       
     } catch (error) {
-      console.error('💥 Exception in getCollectionCasts:', error)
+      console.error('💥 Exception in getCollectionCasts (alternative):', error)
       throw error
     }
   }

@@ -21,6 +21,8 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   const [newVaultDescription, setNewVaultDescription] = useState('')
   const [allCasts, setAllCasts] = useState<SavedCast[]>([])
   const [showAddCasts, setShowAddCasts] = useState(false)
+  const [editingVault, setEditingVault] = useState<string | null>(null)
+  const [editDescription, setEditDescription] = useState('')
 
   // Auto-create vaults from tags
   const autoCreateVaultsFromTags = useCallback(async () => {
@@ -220,6 +222,37 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   const handleShowAddCasts = async () => {
     await fetchAllCasts()
     setShowAddCasts(true)
+  }
+
+  const startEditingVault = (vault: Collection) => {
+    setEditingVault(vault.id)
+    setEditDescription(vault.description || '')
+  }
+
+  const cancelEditingVault = () => {
+    setEditingVault(null)
+    setEditDescription('')
+  }
+
+  const saveVaultDescription = async (vaultId: string) => {
+    try {
+      await CollectionService.updateCollection(vaultId, userId, {
+        description: editDescription
+      })
+      
+      // Update local state
+      setVaults(prev => prev.map(vault => 
+        vault.id === vaultId 
+          ? { ...vault, description: editDescription }
+          : vault
+      ))
+      
+      setEditingVault(null)
+      setEditDescription('')
+    } catch (err) {
+      console.error('Error updating vault description:', err)
+      setError('Failed to update vault description')
+    }
   }
 
   if (loading) {
@@ -435,28 +468,69 @@ export default function VaultManager({ userId }: VaultManagerProps) {
             {vaults.map(vault => (
               <div
                 key={vault.id}
-                onClick={() => handleSelectVault(vault)}
-                className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 transition-all hover:bg-white/15 cursor-pointer group"
+                className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 transition-all hover:bg-white/15 group"
               >
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="font-semibold text-white group-hover:text-purple-300 transition-colors">
                     🗄️ {vault.name}
                   </h3>
-                  <span className="text-xs text-gray-400">
-                    {vault.is_public ? '🌍' : '🔒'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">
+                      {vault.is_public ? '🌍' : '🔒'}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        startEditingVault(vault)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-purple-300 text-xs"
+                      title="Edit vault description"
+                    >
+                      ✏️
+                    </button>
+                  </div>
                 </div>
                 
-                {vault.description && (
-                  <p className="text-gray-300 text-sm mb-3 line-clamp-2">
-                    {vault.description}
-                  </p>
+                {editingVault === vault.id ? (
+                  <div className="space-y-3">
+                    <textarea
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      placeholder="Add a description or notes for this vault..."
+                      className="w-full bg-white/10 border border-white/20 rounded px-3 py-2 text-white placeholder-gray-400 text-sm h-20 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => saveVaultDescription(vault.id)}
+                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={cancelEditingVault}
+                        className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-xs transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {vault.description && (
+                      <p className="text-gray-300 text-sm mb-3 line-clamp-2">
+                        {vault.description}
+                      </p>
+                    )}
+                    
+                    <div 
+                      className="flex items-center justify-between text-xs text-gray-400 cursor-pointer"
+                      onClick={() => handleSelectVault(vault)}
+                    >
+                      <span>Click to view</span>
+                      <span>→</span>
+                    </div>
+                  </>
                 )}
-                
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                  <span>Click to view</span>
-                  <span>→</span>
-                </div>
               </div>
             ))}
           </div>
