@@ -52,13 +52,14 @@ export default function VaultManager({ userId }: VaultManagerProps) {
       const castCollections = await CollectionService.getCollectionCasts(vaultId)
       console.log('📊 Raw vault casts data:', castCollections)
       
-      // Extract the actual SavedCast objects from the response
+      // Extract and flatten the actual SavedCast objects from the response
       const casts = castCollections
         .map(cc => cc.saved_casts)
-        .filter(cast => cast !== null && cast !== undefined)
+        .flat() // ✅ Flatten the arrays
+        .filter(cast => cast !== null && cast !== undefined) as SavedCast[]
       
       console.log('✅ Processed casts:', casts.length)
-      setVaultCasts(casts)
+      setVaultCasts(casts) // Now it's guaranteed to be SavedCast[]
     } catch (err) {
       console.error('❌ Error fetching vault casts:', err)
       console.error('❌ Error details:', {
@@ -143,6 +144,8 @@ export default function VaultManager({ userId }: VaultManagerProps) {
 
   const saveVaultDescription = async (vaultId: string) => {
     try {
+      // Note: This assumes you have an updateCollection method
+      // If not, you may need to add it to CollectionService
       await CollectionService.updateCollection(vaultId, userId, {
         description: editDescription
       })
