@@ -213,7 +213,12 @@ export class CastService {
   }
 
   // Update cast notes or category
-  static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }): Promise<SavedCast> {
+  static async updateCast(castId: string, userId: string, updates: { 
+    notes?: string; 
+    category?: string; 
+    tags?: string[];
+    parsed_data?: ParsedData;
+  }): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .update(updates)
