@@ -113,7 +113,7 @@ async function fetchCastFromNeynar(castHash: string): Promise<NeynarCastResponse
 /**
  * Fetches cast data from Farcaster Hub (free alternative)
  */
-async function fetchCastFromHub(castHash: string): Promise<any | null> {
+async function fetchCastFromHub(castHash: string): Promise<unknown | null> {
   try {
     console.log('🔍 Fetching cast from Farcaster Hub:', castHash)
     
@@ -147,7 +147,7 @@ async function fetchCastFromHub(castHash: string): Promise<any | null> {
 /**
  * Creates a fallback cast structure when API calls fail
  */
-function createFallbackCast(castHash: string, additionalInfo?: any): AnalyzedCast {
+function createFallbackCast(castHash: string, additionalInfo?: Partial<AnalyzedCast>): AnalyzedCast {
   console.log('🔄 Creating fallback cast structure')
   
   const fallbackText = additionalInfo?.text || `Cast saved from Farcaster - Hash: ${castHash}`
@@ -207,7 +207,7 @@ function extractTopics(text: string): string[] {
 /**
  * Enhanced content parsing with additional analysis
  */
-function enhancedContentParsing(text: string, mentions?: any[], embeds?: any[]): ParsedData {
+function enhancedContentParsing(text: string, mentions?: Array<{ username: string }>, embeds?: Array<{ url?: string }>): ParsedData {
   const basicParsing = ContentParser.parseContent(text)
   
   return {
@@ -238,12 +238,12 @@ function analyzeSentiment(text: string): string {
 /**
  * Main function to analyze a cast by its hash
  */
-export async function analyzeCast(castHash: string, fallbackInfo?: any): Promise<AnalyzedCast | null> {
+export async function analyzeCast(castHash: string, fallbackInfo?: Partial<AnalyzedCast>): Promise<AnalyzedCast | null> {
   try {
     console.log('🔍 Starting cast analysis for:', castHash)
 
     // Try Neynar API first (most complete data)
-    let castData = await fetchCastFromNeynar(castHash)
+    const castData = await fetchCastFromNeynar(castHash)
     
     if (castData?.cast) {
       console.log('✅ Using Neynar API data')

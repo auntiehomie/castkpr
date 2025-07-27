@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, ContentParser } from '@/lib/supabase'
-import { analyzeCast, isValidCastHash } from '@/lib/cast-analyzer'
-import type { SavedCast } from '@/lib/supabase'
+import { CastService } from '@/lib/supabase'
+import { analyzeCast } from '@/lib/cast-analyzer'
+import type { SavedCast, AnalyzedCast } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
@@ -413,7 +413,7 @@ export async function POST(request: NextRequest) {
 
 // Helper functions for analysis
 
-function calculateQualityScore(analyzedCast: any): number {
+function calculateQualityScore(analyzedCast: AnalyzedCast): number {
   let score = 50 // Base score
   
   // Content length scoring
@@ -463,7 +463,7 @@ function getContentType(text: string): string {
   return 'general'
 }
 
-function calculateEngagementPotential(analyzedCast: any): string {
+function calculateEngagementPotential(analyzedCast: AnalyzedCast): string {
   const score = calculateQualityScore(analyzedCast)
   const hasMedia = (analyzedCast.embeds?.length || 0) > 0
   const hasHashtags = (analyzedCast.parsed_data.hashtags?.length || 0) > 0

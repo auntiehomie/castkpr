@@ -22,7 +22,7 @@ interface EnhancedParsedData {
   sentiment?: 'positive' | 'negative' | 'neutral'
   sentiment_score?: number
   content_type?: string
-  engagement_potential?: 'low' | 'medium' | 'high'
+  engagement_potential?: 'low' | 'medium' | 'high' | 'very-high'
   entities?: {
     people?: string[]
     tokens?: string[]
@@ -466,8 +466,8 @@ export default function AnalyticsDashboard({ userId = 'demo-user' }: AnalyticsDa
           <div className="bg-white/5 rounded-lg p-4 max-w-md mx-auto">
             <h4 className="font-semibold text-white mb-2">Get started:</h4>
             <ol className="text-sm text-gray-300 text-left space-y-1">
-              <li>1. Reply "@cstkpr save this" to casts on Farcaster</li>
-              <li>2. Use "@cstkpr analyze this" for enhanced insights</li>
+              <li>1. Reply &quot;@cstkpr save this&quot; to casts on Farcaster</li>
+              <li>2. Use &quot;@cstkpr analyze this&quot; for enhanced insights</li>
               <li>3. Return here to see your analytics!</li>
             </ol>
           </div>
@@ -616,7 +616,7 @@ export default function AnalyticsDashboard({ userId = 'demo-user' }: AnalyticsDa
             <h5 className="font-medium text-green-300 mb-2">Recommendations</h5>
             <ul className="space-y-1 text-gray-300">
               {analyticsData.averageQuality < 60 && (
-                <li>• Try analyzing casts with "@cstkpr quality score" before saving</li>
+                <li>• Try analyzing casts with &quot;@cstkpr quality score&quot; before saving</li>
               )}
               {analyticsData.enhancedCasts < analyticsData.totalCasts * 0.3 && (
                 <li>• Use enhanced analysis for better insights</li>
