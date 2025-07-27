@@ -37,6 +37,9 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
+  // AI analysis fields
+  ai_category?: string
+  ai_tags?: string[]
   // Enhanced analysis fields
   quality_score?: number
   content_type?: string
