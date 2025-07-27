@@ -1,6 +1,9 @@
 import { ContentParser } from './supabase'
 import type { ParsedData } from './supabase'
 
+// Re-export AnalyzedCast type for webhook usage
+export type { AnalyzedCast } from './supabase'
+
 // Types for external API responses
 interface NeynarCastResponse {
   cast: {
