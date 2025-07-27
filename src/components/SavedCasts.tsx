@@ -436,23 +436,14 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
         ) : (
           <div className="space-y-4">
             {casts.map((cast: SavedCast) => (
-              <div key={cast.id} className="relative group">
-                <CastCard 
-                  cast={cast} 
-                  compact={false}
-                  userId={userId}
-                  onUpdate={handleCastUpdate}
-                />
-                {/* Delete button */}
-                <button
-                  onClick={() => handleDelete(cast.id)}
-                  className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm z-10"
-                  title="Delete saved cast"
-                  type="button"
-                >
-                  ×
-                </button>
-              </div>
+              <CastCard 
+                key={cast.id}
+                cast={cast} 
+                compact={false}
+                userId={userId}
+                onUpdate={handleCastUpdate}
+                onDelete={handleDelete}
+              />
             ))}
           </div>
         )}
