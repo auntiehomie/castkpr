@@ -13,6 +13,129 @@ interface CastCardProps {
   onDelete?: (castId: string) => void
 }
 
+interface EnhancedParsedData {
+  hashtags?: string[]
+  urls?: string[]
+  mentions?: string[]
+  word_count?: number
+  topics?: string[]
+  ai_category?: string
+  ai_tags?: string[]
+  // Enhanced analysis fields
+  quality_score?: number
+  sentiment?: 'positive' | 'negative' | 'neutral'
+  sentiment_score?: number
+  content_type?: string
+  engagement_potential?: 'low' | 'medium' | 'high'
+  entities?: {
+    people?: string[]
+    tokens?: string[]
+    projects?: string[]
+    companies?: string[]
+  }
+  confidence_score?: number
+  analysis_version?: string
+}
+
+function QualityScoreBar({ score }: { score: number }) {
+  const getColor = (score: number) => {
+    if (score >= 80) return 'bg-green-500'
+    if (score >= 60) return 'bg-yellow-500'
+    if (score >= 40) return 'bg-orange-500'
+    return 'bg-red-500'
+  }
+
+  const getLabel = (score: number) => {
+    if (score >= 80) return 'Excellent'
+    if (score >= 60) return 'Good'
+    if (score >= 40) return 'Fair'
+    return 'Poor'
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-gray-400">Quality Score</span>
+        <span className="text-white font-semibold">{score}/100 - {getLabel(score)}</span>
+      </div>
+      <div className="w-full bg-gray-700 rounded-full h-1.5">
+        <div 
+          className={`h-1.5 rounded-full transition-all duration-300 ${getColor(score)}`}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function SentimentBadge({ sentiment, score }: { sentiment: string, score?: number }) {
+  const getConfig = (sentiment: string) => {
+    switch (sentiment) {
+      case 'positive':
+        return { bg: 'bg-green-500/20', text: 'text-green-300', emoji: '😊', border: 'border-green-500/30' }
+      case 'negative':
+        return { bg: 'bg-red-500/20', text: 'text-red-300', emoji: '😞', border: 'border-red-500/30' }
+      default:
+        return { bg: 'bg-gray-500/20', text: 'text-gray-300', emoji: '😐', border: 'border-gray-500/30' }
+    }
+  }
+
+  const config = getConfig(sentiment)
+  
+  return (
+    <span className={`${config.bg} ${config.text} ${config.border} border px-2 py-1 rounded-full text-xs flex items-center gap-1`}>
+      <span>{config.emoji}</span>
+      {sentiment}{score && ` (${Math.abs(score).toFixed(1)})`}
+    </span>
+  )
+}
+
+function EngagementBadge({ potential }: { potential: string }) {
+  const getConfig = (potential: string) => {
+    switch (potential) {
+      case 'high':
+        return { bg: 'bg-purple-500/20', text: 'text-purple-300', icon: '🚀', border: 'border-purple-500/30' }
+      case 'medium':
+        return { bg: 'bg-blue-500/20', text: 'text-blue-300', icon: '📈', border: 'border-blue-500/30' }
+      default:
+        return { bg: 'bg-gray-500/20', text: 'text-gray-300', icon: '📊', border: 'border-gray-500/30' }
+    }
+  }
+
+  const config = getConfig(potential)
+  
+  return (
+    <span className={`${config.bg} ${config.text} ${config.border} border px-2 py-1 rounded-full text-xs flex items-center gap-1`}>
+      <span>{config.icon}</span>
+      {potential}
+    </span>
+  )
+}
+
+function ContentTypeBadge({ type }: { type: string }) {
+  const getConfig = (type: string) => {
+    const configs: Record<string, { bg: string, text: string, icon: string, border: string }> = {
+      'discussion': { bg: 'bg-blue-500/20', text: 'text-blue-300', icon: '💬', border: 'border-blue-500/30' },
+      'announcement': { bg: 'bg-purple-500/20', text: 'text-purple-300', icon: '📢', border: 'border-purple-500/30' },
+      'question': { bg: 'bg-yellow-500/20', text: 'text-yellow-300', icon: '❓', border: 'border-yellow-500/30' },
+      'meme': { bg: 'bg-pink-500/20', text: 'text-pink-300', icon: '😂', border: 'border-pink-500/30' },
+      'news': { bg: 'bg-red-500/20', text: 'text-red-300', icon: '📰', border: 'border-red-500/30' },
+      'opinion': { bg: 'bg-orange-500/20', text: 'text-orange-300', icon: '💭', border: 'border-orange-500/30' },
+      'technical': { bg: 'bg-green-500/20', text: 'text-green-300', icon: '⚙️', border: 'border-green-500/30' }
+    }
+    return configs[type] || { bg: 'bg-gray-500/20', text: 'text-gray-300', icon: '📝', border: 'border-gray-500/30' }
+  }
+
+  const config = getConfig(type)
+  
+  return (
+    <span className={`${config.bg} ${config.text} ${config.border} border px-2 py-1 rounded-full text-xs flex items-center gap-1`}>
+      <span>{config.icon}</span>
+      {type}
+    </span>
+  )
+}
+
 export default function CastCard({ 
   cast, 
   compact = false, 
@@ -25,6 +148,9 @@ export default function CastCard({
   const [tags, setTags] = useState<string[]>(cast.tags || [])
   const [newTag, setNewTag] = useState('')
   const [isUpdating, setIsUpdating] = useState(false)
+
+  const parsedData = cast.parsed_data as EnhancedParsedData
+  const hasEnhancedAnalysis = parsedData?.quality_score !== undefined
 
   const handleSaveChanges = async () => {
     if (!userId) return
@@ -115,15 +241,113 @@ export default function CastCard({
           </div>
         </div>
         
-        {/* Delete button */}
-        <button
-          onClick={handleDelete}
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-300 p-2"
-          title="Delete saved cast"
-        >
-          🗑️
-        </button>
+        {/* Enhanced Analysis Badge */}
+        {hasEnhancedAnalysis && (
+          <div className="flex items-center gap-2">
+            <span className="bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-purple-300 px-2 py-1 rounded-full text-xs border border-purple-500/30">
+              🧠 Enhanced
+            </span>
+            <button
+              onClick={handleDelete}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-300 p-2"
+              title="Delete saved cast"
+            >
+              🗑️
+            </button>
+          </div>
+        )}
+        
+        {!hasEnhancedAnalysis && (
+          <button
+            onClick={handleDelete}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-300 p-2"
+            title="Delete saved cast"
+          >
+            🗑️
+          </button>
+        )}
       </div>
+
+      {/* Enhanced Analysis Section */}
+      {hasEnhancedAnalysis && !compact && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/5 to-blue-500/5 rounded-lg border border-purple-500/20">
+          {/* Quality Score */}
+          {parsedData.quality_score && (
+            <div className="mb-3">
+              <QualityScoreBar score={parsedData.quality_score} />
+            </div>
+          )}
+
+          {/* Analysis Badges */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {parsedData.sentiment && (
+              <SentimentBadge sentiment={parsedData.sentiment} score={parsedData.sentiment_score} />
+            )}
+            {parsedData.engagement_potential && (
+              <EngagementBadge potential={parsedData.engagement_potential} />
+            )}
+            {parsedData.content_type && (
+              <ContentTypeBadge type={parsedData.content_type} />
+            )}
+            {parsedData.confidence_score && (
+              <span className="bg-white/10 text-gray-300 px-2 py-1 rounded-full text-xs border border-white/20">
+                {parsedData.confidence_score}% confidence
+              </span>
+            )}
+          </div>
+
+          {/* Enhanced Topics */}
+          {parsedData.topics && parsedData.topics.length > 0 && (
+            <div className="mb-2">
+              <div className="flex flex-wrap gap-1">
+                {parsedData.topics.slice(0, 5).map((topic, index) => (
+                  <span 
+                    key={index}
+                    className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full text-xs border border-purple-500/30"
+                  >
+                    #{topic}
+                  </span>
+                ))}
+                {parsedData.topics.length > 5 && (
+                  <span className="text-gray-400 text-xs px-2 py-1">
+                    +{parsedData.topics.length - 5} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Enhanced Entities */}
+          {parsedData.entities && (
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {parsedData.entities.tokens && parsedData.entities.tokens.length > 0 && (
+                <div>
+                  <span className="text-gray-400">Tokens:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {parsedData.entities.tokens.slice(0, 3).map((token, index) => (
+                      <span key={index} className="bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded text-xs border border-yellow-500/30">
+                        ${token}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {parsedData.entities.projects && parsedData.entities.projects.length > 0 && (
+                <div>
+                  <span className="text-gray-400">Projects:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {parsedData.entities.projects.slice(0, 3).map((project, index) => (
+                      <span key={index} className="bg-green-500/20 text-green-300 px-1 py-0.5 rounded text-xs border border-green-500/30">
+                        {project}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Content */}
       <div className="mb-4">
@@ -136,6 +360,11 @@ export default function CastCard({
           <span>❤️ {cast.likes_count}</span>
           <span>💬 {cast.replies_count}</span>
           <span>🔄 {cast.recasts_count}</span>
+          {parsedData?.word_count && (
+            <span className="text-xs">
+              📝 {parsedData.word_count} words
+            </span>
+          )}
         </div>
       )}
 
@@ -144,8 +373,11 @@ export default function CastCard({
         <div className="flex flex-wrap gap-2 mb-2">
           {/* Manual tags */}
           {(cast.tags || []).filter(tag => 
-            !(cast.parsed_data?.hashtags || []).includes(tag) && 
-            !(cast.parsed_data?.ai_tags || []).includes(tag)
+            !(parsedData?.hashtags || []).includes(tag) && 
+            !(parsedData?.ai_tags || []).includes(tag) &&
+            !(parsedData?.topics || []).includes(tag) &&
+            tag !== 'enhanced-analysis' &&
+            tag !== 'saved-via-bot'
           ).map(tag => (
             <span 
               key={tag} 
@@ -157,7 +389,7 @@ export default function CastCard({
           ))}
           
           {/* AI tags */}
-          {(cast.parsed_data?.ai_tags || []).map(tag => (
+          {(parsedData?.ai_tags || []).map(tag => (
             <span 
               key={tag} 
               className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full text-xs border border-blue-500/30"
@@ -168,7 +400,7 @@ export default function CastCard({
           ))}
           
           {/* Hashtags */}
-          {(cast.parsed_data?.hashtags || []).map(tag => (
+          {(parsedData?.hashtags || []).map(tag => (
             <span 
               key={tag} 
               className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full text-xs border border-purple-500/30"
@@ -214,7 +446,13 @@ export default function CastCard({
               
               {/* Existing Tags */}
               <div className="flex flex-wrap gap-2 mb-2">
-                {tags.map(tag => (
+                {tags.filter(tag => 
+                  !(parsedData?.hashtags || []).includes(tag) && 
+                  !(parsedData?.ai_tags || []).includes(tag) &&
+                  !(parsedData?.topics || []).includes(tag) &&
+                  tag !== 'enhanced-analysis' &&
+                  tag !== 'saved-via-bot'
+                ).map(tag => (
                   <span 
                     key={tag}
                     className="bg-green-500/20 text-green-300 px-2 py-1 rounded-full text-xs border border-green-500/30 flex items-center gap-1"
