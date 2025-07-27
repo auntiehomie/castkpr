@@ -437,10 +437,10 @@ function calculateQualityScore(analyzedCast: AnalyzedCast): number {
   else if (totalEngagement > 5) score += 5
   
   // Content richness scoring
-  if (analyzedCast.parsed_data.urls?.length > 0) score += 5
-  if (analyzedCast.parsed_data.hashtags?.length > 0) score += 5
-  if (analyzedCast.parsed_data.mentions?.length > 0) score += 5
-  if (analyzedCast.embeds?.length > 0) score += 5
+  if ((analyzedCast.parsed_data.urls?.length || 0) > 0) score += 5
+  if ((analyzedCast.parsed_data.hashtags?.length || 0) > 0) score += 5
+  if ((analyzedCast.parsed_data.mentions?.length || 0) > 0) score += 5
+  if ((analyzedCast.embeds?.length || 0) > 0) score += 5
   
   // Sentiment bonus
   if (analyzedCast.parsed_data.sentiment === 'positive') score += 5
