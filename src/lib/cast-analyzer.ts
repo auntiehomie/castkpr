@@ -1,9 +1,6 @@
 import { ContentParser } from './supabase'
 import type { ParsedData } from './supabase'
 
-// Re-export AnalyzedCast type for webhook usage
-export type { AnalyzedCast } from './supabase'
-
 // Types for external API responses
 interface NeynarCastResponse {
   cast: {
@@ -218,7 +215,7 @@ function enhancedContentParsing(text: string, mentions?: Array<{ username: strin
     topics: extractTopics(text),
     sentiment: analyzeSentiment(text),
     mentions: mentions?.map(m => m.username) || basicParsing.mentions,
-    urls: embeds?.map(e => e.url).filter(Boolean) || basicParsing.urls
+    urls: embeds?.map(e => e.url).filter((url): url is string => typeof url === 'string') || basicParsing.urls
   }
 }
 
@@ -276,7 +273,7 @@ export async function analyzeCast(castHash: string, fallbackInfo?: Partial<Analy
         ),
         cast_url: `https://warpcast.com/~/conversations/${castHash}`,
         channel: cast.channel,
-        embeds: cast.embeds?.map(e => e.url).filter(Boolean) || [],
+        embeds: cast.embeds?.map(e => e.url).filter((url): url is string => typeof url === 'string') || [],
         mentions: cast.mentioned_profiles
       }
     }
