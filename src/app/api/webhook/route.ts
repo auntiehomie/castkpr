@@ -1,7 +1,169 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService } from '@/lib/supabase'
+import { CastService, supabase } from '@/lib/supabase'
 import { analyzeCast } from '@/lib/cast-analyzer'
-import type { SavedCast, AnalyzedCast } from '@/lib/supabase'
+import type { SavedCast } from '@/lib/supabase'
+import type { AnalyzedCast } from '@/lib/cast-analyzer'
+
+interface NeynarReplyResponse {
+  success: boolean
+  cast?: {
+    hash: string
+    author: {
+      username: string
+    }
+  }
+  message?: string
+}
+
+/**
+ * Posts a reply cast using Neynar API
+ */
+async function postReplyWithNeynar(
+  text: string, 
+  parentHash: string, 
+  signerUuid: string
+): Promise<NeynarReplyResponse> {
+  const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY
+  
+  if (!NEYNAR_API_KEY) {
+    console.error('❌ NEYNAR_API_KEY not found')
+    return { success: false, message: 'API key not configured' }
+  }
+
+  try {
+    console.log('📤 Posting reply with Neynar API...')
+    
+    const response = await fetch('https://api.neynar.com/v2/farcaster/cast', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api_key': NEYNAR_API_KEY,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        signer_uuid: signerUuid,
+        text: text,
+        parent: parentHash
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Neynar reply error:', response.status, errorText)
+      return { 
+        success: false, 
+        message: `API error: ${response.status}` 
+      }
+    }
+
+    const data = await response.json()
+    console.log('✅ Reply posted successfully')
+    return { success: true, cast: data.cast }
+
+  } catch (error) {
+    console.error('❌ Error posting reply:', error)
+    return { 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+}
+
+/**
+ * Formats analysis results into a conversational response
+ */
+function formatAnalysisResponse(analysis: AnalyzedCast): string {
+  const { text, author, reactions, parsed_data, channel } = analysis
+  
+  // Build response parts
+  const parts: string[] = []
+  
+  // Header
+  parts.push(`🔍 **Cast Analysis for @${author.username}**`)
+  
+  // Basic stats
+  const stats = [
+    `❤️ ${reactions.likes_count} likes`,
+    `🔄 ${reactions.recasts_count} recasts`,
+    `💬 ${analysis.replies.count} replies`
+  ]
+  parts.push(`📊 ${stats.join(' • ')}`)
+  
+  // Content insights
+  if (parsed_data.word_count) {
+    parts.push(`📝 ${parsed_data.word_count} words`)
+  }
+  
+  // Sentiment
+  const sentimentEmoji = {
+    positive: '😊',
+    negative: '😔',
+    neutral: '😐'
+  }
+  parts.push(`${sentimentEmoji[parsed_data.sentiment as keyof typeof sentimentEmoji] || '😐'} Sentiment: ${parsed_data.sentiment || 'neutral'}`)
+  
+  // Topics
+  if (parsed_data.topics && parsed_data.topics.length > 0) {
+    parts.push(`🏷️ Topics: ${parsed_data.topics.slice(0, 3).join(', ')}`)
+  }
+  
+  // URLs
+  if (parsed_data.urls && parsed_data.urls.length > 0) {
+    parts.push(`🔗 Contains ${parsed_data.urls.length} link${parsed_data.urls.length !== 1 ? 's' : ''}`)
+  }
+  
+  // Mentions
+  if (parsed_data.mentions && parsed_data.mentions.length > 0) {
+    parts.push(`👥 Mentions ${parsed_data.mentions.length} user${parsed_data.mentions.length !== 1 ? 's' : ''}`)
+  }
+  
+  // Channel
+  if (channel) {
+    parts.push(`📺 Posted in /${channel.id}`)
+  }
+  
+  // Join with line breaks for readability
+  return parts.join('\n')
+}
+
+/**
+ * Formats save confirmation response
+ */
+function formatSaveResponse(cast: SavedCast): string {
+  return `✅ **Cast Saved!**
+
+📝 From: @${cast.username}
+💾 Saved to your collection
+🔗 ${cast.cast_url}
+
+Use the dashboard to view all saved casts!`
+}
+
+/**
+ * Formats help response
+ */
+function formatHelpResponse(): string {
+  return `🤖 **CastKPR Bot Commands**
+
+💾 \`@cstkpr save this\` - Save the parent cast
+🔍 \`@cstkpr analyze this\` - Analyze the parent cast
+📊 \`@cstkpr stats\` - View your save statistics
+❓ \`@cstkpr help\` - Show this help message
+
+Dashboard: [View your saved casts](https://your-app.vercel.app/dashboard)`
+}
+
+/**
+ * Formats stats response
+ */
+function formatStatsResponse(stats: { totalCasts: number }, username: string): string {
+  return `📊 **Stats for @${username}**
+
+💾 Total saved casts: ${stats.totalCasts}
+⏰ Last updated: ${new Date().toLocaleDateString()}
+
+Keep saving great content! 🚀`
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,7 +183,7 @@ export async function POST(request: NextRequest) {
     
     // Check for mentions
     const mentions = cast.mentioned_profiles || []
-    const mentionsBot = mentions.some((profile: { username?: string; fid?: number }) => {
+    const mentionsBot = mentions.some((profile: { username?: string }) => {
       return profile.username === 'cstkpr'
     })
     
@@ -32,456 +194,253 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Bot not mentioned' })
     }
     
-    // Parse command from cast text
     const text = cast.text.toLowerCase()
     console.log('💬 Cast text:', text)
     
     // Enhanced command detection
-    const isSaveCommand = text.includes('save this') || text.includes('save')
-    const isAnalyzeCommand = text.includes('analyze this') || text.includes('deep analysis')
-    const isQualityCommand = text.includes('quality score') || text.includes('score this')
-    const isSentimentCommand = text.includes('sentiment') || text.includes('mood')
-    const isTopicsCommand = text.includes('topics') || text.includes('extract topics')
-    const isHelpCommand = text.includes('help')
-    const isStatsCommand = text.includes('stats') || text.includes('my stats')
+    const commands = {
+      save: text.includes('save this') || text.includes('save'),
+      analyze: text.includes('analyze this') || text.includes('analyze'),
+      quality: text.includes('quality') || text.includes('rate'),
+      sentiment: text.includes('sentiment') || text.includes('feeling'),
+      topics: text.includes('topics') || text.includes('categories'),
+      help: text.includes('help') || text.includes('commands'),
+      stats: text.includes('stats') || text.includes('statistics')
+    }
     
-    console.log('🔍 Enhanced command detection:', {
-      save: isSaveCommand,
-      analyze: isAnalyzeCommand,
-      quality: isQualityCommand,
-      sentiment: isSentimentCommand,
-      topics: isTopicsCommand,
-      help: isHelpCommand,
-      stats: isStatsCommand
-    })
-
-    // Handle HELP command
-    if (isHelpCommand) {
+    console.log('🔍 Enhanced command detection:', commands)
+    
+    const parentHash = cast.parent_hash
+    const signerUuid = process.env.NEYNAR_SIGNER_UUID // You'll need to set this
+    
+    // Handle different commands
+    if (commands.help) {
       console.log('❓ Help command detected')
-      return NextResponse.json({
-        success: true,
-        message: 'CastKPR Bot Commands',
-        commands: [
-          '@cstkpr save this - Save cast with enhanced analysis',
-          '@cstkpr analyze this - Deep analysis of cast content',
-          '@cstkpr quality score - Get quality rating and insights',
-          '@cstkpr sentiment - Analyze mood and sentiment',
-          '@cstkpr topics - Extract topics and entities',
-          '@cstkpr stats - Your save statistics',
-          '@cstkpr help - Show this help'
-        ],
-        features: [
-          '🧠 AI-powered content analysis',
-          '📊 Quality scoring and insights',
-          '😊 Sentiment analysis',
-          '🏷️ Automatic topic extraction',
-          '🔗 Link and media analysis',
-          '📈 Personal analytics'
-        ]
+      
+      if (signerUuid) {
+        const response = formatHelpResponse()
+        await postReplyWithNeynar(response, cast.hash, signerUuid)
+      }
+      
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Help response sent' 
       })
     }
-
-    // Handle STATS command
-    if (isStatsCommand) {
+    
+    if (commands.stats) {
       console.log('📊 Stats command detected')
+      
       try {
         const stats = await CastService.getUserStats(cast.author.username)
-        return NextResponse.json({
-          success: true,
-          message: `Your CastKPR Stats`,
-          stats: {
-            totalCasts: stats.totalCasts,
-            user: cast.author.username
-          }
-        })
-      } catch (error) {
-        console.error('❌ Error fetching stats:', error)
-        return NextResponse.json({
-          success: false,
-          message: 'Failed to fetch your stats'
-        })
-      }
-    }
-
-    // Get parent hash for commands that need it
-    const parentHash = cast.parent_hash
-    
-    if ((isAnalyzeCommand || isQualityCommand || isSentimentCommand || isTopicsCommand || isSaveCommand) && !parentHash) {
-      return NextResponse.json({
-        success: false,
-        message: 'Please reply to a cast to use this command'
-      })
-    }
-
-    // Handle QUALITY SCORE command
-    if (isQualityCommand) {
-      console.log('📊 Quality score command detected')
-      
-      try {
-        const analyzedCast = await analyzeCast(parentHash)
         
-        if (!analyzedCast) {
-          return NextResponse.json({
-            success: false,
-            message: 'Could not fetch cast data for analysis'
-          })
+        if (signerUuid) {
+          const response = formatStatsResponse(stats, cast.author.username)
+          await postReplyWithNeynar(response, cast.hash, signerUuid)
         }
-
-        // Calculate a simple quality score based on available metrics
-        const qualityScore = calculateQualityScore(analyzedCast)
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Quality Analysis Complete',
-          quality_score: qualityScore,
-          breakdown: {
-            content_length: analyzedCast.text.length,
-            word_count: analyzedCast.parsed_data.word_count || 0,
-            has_urls: (analyzedCast.parsed_data.urls?.length || 0) > 0,
-            has_hashtags: (analyzedCast.parsed_data.hashtags?.length || 0) > 0,
-            has_mentions: (analyzedCast.parsed_data.mentions?.length || 0) > 0,
-            sentiment: analyzedCast.parsed_data.sentiment,
-            engagement: {
-              likes: analyzedCast.reactions.likes_count,
-              replies: analyzedCast.replies.count,
-              recasts: analyzedCast.reactions.recasts_count
-            }
-          },
-          cast_preview: analyzedCast.text.slice(0, 100) + (analyzedCast.text.length > 100 ? '...' : ''),
-          author: analyzedCast.author.username
-        })
-      } catch (error) {
-        console.error('❌ Quality score error:', error)
-        return NextResponse.json({
-          success: false,
-          message: 'Failed to analyze cast quality'
-        })
-      }
-    }
-
-    // Handle SENTIMENT command
-    if (isSentimentCommand) {
-      console.log('😊 Sentiment command detected')
-      
-      try {
-        const analyzedCast = await analyzeCast(parentHash)
-        
-        if (!analyzedCast) {
-          return NextResponse.json({
-            success: false,
-            message: 'Could not fetch cast data for analysis'
-          })
-        }
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Sentiment Analysis Complete',
-          sentiment: analyzedCast.parsed_data.sentiment,
-          details: {
-            word_count: analyzedCast.parsed_data.word_count,
-            topics: analyzedCast.parsed_data.topics || [],
-            has_positive_indicators: analyzedCast.parsed_data.sentiment === 'positive',
-            content_type: getContentType(analyzedCast.text)
-          },
-          cast_preview: analyzedCast.text.slice(0, 100) + (analyzedCast.text.length > 100 ? '...' : ''),
-          author: analyzedCast.author.username
-        })
-      } catch (error) {
-        console.error('❌ Sentiment analysis error:', error)
-        return NextResponse.json({
-          success: false,
-          message: 'Failed to analyze sentiment'
-        })
-      }
-    }
-
-    // Handle TOPICS command
-    if (isTopicsCommand) {
-      console.log('🏷️ Topics command detected')
-      
-      try {
-        const analyzedCast = await analyzeCast(parentHash)
-        
-        if (!analyzedCast) {
-          return NextResponse.json({
-            success: false,
-            message: 'Could not fetch cast data for analysis'
-          })
-        }
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Topic Extraction Complete',
-          topics: analyzedCast.parsed_data.topics || [],
-          hashtags: analyzedCast.parsed_data.hashtags || [],
-          mentions: analyzedCast.parsed_data.mentions || [],
-          urls: analyzedCast.parsed_data.urls || [],
-          content_analysis: {
-            word_count: analyzedCast.parsed_data.word_count,
-            content_type: getContentType(analyzedCast.text),
-            has_media: (analyzedCast.embeds?.length || 0) > 0
-          },
-          cast_preview: analyzedCast.text.slice(0, 100) + (analyzedCast.text.length > 100 ? '...' : ''),
-          author: analyzedCast.author.username
-        })
-      } catch (error) {
-        console.error('❌ Topic extraction error:', error)
-        return NextResponse.json({
-          success: false,
-          message: 'Failed to extract topics'
-        })
-      }
-    }
-
-    // Handle ANALYZE command
-    if (isAnalyzeCommand) {
-      console.log('🔍 Enhanced analyze command detected')
-      
-      try {
-        const analyzedCast = await analyzeCast(parentHash)
-        
-        if (!analyzedCast) {
-          return NextResponse.json({
-            success: false,
-            message: 'Could not fetch cast data for analysis'
-          })
-        }
-
-        const qualityScore = calculateQualityScore(analyzedCast)
-        const contentType = getContentType(analyzedCast.text)
-        const engagementPotential = calculateEngagementPotential(analyzedCast)
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Enhanced Analysis Complete',
-          analysis: {
-            quality_score: qualityScore,
-            sentiment: analyzedCast.parsed_data.sentiment,
-            content_type: contentType,
-            engagement_potential: engagementPotential,
-            topics: analyzedCast.parsed_data.topics?.slice(0, 5) || [],
-            media_analysis: {
-              has_images: analyzedCast.embeds?.some(url => isImageUrl(url)) || false,
-              has_videos: analyzedCast.embeds?.some(url => isVideoUrl(url)) || false,
-              has_links: (analyzedCast.parsed_data.urls?.length || 0) > 0
-            },
-            social_signals: {
-              has_hashtags: (analyzedCast.parsed_data.hashtags?.length || 0) > 0,
-              has_mentions: (analyzedCast.parsed_data.mentions?.length || 0) > 0,
-              word_count: analyzedCast.parsed_data.word_count
-            }
-          },
-          cast_info: {
-            author: analyzedCast.author.username,
-            content_preview: analyzedCast.text.slice(0, 150) + (analyzedCast.text.length > 150 ? '...' : ''),
-            engagement: {
-              likes: analyzedCast.reactions.likes_count,
-              recasts: analyzedCast.reactions.recasts_count,
-              replies: analyzedCast.replies.count
-            },
-            timestamp: analyzedCast.timestamp
-          }
-        })
-      } catch (error) {
-        console.error('❌ Error analyzing cast:', error)
-        return NextResponse.json({
-          success: false,
-          message: 'Failed to analyze cast'
-        })
-      }
-    }
-
-    // Handle SAVE command - Enhanced with full analysis
-    if (isSaveCommand) {
-      console.log('💾 Enhanced save command detected')
-      
-      try {
-        console.log('🔍 Analyzing cast before saving...')
-        const analyzedCast = await analyzeCast(parentHash)
-        
-        if (!analyzedCast) {
-          console.log('❌ Failed to analyze cast data')
-          return NextResponse.json({ error: 'Could not fetch cast data for analysis' }, { status: 500 })
-        }
-        
-        console.log('✅ Cast analyzed successfully')
-        console.log('📝 Cast author:', analyzedCast.author.username)
-        console.log('📝 Cast text length:', analyzedCast.text.length)
-        
-        // Calculate enhanced metrics
-        const qualityScore = calculateQualityScore(analyzedCast)
-        const contentType = getContentType(analyzedCast.text)
-        const engagementPotential = calculateEngagementPotential(analyzedCast)
-        
-        // Create enhanced cast data
-        const enhancedCastData = {
-          username: analyzedCast.author.username,
-          fid: analyzedCast.author.fid,
-          cast_hash: parentHash,
-          cast_content: analyzedCast.text,
-          cast_timestamp: analyzedCast.timestamp,
-          tags: [
-            ...(analyzedCast.parsed_data.topics || []),
-            contentType,
-            analyzedCast.parsed_data.sentiment || 'neutral',
-            engagementPotential,
-            'enhanced-analysis',
-            'saved-via-bot'
-          ] as string[],
-          likes_count: analyzedCast.reactions.likes_count,
-          replies_count: analyzedCast.replies.count,
-          recasts_count: analyzedCast.reactions.recasts_count,
-          
-          // Enhanced metadata
-          cast_url: analyzedCast.cast_url,
-          author_pfp_url: analyzedCast.author.pfp_url,
-          author_display_name: analyzedCast.author.display_name || analyzedCast.author.username,
-          saved_by_user_id: cast.author.username,
-          category: contentType,
-          notes: `💡 Quality: ${qualityScore}/100 | Sentiment: ${analyzedCast.parsed_data.sentiment} | Type: ${contentType} | Engagement: ${engagementPotential}`,
-          
-          // Enhanced parsed data
-          parsed_data: {
-            ...analyzedCast.parsed_data,
-            quality_score: qualityScore,
-            content_type: contentType,
-            engagement_potential: engagementPotential,
-            analysis_version: '2.0'
-          }
-        } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
-        
-        console.log('💾 Saving enhanced cast data...')
-        console.log('🔍 Analysis results:', {
-          quality: qualityScore,
-          sentiment: analyzedCast.parsed_data.sentiment,
-          topics: analyzedCast.parsed_data.topics?.slice(0, 3),
-          engagement: engagementPotential
-        })
-        
-        // Save to database
-        const savedCast = await CastService.saveCast(enhancedCastData)
-        console.log('✅ Enhanced cast saved successfully:', savedCast.cast_hash)
         
         return NextResponse.json({ 
           success: true, 
-          message: 'Cast saved with enhanced analysis',
-          cast_id: savedCast.cast_hash,
-          saved_cast_id: savedCast.id,
-          author: analyzedCast.author.username,
-          content_preview: analyzedCast.text.slice(0, 100) + (analyzedCast.text.length > 100 ? '...' : ''),
-          analysis_summary: {
-            quality_score: qualityScore,
-            sentiment: analyzedCast.parsed_data.sentiment,
-            content_type: contentType,
-            engagement_potential: engagementPotential,
-            topics: analyzedCast.parsed_data.topics?.slice(0, 3) || [],
-            word_count: analyzedCast.parsed_data.word_count
-          }
+          message: 'Stats response sent',
+          stats 
         })
-        
-      } catch (saveError) {
-        console.error('❌ Error saving enhanced cast:', saveError)
-        
-        // Handle duplicate save gracefully
-        if (saveError instanceof Error && saveError.message.includes('already saved')) {
-          return NextResponse.json({ 
-            success: false,
-            message: 'Cast already saved by this user',
-            duplicate: true
-          })
-        }
-        
-        return NextResponse.json({ 
-          error: 'Failed to save cast', 
-          details: saveError instanceof Error ? saveError.message : 'Unknown error' 
-        }, { status: 500 })
+      } catch (error) {
+        console.error('❌ Error fetching stats:', error)
+        return NextResponse.json({ error: 'Failed to fetch stats' }, { status: 500 })
       }
     }
-
-    // If no recognized command
-    console.log('❓ No recognized command')
-    return NextResponse.json({
-      success: false,
-      message: 'Command not recognized. Try: @cstkpr help for all available commands'
+    
+    if (commands.analyze) {
+      console.log('🔍 Enhanced analyze command detected')
+      
+      if (!parentHash) {
+        console.log('❌ No parent cast to analyze')
+        
+        if (signerUuid) {
+          await postReplyWithNeynar(
+            '❌ No parent cast found to analyze. Reply to a cast with "@cstkpr analyze this"',
+            cast.hash,
+            signerUuid
+          )
+        }
+        
+        return NextResponse.json({ message: 'No parent cast to analyze' })
+      }
+      
+      try {
+        const analysis = await analyzeCast(parentHash)
+        
+        if (analysis) {
+          console.log('✅ Analysis completed successfully')
+          
+          if (signerUuid) {
+            const response = formatAnalysisResponse(analysis)
+            const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+            
+            if (replyResult.success) {
+              console.log('✅ Analysis response sent successfully')
+            } else {
+              console.error('❌ Failed to send analysis response:', replyResult.message)
+            }
+          }
+          
+          return NextResponse.json({ 
+            success: true, 
+            message: 'Analysis completed and response sent',
+            analysis: {
+              hash: analysis.hash,
+              sentiment: analysis.parsed_data.sentiment,
+              topics: analysis.parsed_data.topics,
+              engagement: analysis.reactions
+            }
+          })
+        } else {
+          console.log('❌ Analysis failed')
+          
+          if (signerUuid) {
+            await postReplyWithNeynar(
+              '❌ Sorry, I couldn\'t analyze that cast. It might be private or unavailable.',
+              cast.hash,
+              signerUuid
+            )
+          }
+          
+          return NextResponse.json({ error: 'Analysis failed' }, { status: 500 })
+        }
+      } catch (error) {
+        console.error('❌ Error in analysis:', error)
+        return NextResponse.json({ error: 'Analysis error' }, { status: 500 })
+      }
+    }
+    
+    if (commands.save) {
+      console.log('💾 Save command detected')
+      
+      if (!parentHash) {
+        console.log('❌ No parent cast to save')
+        
+        if (signerUuid) {
+          await postReplyWithNeynar(
+            '❌ No parent cast found to save. Reply to a cast with "@cstkpr save this"',
+            cast.hash,
+            signerUuid
+          )
+        }
+        
+        return NextResponse.json({ message: 'No parent cast to save' })
+      }
+      
+      try {
+        // First analyze the cast to get full data
+        const analysis = await analyzeCast(parentHash)
+        
+        if (analysis) {
+          // Convert analysis to SavedCast format
+          const castData = {
+            username: analysis.author.username,
+            fid: analysis.author.fid,
+            cast_hash: parentHash,
+            cast_content: analysis.text,
+            cast_timestamp: analysis.timestamp,
+            tags: analysis.parsed_data.topics || ['saved-via-bot'],
+            likes_count: analysis.reactions.likes_count,
+            replies_count: analysis.replies.count,
+            recasts_count: analysis.reactions.recasts_count,
+            cast_url: analysis.cast_url,
+            author_pfp_url: analysis.author.pfp_url,
+            author_display_name: analysis.author.display_name,
+            saved_by_user_id: cast.author.username,
+            category: 'saved-via-bot',
+            notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
+            parsed_data: analysis.parsed_data
+          } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
+          
+          const savedCast = await CastService.saveCast(castData)
+          console.log('✅ Cast saved successfully:', savedCast.cast_hash)
+          
+          if (signerUuid) {
+            const response = formatSaveResponse(savedCast)
+            await postReplyWithNeynar(response, cast.hash, signerUuid)
+          }
+          
+          return NextResponse.json({ 
+            success: true, 
+            message: 'Cast saved and response sent',
+            cast_id: savedCast.cast_hash,
+            saved_cast_id: savedCast.id
+          })
+        } else {
+          // Fallback to basic save without analysis
+          const castData = {
+            username: `user-${cast.parent_author?.fid || 'unknown'}`,
+            fid: cast.parent_author?.fid || 0,
+            cast_hash: parentHash,
+            cast_content: `🔗 Cast saved from Farcaster - Hash: ${parentHash}`,
+            cast_timestamp: new Date().toISOString(),
+            tags: ['saved-via-bot'] as string[],
+            likes_count: 0,
+            replies_count: 0,
+            recasts_count: 0,
+            cast_url: `https://warpcast.com/~/conversations/${parentHash}`,
+            author_pfp_url: undefined,
+            author_display_name: `User ${cast.parent_author?.fid || 'Unknown'}`,
+            saved_by_user_id: cast.author.username,
+            category: 'saved-via-bot',
+            notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
+            parsed_data: {
+              urls: [`https://warpcast.com/~/conversations/${parentHash}`],
+              hashtags: ['cstkpr', 'saved'],
+              mentions: ['cstkpr'],
+              word_count: 0,
+              sentiment: 'neutral' as const,
+              topics: ['saved-cast']
+            }
+          } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
+          
+          const savedCast = await CastService.saveCast(castData)
+          
+          if (signerUuid) {
+            const response = formatSaveResponse(savedCast)
+            await postReplyWithNeynar(response, cast.hash, signerUuid)
+          }
+          
+          return NextResponse.json({ 
+            success: true, 
+            message: 'Cast saved (fallback) and response sent',
+            cast_id: savedCast.cast_hash
+          })
+        }
+      } catch (saveError) {
+        console.error('❌ Error saving cast:', saveError)
+        
+        if (signerUuid) {
+          await postReplyWithNeynar(
+            '❌ Sorry, I couldn\'t save that cast. It might already be saved or there was an error.',
+            cast.hash,
+            signerUuid
+          )
+        }
+        
+        return NextResponse.json({ error: 'Failed to save cast' }, { status: 500 })
+      }
+    }
+    
+    // Default response for unrecognized commands
+    if (signerUuid) {
+      await postReplyWithNeynar(
+        '🤖 I didn\'t recognize that command. Try "@cstkpr help" for available commands!',
+        cast.hash,
+        signerUuid
+      )
+    }
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Bot mentioned but no recognized command' 
     })
     
   } catch (error) {
     console.error('💥 Enhanced webhook error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
-
-// Helper functions for analysis
-
-function calculateQualityScore(analyzedCast: AnalyzedCast): number {
-  let score = 50 // Base score
-  
-  // Content length scoring
-  const textLength = analyzedCast.text.length
-  if (textLength > 200) score += 15
-  else if (textLength > 100) score += 10
-  else if (textLength > 50) score += 5
-  
-  // Word count scoring
-  const wordCount = analyzedCast.parsed_data.word_count || 0
-  if (wordCount > 30) score += 10
-  else if (wordCount > 15) score += 5
-  
-  // Engagement scoring
-  const totalEngagement = analyzedCast.reactions.likes_count + 
-                         analyzedCast.reactions.recasts_count + 
-                         analyzedCast.replies.count
-  if (totalEngagement > 50) score += 20
-  else if (totalEngagement > 20) score += 15
-  else if (totalEngagement > 10) score += 10
-  else if (totalEngagement > 5) score += 5
-  
-  // Content richness scoring
-  if ((analyzedCast.parsed_data.urls?.length || 0) > 0) score += 5
-  if ((analyzedCast.parsed_data.hashtags?.length || 0) > 0) score += 5
-  if ((analyzedCast.parsed_data.mentions?.length || 0) > 0) score += 5
-  if ((analyzedCast.embeds?.length || 0) > 0) score += 5
-  
-  // Sentiment bonus
-  if (analyzedCast.parsed_data.sentiment === 'positive') score += 5
-  
-  return Math.min(100, Math.max(0, score))
-}
-
-function getContentType(text: string): string {
-  const lowerText = text.toLowerCase()
-  
-  if (lowerText.includes('?') && lowerText.split('?').length > 2) return 'question'
-  if (lowerText.includes('gm') || lowerText.includes('good morning')) return 'greeting'
-  if (lowerText.includes('alpha') || lowerText.includes('trade') || lowerText.includes('$')) return 'alpha'
-  if (lowerText.includes('meme') || lowerText.includes('😂') || lowerText.includes('🤣')) return 'meme'
-  if (lowerText.includes('news') || lowerText.includes('announcement')) return 'news'
-  if (lowerText.includes('build') || lowerText.includes('ship') || lowerText.includes('dev')) return 'building'
-  if (lowerText.includes('art') || lowerText.includes('design')) return 'creative'
-  if (text.length > 200) return 'long-form'
-  
-  return 'general'
-}
-
-function calculateEngagementPotential(analyzedCast: AnalyzedCast): string {
-  const score = calculateQualityScore(analyzedCast)
-  const hasMedia = (analyzedCast.embeds?.length || 0) > 0
-  const hasHashtags = (analyzedCast.parsed_data.hashtags?.length || 0) > 0
-  const isPositive = analyzedCast.parsed_data.sentiment === 'positive'
-  
-  let potential = 'low'
-  
-  if (score > 80 && hasMedia && hasHashtags) potential = 'very-high'
-  else if (score > 70 && (hasMedia || hasHashtags)) potential = 'high'
-  else if (score > 60 || isPositive) potential = 'medium'
-  
-  return potential
-}
-
-function isImageUrl(url: string): boolean {
-  return /\.(jpg|jpeg|png|gif|webp)$/i.test(url)
-}
-
-function isVideoUrl(url: string): boolean {
-  return /\.(mp4|mov|avi|webm)$/i.test(url)
 }
