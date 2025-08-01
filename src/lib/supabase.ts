@@ -397,6 +397,28 @@ export class CollectionService {
     }>
   }
 
+  // Update collection
+  static async updateCollection(collectionId: string, userId: string, updates: { 
+    name?: string; 
+    description?: string; 
+    is_public?: boolean;
+  }): Promise<Collection> {
+    const { data, error } = await supabase
+      .from('collections')
+      .update(updates)
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating collection:', error)
+      throw error
+    }
+
+    return data
+  }
+
   // Delete collection
   static async deleteCollection(collectionId: string, userId: string): Promise<void> {
     const { error } = await supabase
