@@ -3,6 +3,12 @@ import { CastService } from '@/lib/supabase'
 import { analyzeCast } from '@/lib/cast-analyzer'
 import type { SavedCast, ParsedData } from '@/lib/supabase'
 import type { AnalyzedCast } from '@/lib/cast-analyzer'
+import OpenAI from 'openai'
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
 
 interface NeynarReplyResponse {
   success: boolean
@@ -70,104 +76,128 @@ async function postReplyWithNeynar(
 }
 
 /**
- * Generates a conversational summary of the cast content
+ * Enhanced AI-powered cast analysis using OpenAI
  */
-function generateCastSummary(text: string, parsedData: ParsedData, username: string): string {
-  const wordCount = parsedData.word_count || 0
-  const sentiment = parsedData.sentiment || 'neutral'
-  const topics = parsedData.topics || []
-  const hasLinks = parsedData.urls && parsedData.urls.length > 0
-  const hasMentions = parsedData.mentions && parsedData.mentions.length > 0
-  
-  // Start with a contextual opener
-  let summary = `@${username} shared `
-  
-  // Describe the type of content based on analysis
-  if (wordCount > 100) {
-    summary += "a detailed post "
-  } else if (wordCount > 50) {
-    summary += "a thoughtful message "
-  } else if (wordCount < 20) {
-    summary += "a brief note "
-  } else {
-    summary += "a post "
-  }
-  
-  // Add topic context
-  if (topics.length > 0) {
-    const primaryTopic = topics[0]
-    summary += `about ${primaryTopic}`
-    if (topics.length > 1) {
-      summary += ` and ${topics[1]}`
+async function generateAIAnalysis(analysis: AnalyzedCast): Promise<{
+  summary: string
+  insights: string[]
+  tone: string
+  keyPoints: string[]
+}> {
+  try {
+    const { text, author, reactions, parsed_data, channel } = analysis
+    
+    // Create a comprehensive prompt for GPT
+    const prompt = `
+You are analyzing a Farcaster social media post. Provide a thoughtful, conversational analysis.
+
+POST DETAILS:
+Author: @${author.username}
+Text: "${text}"
+Channel: ${channel?.id || 'general feed'}
+Engagement: ${reactions.likes_count} likes, ${reactions.recasts_count} recasts, ${analysis.replies.count} replies
+Topics detected: ${parsed_data.topics?.join(', ') || 'none'}
+Links: ${parsed_data.urls?.length || 0}
+Mentions: ${parsed_data.mentions?.length || 0}
+
+Please provide:
+1. SUMMARY: A 2-3 sentence conversational summary of what this post is really about (not just restating the text, but explaining the context, meaning, or significance)
+2. INSIGHTS: 2-3 bullet points of interesting observations about the content, style, or implications
+3. TONE: A nuanced description of the author's tone/mood (beyond just positive/negative/neutral)
+4. KEY_POINTS: The main takeaways or important points the author is making
+
+Format as JSON:
+{
+  "summary": "conversational summary here",
+  "insights": ["insight 1", "insight 2", "insight 3"],
+  "tone": "nuanced tone description",
+  "keyPoints": ["point 1", "point 2"]
+}
+`
+
+    console.log('🤖 Requesting AI analysis from OpenAI...')
+    
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Cost-effective model
+      messages: [
+        {
+          role: "system",
+          content: "You are a skilled social media analyst who provides insightful, conversational analysis of posts. Focus on meaning, context, and deeper insights rather than surface-level observations."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      response_format: { type: "json_object" }
+    })
+
+    const response = completion.choices[0]?.message?.content
+    if (!response) {
+      throw new Error('No response from OpenAI')
     }
-    summary += ". "
-  } else {
-    summary += "sharing their thoughts. "
-  }
-  
-  // Add sentiment context
-  const sentimentDescriptions = {
-    positive: "The tone is upbeat and optimistic.",
-    negative: "The message has a more serious or critical tone.",
-    neutral: "They take a balanced, informative approach."
-  }
-  summary += sentimentDescriptions[sentiment as keyof typeof sentimentDescriptions] || sentimentDescriptions.neutral
-  
-  // Add interaction elements
-  if (hasLinks && hasMentions) {
-    summary += " The cast includes links and mentions other users, suggesting active community engagement."
-  } else if (hasLinks) {
-    summary += " They've included links for additional context or resources."
-  } else if (hasMentions) {
-    summary += " The post engages with other community members through mentions."
-  }
-  
-  // Add content preview (first part of the text, truncated)
-  const preview = text.length > 100 ? text.substring(0, 97) + "..." : text
-  summary += `\n\n💭 *"${preview}"*`
-  
-  return summary
-}
 
-/**
- * Gets contextual description for sentiment
- */
-function getSentimentContext(sentiment: string): string {
-  switch (sentiment) {
-    case 'positive':
-      return 'Positive and upbeat'
-    case 'negative':
-      return 'Critical or serious'
-    case 'neutral':
-      return 'Balanced and informative'
-    default:
-      return 'Neutral tone'
+    const aiAnalysis = JSON.parse(response)
+    console.log('✅ AI analysis completed')
+    
+    return aiAnalysis
+
+  } catch (error) {
+    console.error('❌ Error in AI analysis:', error)
+    
+    // Fallback to basic analysis if AI fails
+    return {
+      summary: `@${analysis.author.username} shared a ${analysis.parsed_data.word_count || 0 > 50 ? 'detailed' : 'brief'} post about ${analysis.parsed_data.topics?.[0] || 'their thoughts'}.`,
+      insights: [
+        `Post received ${analysis.reactions.likes_count + analysis.reactions.recasts_count} total engagements`,
+        `Written in a ${analysis.parsed_data.sentiment || 'neutral'} tone`
+      ],
+      tone: analysis.parsed_data.sentiment || 'neutral',
+      keyPoints: analysis.parsed_data.topics?.slice(0, 2) || ['General discussion']
+    }
   }
 }
 
 /**
- * Formats analysis results into a conversational response with summary
+ * Enhanced conversational response with AI analysis
  */
-function formatAnalysisResponse(analysis: AnalyzedCast): string {
-  const { text, author, reactions, parsed_data, channel } = analysis
+async function formatAnalysisResponse(analysis: AnalyzedCast): Promise<string> {
+  const { author, reactions, parsed_data, channel } = analysis
   
-  // Build response parts
+  // Get AI-powered analysis
+  const aiAnalysis = await generateAIAnalysis(analysis)
+  
   const parts: string[] = []
   
-  // 🤖 Conversational Summary Section
-  parts.push(`🤖 **Cast Summary**`)
+  // 🤖 AI Summary Section
+  parts.push(`🤖 **Cast Analysis**`)
+  parts.push(aiAnalysis.summary)
   
-  // Generate a conversational summary based on content
-  const summary = generateCastSummary(text, parsed_data, author.username)
-  parts.push(summary)
+  // 💡 Key Insights
+  if (aiAnalysis.insights.length > 0) {
+    parts.push('') // Empty line
+    parts.push(`💡 **Key Insights**`)
+    aiAnalysis.insights.forEach(insight => {
+      parts.push(`• ${insight}`)
+    })
+  }
   
-  // Add some spacing
-  parts.push('') // Empty line for readability
+  // 🎯 Main Points
+  if (aiAnalysis.keyPoints.length > 0) {
+    parts.push('') // Empty line
+    parts.push(`🎯 **Main Points**`)
+    aiAnalysis.keyPoints.forEach(point => {
+      parts.push(`• ${point}`)
+    })
+  }
   
-  // 📊 Analysis Breakdown
-  parts.push(`📊 **Analysis Breakdown**`)
+  parts.push('') // Empty line
   
-  // Engagement stats
+  // 📊 Quick Stats
+  parts.push(`📊 **Stats & Details**`)
+  
   const stats = [
     `❤️ ${reactions.likes_count} likes`,
     `🔄 ${reactions.recasts_count} recasts`,
@@ -175,25 +205,11 @@ function formatAnalysisResponse(analysis: AnalyzedCast): string {
   ]
   parts.push(`📈 **Engagement:** ${stats.join(' • ')}`)
   
-  // Content insights
   if (parsed_data.word_count) {
     parts.push(`📝 **Length:** ${parsed_data.word_count} words`)
   }
   
-  // Sentiment with context
-  const sentimentEmoji = {
-    positive: '😊',
-    negative: '😔',
-    neutral: '😐'
-  }
-  const sentimentContext = getSentimentContext(parsed_data.sentiment || 'neutral')
-  parts.push(`${sentimentEmoji[parsed_data.sentiment as keyof typeof sentimentEmoji] || '😐'} **Tone:** ${sentimentContext}`)
-  
-  // Topics with context
-  if (parsed_data.topics && parsed_data.topics.length > 0) {
-    const topicsList = parsed_data.topics.slice(0, 3).join(', ')
-    parts.push(`🏷️ **Topics:** ${topicsList}`)
-  }
+  parts.push(`🎭 **Tone:** ${aiAnalysis.tone}`)
   
   // Content elements
   const contentElements: string[] = []
@@ -211,12 +227,10 @@ function formatAnalysisResponse(analysis: AnalyzedCast): string {
     parts.push(`🔗 **Contains:** ${contentElements.join(', ')}`)
   }
   
-  // Channel context
   if (channel) {
     parts.push(`📺 **Channel:** /${channel.id}`)
   }
   
-  // Join with line breaks for readability
   return parts.join('\n')
 }
 
@@ -307,6 +321,7 @@ export async function POST(request: NextRequest) {
     const parentHash = cast.parent_hash
     const signerUuid = process.env.NEYNAR_SIGNER_UUID
     const apiKey = process.env.NEYNAR_API_KEY
+    const openaiKey = process.env.OPENAI_API_KEY
     
     // 🔍 DEBUG: Environment Variables
     console.log('🔍 Environment Debug:')
@@ -314,7 +329,9 @@ export async function POST(request: NextRequest) {
     console.log('- NEYNAR_API_KEY first 8 chars:', apiKey?.substring(0, 8) || 'MISSING')
     console.log('- NEYNAR_SIGNER_UUID exists?', !!signerUuid)
     console.log('- NEYNAR_SIGNER_UUID first 8 chars:', signerUuid?.substring(0, 8) || 'MISSING')
-    console.log('- All NEYNAR env vars:', Object.keys(process.env).filter(key => key.includes('NEYNAR')))
+    console.log('- OPENAI_API_KEY exists?', !!openaiKey)
+    console.log('- OPENAI_API_KEY first 8 chars:', openaiKey?.substring(0, 8) || 'MISSING')
+    console.log('- All env vars:', Object.keys(process.env).filter(key => key.includes('NEYNAR') || key.includes('OPENAI')))
 
     if (!signerUuid) {
       console.error('❌ NEYNAR_SIGNER_UUID is undefined!')
@@ -323,7 +340,8 @@ export async function POST(request: NextRequest) {
         debug: {
           has_api_key: !!apiKey,
           has_signer: !!signerUuid,
-          env_keys: Object.keys(process.env).filter(key => key.includes('NEYNAR'))
+          has_openai: !!openaiKey,
+          env_keys: Object.keys(process.env).filter(key => key.includes('NEYNAR') || key.includes('OPENAI'))
         }
       }, { status: 500 })
     }
@@ -398,7 +416,8 @@ export async function POST(request: NextRequest) {
           console.log('✅ Analysis completed successfully')
           
           if (signerUuid) {
-            const response = formatAnalysisResponse(analysis)
+            // NOTE: formatAnalysisResponse is now async and needs await
+            const response = await formatAnalysisResponse(analysis)
             console.log('📝 Formatted response length:', response.length)
             console.log('📤 About to post reply with signer:', signerUuid.substring(0, 8) + '...')
             
