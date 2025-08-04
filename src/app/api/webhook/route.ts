@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, supabase } from '@/lib/supabase'
+import { CastService } from '@/lib/supabase'
 import { analyzeCast } from '@/lib/cast-analyzer'
-import type { SavedCast } from '@/lib/supabase'
+import type { SavedCast, ParsedData } from '@/lib/supabase'
 import type { AnalyzedCast } from '@/lib/cast-analyzer'
 
 interface NeynarReplyResponse {
@@ -72,7 +72,7 @@ async function postReplyWithNeynar(
 /**
  * Generates a conversational summary of the cast content
  */
-function generateCastSummary(text: string, parsedData: any, username: string): string {
+function generateCastSummary(text: string, parsedData: ParsedData, username: string): string {
   const wordCount = parsedData.word_count || 0
   const sentiment = parsedData.sentiment || 'neutral'
   const topics = parsedData.topics || []
