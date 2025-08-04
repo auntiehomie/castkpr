@@ -70,7 +70,83 @@ async function postReplyWithNeynar(
 }
 
 /**
- * Formats analysis results into a conversational response
+ * Generates a conversational summary of the cast content
+ */
+function generateCastSummary(text: string, parsedData: any, username: string): string {
+  const wordCount = parsedData.word_count || 0
+  const sentiment = parsedData.sentiment || 'neutral'
+  const topics = parsedData.topics || []
+  const hasLinks = parsedData.urls && parsedData.urls.length > 0
+  const hasMentions = parsedData.mentions && parsedData.mentions.length > 0
+  
+  // Start with a contextual opener
+  let summary = `@${username} shared `
+  
+  // Describe the type of content based on analysis
+  if (wordCount > 100) {
+    summary += "a detailed post "
+  } else if (wordCount > 50) {
+    summary += "a thoughtful message "
+  } else if (wordCount < 20) {
+    summary += "a brief note "
+  } else {
+    summary += "a post "
+  }
+  
+  // Add topic context
+  if (topics.length > 0) {
+    const primaryTopic = topics[0]
+    summary += `about ${primaryTopic}`
+    if (topics.length > 1) {
+      summary += ` and ${topics[1]}`
+    }
+    summary += ". "
+  } else {
+    summary += "sharing their thoughts. "
+  }
+  
+  // Add sentiment context
+  const sentimentDescriptions = {
+    positive: "The tone is upbeat and optimistic.",
+    negative: "The message has a more serious or critical tone.",
+    neutral: "They take a balanced, informative approach."
+  }
+  summary += sentimentDescriptions[sentiment as keyof typeof sentimentDescriptions] || sentimentDescriptions.neutral
+  
+  // Add interaction elements
+  if (hasLinks && hasMentions) {
+    summary += " The cast includes links and mentions other users, suggesting active community engagement."
+  } else if (hasLinks) {
+    summary += " They've included links for additional context or resources."
+  } else if (hasMentions) {
+    summary += " The post engages with other community members through mentions."
+  }
+  
+  // Add content preview (first part of the text, truncated)
+  const preview = text.length > 100 ? text.substring(0, 97) + "..." : text
+  summary += `\n\n💭 *"${preview}"*`
+  
+  return summary
+}
+
+/**
+ * Gets contextual description for sentiment
+ */
+function getSentimentContext(sentiment: string): string {
+  switch (sentiment) {
+    case 'positive':
+      return 'Positive and upbeat'
+    case 'negative':
+      return 'Critical or serious'
+    case 'neutral':
+      return 'Balanced and informative'
+    default:
+      return 'Neutral tone'
+  }
+}
+
+/**
+ * Formats analysis results into a conversational response with summary
  */
 function formatAnalysisResponse(analysis: AnalyzedCast): string {
   const { text, author, reactions, parsed_data, channel } = analysis
@@ -78,48 +154,66 @@ function formatAnalysisResponse(analysis: AnalyzedCast): string {
   // Build response parts
   const parts: string[] = []
   
-  // Header
-  parts.push(`🔍 **Cast Analysis for @${author.username}**`)
+  // 🤖 Conversational Summary Section
+  parts.push(`🤖 **Cast Summary**`)
   
-  // Basic stats
+  // Generate a conversational summary based on content
+  const summary = generateCastSummary(text, parsed_data, author.username)
+  parts.push(summary)
+  
+  // Add some spacing
+  parts.push('') // Empty line for readability
+  
+  // 📊 Analysis Breakdown
+  parts.push(`📊 **Analysis Breakdown**`)
+  
+  // Engagement stats
   const stats = [
     `❤️ ${reactions.likes_count} likes`,
     `🔄 ${reactions.recasts_count} recasts`,
     `💬 ${analysis.replies.count} replies`
   ]
-  parts.push(`📊 ${stats.join(' • ')}`)
+  parts.push(`📈 **Engagement:** ${stats.join(' • ')}`)
   
   // Content insights
   if (parsed_data.word_count) {
-    parts.push(`📝 ${parsed_data.word_count} words`)
+    parts.push(`📝 **Length:** ${parsed_data.word_count} words`)
   }
   
-  // Sentiment
+  // Sentiment with context
   const sentimentEmoji = {
     positive: '😊',
     negative: '😔',
     neutral: '😐'
   }
-  parts.push(`${sentimentEmoji[parsed_data.sentiment as keyof typeof sentimentEmoji] || '😐'} Sentiment: ${parsed_data.sentiment || 'neutral'}`)
+  const sentimentContext = getSentimentContext(parsed_data.sentiment || 'neutral')
+  parts.push(`${sentimentEmoji[parsed_data.sentiment as keyof typeof sentimentEmoji] || '😐'} **Tone:** ${sentimentContext}`)
   
-  // Topics
+  // Topics with context
   if (parsed_data.topics && parsed_data.topics.length > 0) {
-    parts.push(`🏷️ Topics: ${parsed_data.topics.slice(0, 3).join(', ')}`)
+    const topicsList = parsed_data.topics.slice(0, 3).join(', ')
+    parts.push(`🏷️ **Topics:** ${topicsList}`)
   }
   
-  // URLs
+  // Content elements
+  const contentElements: string[] = []
   if (parsed_data.urls && parsed_data.urls.length > 0) {
-    parts.push(`🔗 Contains ${parsed_data.urls.length} link${parsed_data.urls.length !== 1 ? 's' : ''}`)
+    contentElements.push(`${parsed_data.urls.length} link${parsed_data.urls.length !== 1 ? 's' : ''}`)
   }
-  
-  // Mentions
   if (parsed_data.mentions && parsed_data.mentions.length > 0) {
-    parts.push(`👥 Mentions ${parsed_data.mentions.length} user${parsed_data.mentions.length !== 1 ? 's' : ''}`)
+    contentElements.push(`${parsed_data.mentions.length} mention${parsed_data.mentions.length !== 1 ? 's' : ''}`)
+  }
+  if (parsed_data.hashtags && parsed_data.hashtags.length > 0) {
+    contentElements.push(`${parsed_data.hashtags.length} hashtag${parsed_data.hashtags.length !== 1 ? 's' : ''}`)
   }
   
-  // Channel
+  if (contentElements.length > 0) {
+    parts.push(`🔗 **Contains:** ${contentElements.join(', ')}`)
+  }
+  
+  // Channel context
   if (channel) {
-    parts.push(`📺 Posted in /${channel.id}`)
+    parts.push(`📺 **Channel:** /${channel.id}`)
   }
   
   // Join with line breaks for readability
