@@ -289,6 +289,12 @@ export async function POST(request: NextRequest) {
     const cast = body.data
     console.log('📝 Processing cast from:', cast.author.username)
     
+    // 🛡️ Prevent bot from responding to itself
+    if (cast.author.username === 'cstkpr') {
+      console.log('🤖 Ignoring cast from bot itself to prevent loops')
+      return NextResponse.json({ message: 'Ignoring bot self-cast' })
+    }
+    
     // Check for mentions
     const mentions = cast.mentioned_profiles || []
     const mentionsBot = mentions.some((profile: { username?: string }) => {
