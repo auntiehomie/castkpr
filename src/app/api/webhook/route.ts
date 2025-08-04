@@ -211,7 +211,34 @@ export async function POST(request: NextRequest) {
     console.log('🔍 Enhanced command detection:', commands)
     
     const parentHash = cast.parent_hash
-    const signerUuid = process.env.NEYNAR_SIGNER_UUID // You'll need to set this
+    const signerUuid = process.env.NEYNAR_SIGNER_UUID
+    const apiKey = process.env.NEYNAR_API_KEY
+    
+    // 🔍 DEBUG: Environment Variables
+    console.log('🔍 Environment Debug:')
+    console.log('- NEYNAR_API_KEY exists?', !!apiKey)
+    console.log('- NEYNAR_API_KEY first 8 chars:', apiKey?.substring(0, 8) || 'MISSING')
+    console.log('- NEYNAR_SIGNER_UUID exists?', !!signerUuid)
+    console.log('- NEYNAR_SIGNER_UUID first 8 chars:', signerUuid?.substring(0, 8) || 'MISSING')
+    console.log('- All NEYNAR env vars:', Object.keys(process.env).filter(key => key.includes('NEYNAR')))
+
+    if (!signerUuid) {
+      console.error('❌ NEYNAR_SIGNER_UUID is undefined!')
+      return NextResponse.json({ 
+        error: 'Bot configuration error - signer not found',
+        debug: {
+          has_api_key: !!apiKey,
+          has_signer: !!signerUuid,
+          env_keys: Object.keys(process.env).filter(key => key.includes('NEYNAR'))
+        }
+      }, { status: 500 })
+    }
+    if (!apiKey) {
+      console.error('❌ NEYNAR_API_KEY is undefined!')
+      return NextResponse.json({ 
+        error: 'Bot configuration error - API key not found'
+      }, { status: 500 })
+    }
     
     // Handle different commands
     if (commands.help) {
@@ -219,7 +246,8 @@ export async function POST(request: NextRequest) {
       
       if (signerUuid) {
         const response = formatHelpResponse()
-        await postReplyWithNeynar(response, cast.hash, signerUuid)
+        const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+        console.log('📤 Help reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
       }
       
       return NextResponse.json({ 
@@ -236,7 +264,8 @@ export async function POST(request: NextRequest) {
         
         if (signerUuid) {
           const response = formatStatsResponse(stats, cast.author.username)
-          await postReplyWithNeynar(response, cast.hash, signerUuid)
+          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+          console.log('📤 Stats reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
         }
         
         return NextResponse.json({ 
@@ -257,11 +286,12 @@ export async function POST(request: NextRequest) {
         console.log('❌ No parent cast to analyze')
         
         if (signerUuid) {
-          await postReplyWithNeynar(
+          const replyResult = await postReplyWithNeynar(
             '❌ No parent cast found to analyze. Reply to a cast with "@cstkpr analyze this"',
             cast.hash,
             signerUuid
           )
+          console.log('📤 Error reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
         }
         
         return NextResponse.json({ message: 'No parent cast to analyze' })
@@ -275,6 +305,9 @@ export async function POST(request: NextRequest) {
           
           if (signerUuid) {
             const response = formatAnalysisResponse(analysis)
+            console.log('📝 Formatted response length:', response.length)
+            console.log('📤 About to post reply with signer:', signerUuid.substring(0, 8) + '...')
+            
             const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
             
             if (replyResult.success) {
@@ -282,6 +315,8 @@ export async function POST(request: NextRequest) {
             } else {
               console.error('❌ Failed to send analysis response:', replyResult.message)
             }
+          } else {
+            console.error('❌ No signer UUID available for reply')
           }
           
           return NextResponse.json({ 
@@ -298,11 +333,12 @@ export async function POST(request: NextRequest) {
           console.log('❌ Analysis failed')
           
           if (signerUuid) {
-            await postReplyWithNeynar(
+            const replyResult = await postReplyWithNeynar(
               '❌ Sorry, I couldn\'t analyze that cast. It might be private or unavailable.',
               cast.hash,
               signerUuid
             )
+            console.log('📤 Failure reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
           }
           
           return NextResponse.json({ error: 'Analysis failed' }, { status: 500 })
@@ -320,11 +356,12 @@ export async function POST(request: NextRequest) {
         console.log('❌ No parent cast to save')
         
         if (signerUuid) {
-          await postReplyWithNeynar(
+          const replyResult = await postReplyWithNeynar(
             '❌ No parent cast found to save. Reply to a cast with "@cstkpr save this"',
             cast.hash,
             signerUuid
           )
+          console.log('📤 Error reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
         }
         
         return NextResponse.json({ message: 'No parent cast to save' })
@@ -360,7 +397,8 @@ export async function POST(request: NextRequest) {
           
           if (signerUuid) {
             const response = formatSaveResponse(savedCast)
-            await postReplyWithNeynar(response, cast.hash, signerUuid)
+            const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+            console.log('📤 Save reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
           }
           
           return NextResponse.json({ 
@@ -401,7 +439,8 @@ export async function POST(request: NextRequest) {
           
           if (signerUuid) {
             const response = formatSaveResponse(savedCast)
-            await postReplyWithNeynar(response, cast.hash, signerUuid)
+            const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+            console.log('📤 Fallback save reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
           }
           
           return NextResponse.json({ 
@@ -414,11 +453,12 @@ export async function POST(request: NextRequest) {
         console.error('❌ Error saving cast:', saveError)
         
         if (signerUuid) {
-          await postReplyWithNeynar(
+          const replyResult = await postReplyWithNeynar(
             '❌ Sorry, I couldn\'t save that cast. It might already be saved or there was an error.',
             cast.hash,
             signerUuid
           )
+          console.log('📤 Save error reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
         }
         
         return NextResponse.json({ error: 'Failed to save cast' }, { status: 500 })
@@ -427,11 +467,12 @@ export async function POST(request: NextRequest) {
     
     // Default response for unrecognized commands
     if (signerUuid) {
-      await postReplyWithNeynar(
+      const replyResult = await postReplyWithNeynar(
         '🤖 I didn\'t recognize that command. Try "@cstkpr help" for available commands!',
         cast.hash,
         signerUuid
       )
+      console.log('📤 Default reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
     }
     
     return NextResponse.json({ 
