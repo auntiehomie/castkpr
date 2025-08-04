@@ -161,116 +161,40 @@ Format as JSON:
 }
 
 /**
- * Enhanced conversational response with AI analysis
+ * Concise analysis response for non-Pro accounts (under 320 characters)
  */
 async function formatAnalysisResponse(analysis: AnalyzedCast): Promise<string> {
-  const { author, reactions, parsed_data, channel } = analysis
+  const { author, reactions, parsed_data } = analysis
   
   // Get AI-powered analysis
   const aiAnalysis = await generateAIAnalysis(analysis)
   
-  const parts: string[] = []
+  // Create a very concise 2-sentence response
+  const engagement = `${reactions.likes_count}❤️ ${reactions.recasts_count}🔄 ${analysis.replies.count}💬`
+  const tone = aiAnalysis.tone.split(' ')[0] // Just first word of tone
   
-  // 🤖 AI Summary Section
-  parts.push(`🤖 **Cast Analysis**`)
-  parts.push(aiAnalysis.summary)
-  
-  // 💡 Key Insights
-  if (aiAnalysis.insights.length > 0) {
-    parts.push('') // Empty line
-    parts.push(`💡 **Key Insights**`)
-    aiAnalysis.insights.forEach(insight => {
-      parts.push(`• ${insight}`)
-    })
-  }
-  
-  // 🎯 Main Points
-  if (aiAnalysis.keyPoints.length > 0) {
-    parts.push('') // Empty line
-    parts.push(`🎯 **Main Points**`)
-    aiAnalysis.keyPoints.forEach(point => {
-      parts.push(`• ${point}`)
-    })
-  }
-  
-  parts.push('') // Empty line
-  
-  // 📊 Quick Stats
-  parts.push(`📊 **Stats & Details**`)
-  
-  const stats = [
-    `❤️ ${reactions.likes_count} likes`,
-    `🔄 ${reactions.recasts_count} recasts`,
-    `💬 ${analysis.replies.count} replies`
-  ]
-  parts.push(`📈 **Engagement:** ${stats.join(' • ')}`)
-  
-  if (parsed_data.word_count) {
-    parts.push(`📝 **Length:** ${parsed_data.word_count} words`)
-  }
-  
-  parts.push(`🎭 **Tone:** ${aiAnalysis.tone}`)
-  
-  // Content elements
-  const contentElements: string[] = []
-  if (parsed_data.urls && parsed_data.urls.length > 0) {
-    contentElements.push(`${parsed_data.urls.length} link${parsed_data.urls.length !== 1 ? 's' : ''}`)
-  }
-  if (parsed_data.mentions && parsed_data.mentions.length > 0) {
-    contentElements.push(`${parsed_data.mentions.length} mention${parsed_data.mentions.length !== 1 ? 's' : ''}`)
-  }
-  if (parsed_data.hashtags && parsed_data.hashtags.length > 0) {
-    contentElements.push(`${parsed_data.hashtags.length} hashtag${parsed_data.hashtags.length !== 1 ? 's' : ''}`)
-  }
-  
-  if (contentElements.length > 0) {
-    parts.push(`🔗 **Contains:** ${contentElements.join(', ')}`)
-  }
-  
-  if (channel) {
-    parts.push(`📺 **Channel:** /${channel.id}`)
-  }
-  
-  return parts.join('\n')
+  return `🤖 ${aiAnalysis.summary.split('.')[0]}. 📊 ${engagement} • ${tone} tone • ${parsed_data.word_count || 0} words`
 }
 
 /**
- * Formats save confirmation response
+ * Formats save confirmation response (concise)
  */
 function formatSaveResponse(cast: SavedCast): string {
-  return `✅ **Cast Saved!**
-
-📝 From: @${cast.username}
-💾 Saved to your collection
-🔗 ${cast.cast_url}
-
-Use the dashboard to view all saved casts!`
+  return `✅ Cast saved from @${cast.username}! View all saved casts in your dashboard.`
 }
 
 /**
- * Formats help response
+ * Formats help response (concise)
  */
 function formatHelpResponse(): string {
-  return `🤖 **CastKPR Bot Commands**
-
-💾 \`@cstkpr save this\` - Save the parent cast
-🔍 \`@cstkpr analyze this\` - Analyze the parent cast
-📊 \`@cstkpr stats\` - View your save statistics
-❓ \`@cstkpr help\` - Show this help message
-
-Dashboard: [View your saved casts](https://your-app.vercel.app/dashboard)`
+  return `🤖 Commands: @cstkpr save this | analyze this | stats | help`
 }
 
 /**
- * Formats stats response
+ * Formats stats response (concise)
  */
 function formatStatsResponse(stats: { totalCasts: number }, username: string): string {
-  return `📊 **Stats for @${username}**
-
-💾 Total saved casts: ${stats.totalCasts}
-⏰ Last updated: ${new Date().toLocaleDateString()}
-
-Keep saving great content! 🚀`
+  return `📊 @${username} has saved ${stats.totalCasts} cast${stats.totalCasts !== 1 ? 's' : ''}! Keep saving great content 🚀`
 }
 
 export async function POST(request: NextRequest) {
@@ -405,7 +329,7 @@ export async function POST(request: NextRequest) {
         
         if (signerUuid) {
           const replyResult = await postReplyWithNeynar(
-            '❌ No parent cast found to analyze. Reply to a cast with "@cstkpr analyze this"',
+            '❌ No parent cast found. Reply to a cast with "@cstkpr analyze this"',
             cast.hash,
             signerUuid
           )
@@ -425,6 +349,7 @@ export async function POST(request: NextRequest) {
             // NOTE: formatAnalysisResponse is now async and needs await
             const response = await formatAnalysisResponse(analysis)
             console.log('📝 Formatted response length:', response.length)
+            console.log('📝 Response content:', response)
             console.log('📤 About to post reply with signer:', signerUuid.substring(0, 8) + '...')
             
             const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
@@ -453,7 +378,7 @@ export async function POST(request: NextRequest) {
           
           if (signerUuid) {
             const replyResult = await postReplyWithNeynar(
-              '❌ Sorry, I couldn\'t analyze that cast. It might be private or unavailable.',
+              '❌ Sorry, couldn\'t analyze that cast. It might be unavailable.',
               cast.hash,
               signerUuid
             )
@@ -476,7 +401,7 @@ export async function POST(request: NextRequest) {
         
         if (signerUuid) {
           const replyResult = await postReplyWithNeynar(
-            '❌ No parent cast found to save. Reply to a cast with "@cstkpr save this"',
+            '❌ No parent cast found. Reply to a cast with "@cstkpr save this"',
             cast.hash,
             signerUuid
           )
@@ -573,7 +498,7 @@ export async function POST(request: NextRequest) {
         
         if (signerUuid) {
           const replyResult = await postReplyWithNeynar(
-            '❌ Sorry, I couldn\'t save that cast. It might already be saved or there was an error.',
+            '❌ Couldn\'t save that cast. It might already be saved.',
             cast.hash,
             signerUuid
           )
@@ -587,7 +512,7 @@ export async function POST(request: NextRequest) {
     // Default response for unrecognized commands
     if (signerUuid) {
       const replyResult = await postReplyWithNeynar(
-        '🤖 I didn\'t recognize that command. Try "@cstkpr help" for available commands!',
+        '🤖 Command not recognized. Try "@cstkpr help" for commands!',
         cast.hash,
         signerUuid
       )
