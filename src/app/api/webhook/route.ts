@@ -1,6 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService, supabase } from '@/lib/supabase'
-import type { SavedCast, BotConversation } from '@/lib/supabase'
+import type { SavedCast, ParsedData } from '@/lib/supabase'
+
+// Type definitions for webhook data
+interface CastAuthor {
+  fid: number
+  username: string
+  display_name?: string
+  pfp_url?: string
+}
+
+interface MentionedProfile {
+  username?: string
+  fid?: number
+}
+
+interface WebhookCast {
+  text: string
+  author: CastAuthor
+  parent_author?: CastAuthor
+  parent_hash?: string
+  mentioned_profiles?: MentionedProfile[]
+}
+
+interface WebhookBody {
+  type: string
+  data: WebhookCast
+}
+
+// Bot conversation interface (add this to your supabase.ts later)
+interface BotConversation {
+  id: string
+  user_id: string
+  user_fid?: number
+  parent_cast_hash?: string
+  user_message: string
+  bot_response: string
+  command_type: string
+  context_data?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+interface BotResponse {
+  commandType: string
+  response: string
+  contextData: Record<string, unknown>
+}
 
 // Bot conversation service
 export class BotConversationService {
@@ -46,7 +92,7 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🎯 Webhook received!')
     
-    const body = await request.json()
+    const body = await request.json() as WebhookBody
     
     if (body.type !== 'cast.created') {
       return NextResponse.json({ message: 'Event type not handled' })
@@ -57,7 +103,7 @@ export async function POST(request: NextRequest) {
     
     // Check for mentions
     const mentions = cast.mentioned_profiles || []
-    const mentionsBot = mentions.some((profile: { username?: string; fid?: number }) => {
+    const mentionsBot = mentions.some((profile: MentionedProfile) => {
       return profile.username === 'cstkpr'
     })
     
@@ -73,13 +119,13 @@ export async function POST(request: NextRequest) {
     console.log('👆 Parent hash:', parentHash)
     
     // Determine command type and generate response
-    const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash, cast)
+    const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash ?? null, cast)
     
     // Save the conversation
     await BotConversationService.saveConversation({
       user_id: userId,
       user_fid: cast.author.fid,
-      parent_cast_hash: parentHash,
+      parent_cast_hash: parentHash || undefined,
       user_message: cast.text,
       bot_response: response,
       command_type: commandType,
@@ -112,16 +158,16 @@ async function generateBotResponse(
   text: string, 
   userId: string, 
   parentHash: string | null,
-  cast: any
-): Promise<{ commandType: string; response: string; contextData: any }> {
+  cast: WebhookCast
+): Promise<BotResponse> {
   
   // Get conversation history for context
-  const conversationHistory = await BotConversationService.getConversationHistory(userId, parentHash, 3)
+  const conversationHistory = await BotConversationService.getConversationHistory(userId, parentHash || undefined, 3)
   
   // Determine command type
   let commandType = 'unknown'
   let response = ''
-  let contextData: any = {}
+  const contextData: Record<string, unknown> = {}
   
   if (text.includes('save this') || text.includes('save')) {
     commandType = 'save'
@@ -134,11 +180,9 @@ async function generateBotResponse(
       // Get info about the parent cast to form an opinion
       const savedCast = await getSavedCastByHash(parentHash)
       response = generateOpinionResponse(savedCast, conversationHistory)
-      contextData = { 
-        opinion_about: 'cast',
-        cast_hash: parentHash,
-        sentiment: 'analyzed' // You could add sentiment analysis here
-      }
+      contextData.opinion_about = 'cast'
+      contextData.cast_hash = parentHash
+      contextData.sentiment = 'analyzed'
     } else {
       response = "🤔 I'd love to share my thoughts! What specific cast or topic would you like my opinion on?"
     }
@@ -149,10 +193,8 @@ async function generateBotResponse(
     // Extract what they want explained
     const termToExplain = extractTermToExplain(text)
     response = generateExplanation(termToExplain)
-    contextData = { 
-      explained_term: termToExplain,
-      explanation_type: 'technical'
-    }
+    contextData.explained_term = termToExplain
+    contextData.explanation_type = 'technical'
     
   } else if (text.includes('analyze') || text.includes('breakdown')) {
     commandType = 'analyze'
@@ -160,10 +202,8 @@ async function generateBotResponse(
     if (parentHash) {
       const savedCast = await getSavedCastByHash(parentHash)
       response = generateAnalysis(savedCast)
-      contextData = {
-        analysis_type: 'cast_content',
-        cast_hash: parentHash
-      }
+      contextData.analysis_type = 'cast_content'
+      contextData.cast_hash = parentHash
     } else {
       response = "📊 I can analyze any cast for you! Which one would you like me to break down?"
     }
@@ -172,7 +212,7 @@ async function generateBotResponse(
     commandType = 'stats'
     const userStats = await CastService.getUserStats(userId)
     response = `📈 Your CastKPR stats: ${userStats.totalCasts} saved casts! You're building quite the collection.`
-    contextData = { stats: userStats }
+    contextData.stats = userStats
     
   } else if (text.includes('help')) {
     commandType = 'help'
@@ -182,10 +222,8 @@ async function generateBotResponse(
     // This is a follow-up in an existing conversation
     commandType = 'followup'
     response = generateFollowupResponse(text, conversationHistory)
-    contextData = { 
-      followup_to: conversationHistory[0]?.command_type,
-      conversation_length: conversationHistory.length
-    }
+    contextData.followup_to = conversationHistory[0]?.command_type
+    contextData.conversation_length = conversationHistory.length
     
   } else {
     commandType = 'general'
@@ -198,12 +236,15 @@ async function generateBotResponse(
 async function getSavedCastByHash(castHash: string): Promise<SavedCast | null> {
   try {
     return await CastService.getCastByHash(castHash)
-  } catch (error) {
+  } catch {
     return null
   }
 }
 
 function generateOpinionResponse(savedCast: SavedCast | null, history: BotConversation[]): string {
+  // Remove unused parameter warning
+  void history
+  
   if (!savedCast) {
     return "🤔 Interesting cast! I'd need to save it first to give you my full analysis, but from what I can see, it seems worth discussing."
   }
@@ -221,7 +262,7 @@ function generateOpinionResponse(savedCast: SavedCast | null, history: BotConver
 
 function generateExplanation(term: string): string {
   // You could integrate with an AI service here, or maintain a knowledge base
-  const explanations: { [key: string]: string } = {
+  const explanations: Record<string, string> = {
     'defi': '🏦 DeFi (Decentralized Finance) lets you do banking stuff like lending, borrowing, and trading without traditional banks - all powered by smart contracts!',
     'nft': '🎨 NFTs (Non-Fungible Tokens) are unique digital certificates that prove you own a specific digital item, like art, music, or collectibles.',
     'dao': '🏛️ A DAO (Decentralized Autonomous Organization) is like a company where members vote on decisions instead of having traditional management.',
@@ -243,25 +284,31 @@ function generateAnalysis(savedCast: SavedCast | null): string {
     return "📊 I'd love to analyze this cast! Save it first with '@cstkpr save this' so I can give you a full breakdown."
   }
   
-  const parsedData = savedCast.parsed_data as any
+  const parsedData = savedCast.parsed_data as ParsedData | undefined
   const wordCount = parsedData?.word_count || 0
-  const hasLinks = parsedData?.urls?.length > 0
-  const hasMentions = parsedData?.mentions?.length > 0
-  const hasHashtags = parsedData?.hashtags?.length > 0
+  const hasLinks = (parsedData?.urls?.length || 0) > 0
+  const hasMentions = (parsedData?.mentions?.length || 0) > 0
+  const hasHashtags = (parsedData?.hashtags?.length || 0) > 0
   
   let analysis = `📊 Cast Analysis:\n\n`
   analysis += `📝 ${wordCount} words - ${wordCount > 50 ? 'detailed take' : 'concise message'}\n`
   
-  if (hasLinks) analysis += `🔗 ${parsedData.urls.length} link(s) - good supporting content\n`
-  if (hasMentions) analysis += `👥 ${parsedData.mentions.length} mention(s) - engaging with community\n`
-  if (hasHashtags) analysis += `🏷️ ${parsedData.hashtags.length} hashtag(s) - good discoverability\n`
+  if (hasLinks && parsedData?.urls) {
+    analysis += `🔗 ${parsedData.urls.length} link(s) - good supporting content\n`
+  }
+  if (hasMentions && parsedData?.mentions) {
+    analysis += `👥 ${parsedData.mentions.length} mention(s) - engaging with community\n`
+  }
+  if (hasHashtags && parsedData?.hashtags) {
+    analysis += `🏷️ ${parsedData.hashtags.length} hashtag(s) - good discoverability\n`
+  }
   
-  analysis += `\n💡 Overall: ${generateOverallAnalysis(savedCast)}`
+  analysis += `\n💡 Overall: ${generateOverallAnalysis()}`
   
   return analysis
 }
 
-function generateOverallAnalysis(cast: SavedCast): string {
+function generateOverallAnalysis(): string {
   const analyses = [
     "Strong content with good engagement potential!",
     "Thoughtful post that adds value to the conversation.",
@@ -291,6 +338,9 @@ function extractTermToExplain(text: string): string {
 }
 
 function generateFollowupResponse(text: string, history: BotConversation[]): string {
+  // Remove unused parameter warning
+  void text
+  
   const lastInteraction = history[0]
   
   if (lastInteraction?.command_type === 'opinion') {
@@ -316,15 +366,15 @@ function generateHelpResponse(): string {
 Just mention me and ask away! 🚀`
 }
 
-async function handleSaveCommand(cast: any, parentHash: string): Promise<void> {
+async function handleSaveCommand(cast: WebhookCast, parentHash: string): Promise<void> {
   // Your existing save logic
-  const castData = {
+  const castData: Omit<SavedCast, 'id' | 'created_at' | 'updated_at'> = {
     username: `user-${cast.parent_author?.fid || 'unknown'}`,
     fid: cast.parent_author?.fid || 0,
     cast_hash: parentHash,
     cast_content: `🔗 Cast saved from Farcaster - Hash: ${parentHash}`,
     cast_timestamp: new Date().toISOString(),
-    tags: ['saved-via-bot'] as string[],
+    tags: ['saved-via-bot'],
     likes_count: 0,
     replies_count: 0,
     recasts_count: 0,
@@ -339,10 +389,10 @@ async function handleSaveCommand(cast: any, parentHash: string): Promise<void> {
       hashtags: ['cstkpr', 'saved'],
       mentions: ['cstkpr'],
       word_count: 0,
-      sentiment: 'neutral' as const,
+      sentiment: 'neutral',
       topics: ['saved-cast']
     }
-  } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
+  }
   
   await CastService.saveCast(castData)
 }

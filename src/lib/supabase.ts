@@ -37,60 +37,6 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
-  
-  // AI analysis fields
-  ai_category?: string
-  ai_tags?: string[]
-  
-  // Enhanced analysis fields
-  quality_score?: number
-  content_type?: string
-  engagement_potential?: string
-  entities?: {
-    people?: string[]
-    tokens?: string[]
-    projects?: string[]
-    companies?: string[]
-  }
-  confidence_score?: number
-  analysis_version?: string
-  
-  // NEW: Conversational features fields
-  technical_terms?: string[]      // Terms that users might ask about
-  sentence_count?: number         // For readability analysis
-  has_questions?: boolean         // Contains question marks
-  has_exclamations?: boolean      // Contains exclamation marks
-}
-
-export interface AnalyzedCast {
-  hash: string
-  text: string
-  timestamp: string
-  author: {
-    fid: number
-    username: string
-    display_name?: string
-    pfp_url?: string
-  }
-  reactions: {
-    likes_count: number
-    recasts_count: number
-  }
-  replies: {
-    count: number
-  }
-  parsed_data: ParsedData
-  cast_url: string
-  channel?: {
-    id: string
-    name: string
-  }
-  embeds?: string[]
-  mentions?: Array<{
-    fid: number
-    username: string
-    display_name?: string
-  }>
 }
 
 export interface User {
@@ -121,7 +67,7 @@ export interface CastCollection {
   added_at: string
 }
 
-// NEW: Bot conversation tracking
+// NEW: Bot conversation interface
 export interface BotConversation {
   id: string
   user_id: string // Farcaster username
@@ -130,13 +76,7 @@ export interface BotConversation {
   user_message: string
   bot_response: string
   command_type: string // 'opinion', 'analyze', 'explain', 'save', etc.
-  context_data?: {
-    analysis?: AnalyzedCast
-    explained_term?: string
-    topics?: string[]
-    sentiment?: string
-    [key: string]: any
-  }
+  context_data?: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -241,12 +181,11 @@ export class CastService {
   }
 
   // Update cast notes or category
-  static async updateCast(castId: string, userId: string, updates: { 
-    notes?: string; 
-    category?: string; 
-    tags?: string[];
-    parsed_data?: ParsedData;
-  }): Promise<SavedCast> {
+  static async updateCast(
+    castId: string, 
+    userId: string, 
+    updates: { notes?: string; category?: string; tags?: string[] }
+  ): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .update(updates)
@@ -271,111 +210,6 @@ export class CastService {
       .eq('saved_by_user_id', userId)
 
     return { totalCasts: count || 0 }
-  }
-
-  // NEW: Get casts with educational opportunities
-  static async getCastsWithEducationalContent(userId: string, limit: number = 20): Promise<SavedCast[]> {
-    const { data, error } = await supabase
-      .from('saved_casts')
-      .select('*')
-      .eq('saved_by_user_id', userId)
-      .not('parsed_data->technical_terms', 'is', null)
-      .order('cast_timestamp', { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error('Error fetching educational casts:', error)
-      throw error
-    }
-
-    return data || []
-  }
-
-  // NEW: Search by technical terms for educational purposes
-  static async searchByTechnicalTerms(userId: string, term: string): Promise<SavedCast[]> {
-    const { data, error } = await supabase
-      .from('saved_casts')
-      .select('*')
-      .eq('saved_by_user_id', userId)
-      .contains('parsed_data->technical_terms', [term.toLowerCase()])
-      .order('cast_timestamp', { ascending: false })
-
-    if (error) {
-      console.error('Error searching by technical terms:', error)
-      throw error
-    }
-
-    return data || []
-  }
-}
-
-// Helper functions for users
-export class UserService {
-  // Create or update user
-  static async upsertUser(userData: Omit<User, 'id' | 'created_at' | 'updated_at'>): Promise<User> {
-    const { data, error } = await supabase
-      .from('users')
-      .upsert(userData, { onConflict: 'fid' })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error upserting user:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Get user by FID
-  static async getUserByFid(fid: number): Promise<User | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('fid', fid)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null // User not found
-      }
-      console.error('Error fetching user by FID:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Get user by username
-  static async getUserByUsername(username: string): Promise<User | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null // User not found
-      }
-      console.error('Error fetching user by username:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Update last login
-  static async updateLastLogin(userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', userId)
-
-    if (error) {
-      console.error('Error updating last login:', error)
-      throw error
-    }
   }
 }
 
@@ -459,59 +293,9 @@ export class CollectionService {
       saved_casts: SavedCast[];
     }>
   }
-
-  // Update collection
-  static async updateCollection(collectionId: string, userId: string, updates: { 
-    name?: string; 
-    description?: string; 
-    is_public?: boolean;
-  }): Promise<Collection> {
-    const { data, error } = await supabase
-      .from('collections')
-      .update(updates)
-      .eq('id', collectionId)
-      .eq('created_by', userId)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error updating collection:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Delete collection
-  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('collections')
-      .delete()
-      .eq('id', collectionId)
-      .eq('created_by', userId)
-
-    if (error) {
-      console.error('Error deleting collection:', error)
-      throw error
-    }
-  }
-
-  // Remove cast from collection
-  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
-    const { error } = await supabase
-      .from('cast_collections')
-      .delete()
-      .eq('cast_id', castId)
-      .eq('collection_id', collectionId)
-
-    if (error) {
-      console.error('Error removing cast from collection:', error)
-      throw error
-    }
-  }
 }
 
-// Enhanced content parsing utilities with conversational features
+// Content parsing utilities
 export class ContentParser {
   static parseContent(text: string): ParsedData {
     return {
@@ -520,14 +304,8 @@ export class ContentParser {
       hashtags: this.extractHashtags(text),
       numbers: this.extractNumbers(text),
       dates: this.extractDates(text),
-      word_count: this.countWords(text),
-      sentiment: 'neutral', // Can integrate sentiment analysis later
-      
-      // NEW: Enhanced parsing for conversational features
-      sentence_count: this.countSentences(text),
-      has_questions: text.includes('?'),
-      has_exclamations: text.includes('!'),
-      technical_terms: this.extractTechnicalTerms(text)
+      word_count: text.split(' ').length,
+      sentiment: 'neutral' // Can integrate sentiment analysis later
     }
   }
 
@@ -554,44 +332,5 @@ export class ContentParser {
   static extractDates(text: string): string[] {
     const dateRegex = /\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/g
     return text.match(dateRegex) || []
-  }
-
-  // NEW: Enhanced word counting
-  static countWords(text: string): number {
-    return text.split(/\s+/).filter(word => word.length > 0).length
-  }
-
-  // NEW: Sentence counting
-  static countSentences(text: string): number {
-    return text.split(/[.!?]+/).filter(sentence => sentence.trim().length > 0).length
-  }
-
-  // NEW: Extract technical terms that users might ask about
-  static extractTechnicalTerms(text: string): string[] {
-    const technicalTerms: string[] = []
-    
-    // Common technical terms that users might ask about
-    const termPatterns = [
-      // Crypto terms
-      /\b(defi|nft|dao|dapp|smart contract|blockchain|cryptocurrency|yield farming|staking|liquidity|airdrop|tokenomics|rugpull|whale|diamond hands|paper hands|hodl|fomo|fud)\b/gi,
-      
-      // Tech terms
-      /\b(ai|ml|api|saas|mvp|b2b|b2c|vc|ipo|agm|kpi|roi|cto|ceo|cfo)\b/gi,
-      
-      // Social media terms
-      /\b(viral|engagement|algorithm|influencer|creator|content|monetize|brand|organic reach)\b/gi,
-      
-      // Web3/Farcaster specific
-      /\b(farcaster|warpcast|cast|frame|miniapp|hub|signer|custody|recovery|mention|channel)\b/gi
-    ]
-    
-    termPatterns.forEach(pattern => {
-      const matches = text.match(pattern)
-      if (matches) {
-        technicalTerms.push(...matches.map(term => term.toLowerCase()))
-      }
-    })
-    
-    return [...new Set(technicalTerms)] // Remove duplicates
   }
 }

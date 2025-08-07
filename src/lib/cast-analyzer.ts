@@ -39,6 +39,15 @@ interface NeynarCastResponse {
   }
 }
 
+// Enhanced ParsedData interface for cast analyzer features
+interface EnhancedParsedData extends ParsedData {
+  topics?: string[]
+  technical_terms?: string[]
+  sentence_count?: number
+  has_questions?: boolean
+  has_exclamations?: boolean
+}
+
 // Interface for our analyzed cast data
 export interface AnalyzedCast {
   hash: string
@@ -57,7 +66,7 @@ export interface AnalyzedCast {
   replies: {
     count: number
   }
-  parsed_data: ParsedData
+  parsed_data: EnhancedParsedData
   cast_url: string
   channel?: {
     id: string
@@ -113,7 +122,7 @@ async function fetchCastFromNeynar(castHash: string): Promise<NeynarCastResponse
 /**
  * Fetches cast data from Farcaster Hub (free alternative)
  */
-async function fetchCastFromHub(castHash: string): Promise<unknown | null> {
+async function fetchCastFromHub(castHash: string): Promise<Record<string, unknown> | null> {
   try {
     console.log('🔍 Fetching cast from Farcaster Hub:', castHash)
     
@@ -134,7 +143,7 @@ async function fetchCastFromHub(castHash: string): Promise<unknown | null> {
       return null
     }
 
-    const data = await response.json()
+    const data = await response.json() as Record<string, unknown>
     console.log('✅ Successfully fetched cast from Hub')
     return data
 
@@ -169,7 +178,7 @@ function createFallbackCast(castHash: string, additionalInfo?: Partial<AnalyzedC
     replies: {
       count: 0
     },
-    parsed_data: ContentParser.parseContent(fallbackText),
+    parsed_data: enhancedContentParsing(fallbackText),
     cast_url: `https://warpcast.com/~/conversations/${castHash}`,
     embeds: [],
     mentions: []
@@ -225,7 +234,7 @@ function extractTopics(text: string): string[] {
     'food': ['food', 'recipe', 'restaurant', 'cooking', 'meal']
   }
   
-  // Check for topic matches
+  // Check for topic matches using lowerText
   for (const [topic, keywords] of Object.entries(topicMap)) {
     if (keywords.some(keyword => lowerText.includes(keyword))) {
       topics.push(topic)
@@ -308,7 +317,6 @@ function analyzeSentiment(text: string): string {
  */
 function extractTechnicalTerms(text: string): string[] {
   const technicalTerms: string[] = []
-  const lowerText = text.toLowerCase()
   
   // Common technical terms that users might ask about
   const termPatterns = [
@@ -338,7 +346,11 @@ function extractTechnicalTerms(text: string): string[] {
 /**
  * ENHANCED: Content parsing with educational and conversational features
  */
-function enhancedContentParsing(text: string, mentions?: Array<{ username: string }>, embeds?: Array<{ url?: string }>): ParsedData {
+function enhancedContentParsing(
+  text: string, 
+  mentions?: Array<{ username: string }>, 
+  embeds?: Array<{ url?: string }>
+): EnhancedParsedData {
   const basicParsing = ContentParser.parseContent(text)
   
   return {
