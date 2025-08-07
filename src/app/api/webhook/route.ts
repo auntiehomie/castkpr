@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, supabase } from '@/lib/supabase'
+import { CastService, BotConversationService } from '@/lib/supabase'
 import type { SavedCast, ParsedData } from '@/lib/supabase'
 
 // Type definitions for webhook data
@@ -28,64 +28,10 @@ interface WebhookBody {
   data: WebhookCast
 }
 
-// Bot conversation interface (add this to your supabase.ts later)
-interface BotConversation {
-  id: string
-  user_id: string
-  user_fid?: number
-  parent_cast_hash?: string
-  user_message: string
-  bot_response: string
-  command_type: string
-  context_data?: Record<string, unknown>
-  created_at: string
-  updated_at: string
-}
-
 interface BotResponse {
   commandType: string
   response: string
   contextData: Record<string, unknown>
-}
-
-// Bot conversation service
-export class BotConversationService {
-  static async saveConversation(conversationData: Omit<BotConversation, 'id' | 'created_at' | 'updated_at'>): Promise<BotConversation> {
-    const { data, error } = await supabase
-      .from('bot_conversations')
-      .insert([conversationData])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('❌ Error saving conversation:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  static async getConversationHistory(userId: string, parentCastHash?: string, limit: number = 5): Promise<BotConversation[]> {
-    let query = supabase
-      .from('bot_conversations')
-      .select('*')
-      .eq('user_id', userId)
-
-    if (parentCastHash) {
-      query = query.eq('parent_cast_hash', parentCastHash)
-    }
-
-    const { data, error } = await query
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error('Error fetching conversation history:', error)
-      throw error
-    }
-
-    return data || []
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -158,7 +104,7 @@ async function generateBotResponse(
   text: string, 
   userId: string, 
   parentHash: string | null,
-  cast: WebhookCast
+  _cast: WebhookCast // Prefixed with underscore to indicate intentionally unused
 ): Promise<BotResponse> {
   
   // Get conversation history for context
@@ -241,10 +187,7 @@ async function getSavedCastByHash(castHash: string): Promise<SavedCast | null> {
   }
 }
 
-function generateOpinionResponse(savedCast: SavedCast | null, history: BotConversation[]): string {
-  // Remove unused parameter warning
-  void history
-  
+function generateOpinionResponse(savedCast: SavedCast | null, _history: unknown[]): string {
   if (!savedCast) {
     return "🤔 Interesting cast! I'd need to save it first to give you my full analysis, but from what I can see, it seems worth discussing."
   }
@@ -337,11 +280,8 @@ function extractTermToExplain(text: string): string {
   return 'that term'
 }
 
-function generateFollowupResponse(text: string, history: BotConversation[]): string {
-  // Remove unused parameter warning
-  void text
-  
-  const lastInteraction = history[0]
+function generateFollowupResponse(_text: string, history: unknown[]): string {
+  const lastInteraction = history[0] as { command_type?: string } | undefined
   
   if (lastInteraction?.command_type === 'opinion') {
     return "🤔 You want me to dig deeper? I think there are definitely more layers to unpack here..."

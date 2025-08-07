@@ -213,6 +213,76 @@ export class CastService {
   }
 }
 
+// Helper functions for users
+export class UserService {
+  // Create or update user
+  static async upsertUser(userData: Omit<User, 'id' | 'created_at' | 'updated_at'>): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .upsert(userData, { onConflict: 'fid' })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error upserting user:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user by FID
+  static async getUserByFid(fid: number): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('fid', fid)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null // User not found
+      }
+      console.error('Error fetching user by FID:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user by username
+  static async getUserByUsername(username: string): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null // User not found
+      }
+      console.error('Error fetching user by username:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Update last login
+  static async updateLastLogin(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', userId)
+
+    if (error) {
+      console.error('Error updating last login:', error)
+      throw error
+    }
+  }
+}
+
 // Helper functions for collections
 export class CollectionService {
   // Create a new collection
@@ -292,6 +362,46 @@ export class CollectionService {
       added_at: string;
       saved_casts: SavedCast[];
     }>
+  }
+}
+
+// Bot conversation service
+export class BotConversationService {
+  static async saveConversation(conversationData: Omit<BotConversation, 'id' | 'created_at' | 'updated_at'>): Promise<BotConversation> {
+    const { data, error } = await supabase
+      .from('bot_conversations')
+      .insert([conversationData])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('❌ Error saving conversation:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  static async getConversationHistory(userId: string, parentCastHash?: string, limit: number = 5): Promise<BotConversation[]> {
+    let query = supabase
+      .from('bot_conversations')
+      .select('*')
+      .eq('user_id', userId)
+
+    if (parentCastHash) {
+      query = query.eq('parent_cast_hash', parentCastHash)
+    }
+
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching conversation history:', error)
+      throw error
+    }
+
+    return data || []
   }
 }
 
