@@ -350,6 +350,42 @@ export class CollectionService {
     return data || []
   }
 
+  // Update collection
+  static async updateCollection(collectionId: string, userId: string, updates: { 
+    name?: string; 
+    description?: string; 
+    is_public?: boolean;
+  }): Promise<Collection> {
+    const { data, error } = await supabase
+      .from('collections')
+      .update(updates)
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating collection:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Delete collection
+  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('collections')
+      .delete()
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+
+    if (error) {
+      console.error('Error deleting collection:', error)
+      throw error
+    }
+  }
+
   // Add cast to collection
   static async addCastToCollection(castId: string, collectionId: string): Promise<void> {
     const { error } = await supabase
@@ -361,6 +397,20 @@ export class CollectionService {
 
     if (error) {
       console.error('Error adding cast to collection:', error)
+      throw error
+    }
+  }
+
+  // Remove cast from collection
+  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
+    const { error } = await supabase
+      .from('cast_collections')
+      .delete()
+      .eq('cast_id', castId)
+      .eq('collection_id', collectionId)
+
+    if (error) {
+      console.error('Error removing cast from collection:', error)
       throw error
     }
   }
