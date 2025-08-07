@@ -37,9 +37,11 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
+  
   // AI analysis fields
   ai_category?: string
   ai_tags?: string[]
+  
   // Enhanced analysis fields
   quality_score?: number
   content_type?: string
@@ -52,6 +54,12 @@ export interface ParsedData {
   }
   confidence_score?: number
   analysis_version?: string
+  
+  // NEW: Conversational features fields
+  technical_terms?: string[]      // Terms that users might ask about
+  sentence_count?: number         // For readability analysis
+  has_questions?: boolean         // Contains question marks
+  has_exclamations?: boolean      // Contains exclamation marks
 }
 
 export interface AnalyzedCast {
@@ -243,6 +251,41 @@ export class CastService {
       .eq('saved_by_user_id', userId)
 
     return { totalCasts: count || 0 }
+  }
+
+  // NEW: Get casts with educational opportunities
+  static async getCastsWithEducationalContent(userId: string, limit: number = 20): Promise<SavedCast[]> {
+    const { data, error } = await supabase
+      .from('saved_casts')
+      .select('*')
+      .eq('saved_by_user_id', userId)
+      .not('parsed_data->technical_terms', 'is', null)
+      .order('cast_timestamp', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching educational casts:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // NEW: Search by technical terms for educational purposes
+  static async searchByTechnicalTerms(userId: string, term: string): Promise<SavedCast[]> {
+    const { data, error } = await supabase
+      .from('saved_casts')
+      .select('*')
+      .eq('saved_by_user_id', userId)
+      .contains('parsed_data->technical_terms', [term.toLowerCase()])
+      .order('cast_timestamp', { ascending: false })
+
+    if (error) {
+      console.error('Error searching by technical terms:', error)
+      throw error
+    }
+
+    return data || []
   }
 }
 
@@ -448,7 +491,7 @@ export class CollectionService {
   }
 }
 
-// Content parsing utilities
+// Enhanced content parsing utilities with conversational features
 export class ContentParser {
   static parseContent(text: string): ParsedData {
     return {
@@ -457,8 +500,14 @@ export class ContentParser {
       hashtags: this.extractHashtags(text),
       numbers: this.extractNumbers(text),
       dates: this.extractDates(text),
-      word_count: text.split(' ').length,
-      sentiment: 'neutral' // Can integrate sentiment analysis later
+      word_count: this.countWords(text),
+      sentiment: 'neutral', // Can integrate sentiment analysis later
+      
+      // NEW: Enhanced parsing for conversational features
+      sentence_count: this.countSentences(text),
+      has_questions: text.includes('?'),
+      has_exclamations: text.includes('!'),
+      technical_terms: this.extractTechnicalTerms(text)
     }
   }
 
@@ -485,5 +534,44 @@ export class ContentParser {
   static extractDates(text: string): string[] {
     const dateRegex = /\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/g
     return text.match(dateRegex) || []
+  }
+
+  // NEW: Enhanced word counting
+  static countWords(text: string): number {
+    return text.split(/\s+/).filter(word => word.length > 0).length
+  }
+
+  // NEW: Sentence counting
+  static countSentences(text: string): number {
+    return text.split(/[.!?]+/).filter(sentence => sentence.trim().length > 0).length
+  }
+
+  // NEW: Extract technical terms that users might ask about
+  static extractTechnicalTerms(text: string): string[] {
+    const technicalTerms: string[] = []
+    
+    // Common technical terms that users might ask about
+    const termPatterns = [
+      // Crypto terms
+      /\b(defi|nft|dao|dapp|smart contract|blockchain|cryptocurrency|yield farming|staking|liquidity|airdrop|tokenomics|rugpull|whale|diamond hands|paper hands|hodl|fomo|fud)\b/gi,
+      
+      // Tech terms
+      /\b(ai|ml|api|saas|mvp|b2b|b2c|vc|ipo|agm|kpi|roi|cto|ceo|cfo)\b/gi,
+      
+      // Social media terms
+      /\b(viral|engagement|algorithm|influencer|creator|content|monetize|brand|organic reach)\b/gi,
+      
+      // Web3/Farcaster specific
+      /\b(farcaster|warpcast|cast|frame|miniapp|hub|signer|custody|recovery|mention|channel)\b/gi
+    ]
+    
+    termPatterns.forEach(pattern => {
+      const matches = text.match(pattern)
+      if (matches) {
+        technicalTerms.push(...matches.map(term => term.toLowerCase()))
+      }
+    })
+    
+    return [...new Set(technicalTerms)] // Remove duplicates
   }
 }
