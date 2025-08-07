@@ -37,6 +37,29 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
+  
+  // AI analysis fields
+  ai_category?: string
+  ai_tags?: string[]
+  
+  // Enhanced analysis fields
+  quality_score?: number
+  content_type?: string
+  engagement_potential?: string
+  entities?: {
+    people?: string[]
+    tokens?: string[]
+    projects?: string[]
+    companies?: string[]
+  }
+  confidence_score?: number
+  analysis_version?: string
+  
+  // Conversational features fields
+  technical_terms?: string[]      // Terms that users might ask about
+  sentence_count?: number         // For readability analysis
+  has_questions?: boolean         // Contains question marks
+  has_exclamations?: boolean      // Contains exclamation marks
 }
 
 export interface User {
