@@ -226,9 +226,37 @@ function detectConversationalCommands(text: string) {
     reference: lowerText.includes('that word') || lowerText.includes('it') || 
                lowerText.includes('that term') || lowerText.includes('this'),
     
-    // NEW: Opinion/thought requests
-    opinion: /what do you think|your thoughts|opinion|what's your take/i.test(text) &&
-             (lowerText.includes('this') || lowerText.includes('about')),
+    // EXPANDED: Opinion/thought requests - lots of natural ways to ask
+    opinion: (
+      // Direct opinion asks
+      /what do you think|what's your opinion|your opinion|whats your opinion/i.test(text) ||
+      /your thoughts|thoughts on this|thoughts\?/i.test(text) ||
+      /what's your take|whats your take|your take/i.test(text) ||
+      /your view|what's your view|whats your view/i.test(text) ||
+      /your perspective|what's your perspective/i.test(text) ||
+      
+      // Agreement/disagreement asks  
+      /do you agree|agree or disagree|you agree/i.test(text) ||
+      /do you support|do you back this/i.test(text) ||
+      /do you buy this|you buying this/i.test(text) ||
+      
+      // Reaction requests
+      /your reaction|react to this|reaction\?/i.test(text) ||
+      /comment on this|weigh in|hot take/i.test(text) ||
+      /what do you make of this|how do you feel about this/i.test(text) ||
+      
+      // Quality/judgment asks
+      /is this good|good or bad|is this right|right or wrong/i.test(text) ||
+      /is this true|true or false|worth it/i.test(text) ||
+      /smart or dumb|based or cringe|legit\?/i.test(text) ||
+      /do you like this|you like this/i.test(text) ||
+      
+      // Short/casual forms
+      /^thoughts\?$|^opinion\?$|^agree\?$/i.test(text.trim()) ||
+      lowerText.includes('based?') || lowerText.includes('cringe?') ||
+      lowerText.includes('good?') || lowerText.includes('bad?') ||
+      lowerText.includes('right?') || lowerText.includes('wrong?')
+    ),
   }
 }
 
