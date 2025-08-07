@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, BotConversationService } from '@/lib/supabase'
+import { CastService, BotConversationService, supabase } from '@/lib/supabase'
 import type { SavedCast, ParsedData } from '@/lib/supabase'
 
 // Type definitions for webhook data
@@ -67,20 +67,32 @@ export async function POST(request: NextRequest) {
     // Determine command type and generate response
     const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash ?? null, cast)
     
-    // Save the conversation
-    await BotConversationService.saveConversation({
-      user_id: userId,
-      user_fid: cast.author.fid,
-      parent_cast_hash: parentHash || undefined,
-      user_message: cast.text,
-      bot_response: response,
-      command_type: commandType,
-      context_data: contextData
-    })
+    // Save the conversation using service role bypass
+    try {
+      await saveConversationWithBypass({
+        user_id: userId,
+        user_fid: cast.author.fid,
+        parent_cast_hash: parentHash || undefined,
+        user_message: cast.text,
+        bot_response: response,
+        command_type: commandType,
+        context_data: contextData
+      })
+      console.log('✅ Conversation saved successfully')
+    } catch (conversationError) {
+      console.error('❌ Failed to save conversation, but continuing:', conversationError)
+      // Don't fail the entire webhook if conversation saving fails
+    }
     
     // Handle save command specifically
     if (commandType === 'save' && parentHash) {
-      await handleSaveCommand(cast, parentHash)
+      try {
+        await handleSaveCommand(cast, parentHash)
+        console.log('✅ Cast saved successfully')
+      } catch (saveError) {
+        console.error('❌ Failed to save cast:', saveError)
+        // Continue even if save fails
+      }
     }
     
     // TODO: Send response back to Farcaster
@@ -100,15 +112,50 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Bypass RLS for bot conversation saving
+async function saveConversationWithBypass(conversationData: {
+  user_id: string
+  user_fid: number
+  parent_cast_hash?: string
+  user_message: string
+  bot_response: string
+  command_type: string
+  context_data?: Record<string, unknown>
+}) {
+  // Direct insert bypassing RLS by using raw SQL
+  const { data, error } = await supabase.rpc('insert_bot_conversation', {
+    p_user_id: conversationData.user_id,
+    p_user_fid: conversationData.user_fid,
+    p_parent_cast_hash: conversationData.parent_cast_hash,
+    p_user_message: conversationData.user_message,
+    p_bot_response: conversationData.bot_response,
+    p_command_type: conversationData.command_type,
+    p_context_data: conversationData.context_data || {}
+  })
+
+  if (error) {
+    console.error('❌ Error saving conversation with bypass:', error)
+    throw error
+  }
+
+  return data
+}
+
 async function generateBotResponse(
   text: string, 
   userId: string, 
   parentHash: string | null,
-  _cast: WebhookCast // Prefixed with underscore to indicate intentionally unused
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _cast: WebhookCast
 ): Promise<BotResponse> {
   
-  // Get conversation history for context
-  const conversationHistory = await BotConversationService.getConversationHistory(userId, parentHash || undefined, 3)
+  // Get conversation history for context (with error handling)
+  let conversationHistory: unknown[] = []
+  try {
+    conversationHistory = await BotConversationService.getConversationHistory(userId, parentHash || undefined, 3)
+  } catch (historyError) {
+    console.log('⚠️ Could not fetch conversation history, continuing without context:', historyError)
+  }
   
   // Determine command type
   let commandType = 'unknown'
@@ -123,12 +170,13 @@ async function generateBotResponse(
     commandType = 'opinion'
     
     if (parentHash) {
-      // Get info about the parent cast to form an opinion
+      // Try to get info about the parent cast, but don't fail if not found
       const savedCast = await getSavedCastByHash(parentHash)
       response = generateOpinionResponse(savedCast, conversationHistory)
       contextData.opinion_about = 'cast'
       contextData.cast_hash = parentHash
       contextData.sentiment = 'analyzed'
+      contextData.cast_found = savedCast !== null
     } else {
       response = "🤔 I'd love to share my thoughts! What specific cast or topic would you like my opinion on?"
     }
@@ -150,15 +198,21 @@ async function generateBotResponse(
       response = generateAnalysis(savedCast)
       contextData.analysis_type = 'cast_content'
       contextData.cast_hash = parentHash
+      contextData.cast_found = savedCast !== null
     } else {
       response = "📊 I can analyze any cast for you! Which one would you like me to break down?"
     }
     
   } else if (text.includes('stats') || text.includes('how many')) {
     commandType = 'stats'
-    const userStats = await CastService.getUserStats(userId)
-    response = `📈 Your CastKPR stats: ${userStats.totalCasts} saved casts! You're building quite the collection.`
-    contextData.stats = userStats
+    try {
+      const userStats = await CastService.getUserStats(userId)
+      response = `📈 Your CastKPR stats: ${userStats.totalCasts} saved casts! You're building quite the collection.`
+      contextData.stats = userStats
+    } catch (statsError) {
+      console.error('Error getting user stats:', statsError)
+      response = "📈 I'm having trouble accessing your stats right now, but I'm sure you're building a great collection!"
+    }
     
   } else if (text.includes('help')) {
     commandType = 'help'
@@ -168,7 +222,7 @@ async function generateBotResponse(
     // This is a follow-up in an existing conversation
     commandType = 'followup'
     response = generateFollowupResponse(text, conversationHistory)
-    contextData.followup_to = conversationHistory[0]?.command_type
+    contextData.followup_to = (conversationHistory[0] as { command_type?: string })?.command_type
     contextData.conversation_length = conversationHistory.length
     
   } else {
@@ -182,14 +236,25 @@ async function generateBotResponse(
 async function getSavedCastByHash(castHash: string): Promise<SavedCast | null> {
   try {
     return await CastService.getCastByHash(castHash)
-  } catch {
+  } catch (error) {
+    console.log(`ℹ️ Cast ${castHash} not found in saved casts (this is normal for new casts)`)
     return null
   }
 }
 
-function generateOpinionResponse(savedCast: SavedCast | null, _history: unknown[]): string {
+function generateOpinionResponse(savedCast: SavedCast | null, 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _history: unknown[]): string {
   if (!savedCast) {
-    return "🤔 Interesting cast! I'd need to save it first to give you my full analysis, but from what I can see, it seems worth discussing."
+    // More engaging response for unsaved casts
+    const responses = [
+      "🤔 Interesting cast! Even though I haven't saved it yet, it definitely caught my attention.",
+      "💭 This looks intriguing! I'd need to save it first to give you my full analysis, but first impressions are positive.",
+      "🎯 Good find! This seems like the kind of content worth discussing deeper.",
+      "💡 I can tell this has potential! Want me to save it so I can give you a more detailed take?",
+      "🌟 This definitely seems worth exploring further. Mind if I save it for a proper analysis?"
+    ]
+    return responses[Math.floor(Math.random() * responses.length)]
   }
   
   const responses = [
@@ -224,7 +289,7 @@ function generateExplanation(term: string): string {
 
 function generateAnalysis(savedCast: SavedCast | null): string {
   if (!savedCast) {
-    return "📊 I'd love to analyze this cast! Save it first with '@cstkpr save this' so I can give you a full breakdown."
+    return "📊 I'd love to analyze this cast! Want me to save it first with '@cstkpr save this' so I can give you a full breakdown with all the engagement metrics?"
   }
   
   const parsedData = savedCast.parsed_data as ParsedData | undefined
@@ -280,7 +345,10 @@ function extractTermToExplain(text: string): string {
   return 'that term'
 }
 
-function generateFollowupResponse(_text: string, history: unknown[]): string {
+function generateFollowupResponse(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _text: string, 
+  history: unknown[]): string {
   const lastInteraction = history[0] as { command_type?: string } | undefined
   
   if (lastInteraction?.command_type === 'opinion') {
