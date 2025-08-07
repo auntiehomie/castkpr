@@ -177,35 +177,166 @@ function createFallbackCast(castHash: string, additionalInfo?: Partial<AnalyzedC
 }
 
 /**
- * Extracts additional topics from cast content using simple keyword matching
+ * ENHANCED: Extract topics from cast content with better categorization
  */
 function extractTopics(text: string): string[] {
   const topics: string[] = []
   const lowerText = text.toLowerCase()
   
-  // Define topic keywords
+  // Enhanced topic keywords with more comprehensive coverage
   const topicMap: Record<string, string[]> = {
-    'crypto': ['crypto', 'bitcoin', 'ethereum', 'defi', 'nft', 'web3', 'blockchain'],
-    'tech': ['ai', 'ml', 'machine learning', 'artificial intelligence', 'coding', 'programming', 'dev'],
-    'social': ['community', 'social', 'networking', 'friends', 'family'],
-    'business': ['startup', 'business', 'entrepreneur', 'funding', 'investment'],
-    'art': ['art', 'design', 'creative', 'painting', 'music', 'artist'],
-    'sports': ['sports', 'football', 'basketball', 'soccer', 'game', 'team'],
-    'news': ['news', 'breaking', 'announcement', 'update', 'politics'],
-    'meme': ['meme', 'funny', 'lol', 'joke', 'humor', '😂', '🤣']
+    // Crypto & Web3
+    'crypto': ['crypto', 'cryptocurrency', 'digital currency'],
+    'bitcoin': ['bitcoin', 'btc'],
+    'ethereum': ['ethereum', 'eth', 'ether'],
+    'defi': ['defi', 'decentralized finance', 'yield farming', 'liquidity', 'staking'],
+    'nft': ['nft', 'non-fungible', 'collectible', 'digital art'],
+    'web3': ['web3', 'blockchain', 'dapp', 'smart contract'],
+    'dao': ['dao', 'decentralized autonomous', 'governance'],
+    
+    // Technology
+    'ai': ['ai', 'artificial intelligence', 'machine learning', 'ml', 'gpt', 'llm'],
+    'programming': ['code', 'coding', 'programming', 'developer', 'dev', 'software'],
+    'startup': ['startup', 'entrepreneur', 'funding', 'vc', 'investment'],
+    'saas': ['saas', 'software as a service', 'b2b'],
+    
+    // Social & Culture
+    'farcaster': ['farcaster', 'warpcast', 'cast', 'frame', 'miniapp'],
+    'social-media': ['social', 'community', 'networking', 'viral'],
+    'meme': ['meme', 'funny', 'lol', 'joke', 'humor', '😂', '🤣', 'based'],
+    
+    // Content Types
+    'announcement': ['announcing', 'launch', 'release', 'new', 'introducing'],
+    'question': ['question', '?', 'what', 'how', 'why', 'when', 'where'],
+    'opinion': ['think', 'believe', 'opinion', 'thoughts', 'imo', 'imho'],
+    'news': ['news', 'breaking', 'update', 'reported'],
+    
+    // Finance & Business
+    'finance': ['finance', 'trading', 'market', 'price', 'bull', 'bear'],
+    'business': ['business', 'company', 'revenue', 'growth', 'strategy'],
+    
+    // Creative & Art
+    'art': ['art', 'design', 'creative', 'painting', 'artist', 'aesthetic'],
+    'music': ['music', 'song', 'artist', 'album', 'concert'],
+    
+    // Other
+    'sports': ['sports', 'game', 'team', 'player', 'season'],
+    'travel': ['travel', 'trip', 'vacation', 'city', 'country'],
+    'food': ['food', 'recipe', 'restaurant', 'cooking', 'meal']
   }
   
+  // Check for topic matches
   for (const [topic, keywords] of Object.entries(topicMap)) {
     if (keywords.some(keyword => lowerText.includes(keyword))) {
       topics.push(topic)
     }
   }
   
-  return topics
+  // If no specific topics found, categorize by structure/content
+  if (topics.length === 0) {
+    if (text.includes('?')) topics.push('question')
+    else if (text.includes('!')) topics.push('announcement')
+    else if (lowerText.includes('gm') || lowerText.includes('good morning')) topics.push('greeting')
+    else if (lowerText.includes('gn') || lowerText.includes('good night')) topics.push('greeting')
+    else topics.push('discussion')
+  }
+  
+  return [...new Set(topics)] // Remove duplicates
 }
 
 /**
- * Enhanced content parsing with additional analysis
+ * ENHANCED: More nuanced sentiment analysis
+ */
+function analyzeSentiment(text: string): string {
+  const lowerText = text.toLowerCase()
+  
+  // Enhanced sentiment keywords
+  const sentimentMap = {
+    positive: [
+      'good', 'great', 'awesome', 'amazing', 'love', 'excellent', 'fantastic', 
+      'excited', 'happy', 'bullish', 'optimistic', 'incredible', 'wonderful',
+      'perfect', 'brilliant', 'outstanding', 'remarkable', 'impressive',
+      '❤️', '😍', '🎉', '🚀', '💪', '🔥', '✨', '🌟'
+    ],
+    negative: [
+      'bad', 'terrible', 'hate', 'awful', 'worse', 'disappointed', 'frustrated',
+      'angry', 'sad', 'bearish', 'pessimistic', 'horrible', 'disgusting',
+      'pathetic', 'useless', 'broken', 'failed', 'disaster',
+      '😡', '😢', '💔', '😞', '😭', '😤', '🤮', '💩'
+    ],
+    neutral: [
+      'okay', 'fine', 'average', 'normal', 'standard', 'typical', 'regular',
+      'wondering', 'thinking', 'considering', 'maybe', 'possibly'
+    ]
+  }
+  
+  let positiveScore = 0
+  let negativeScore = 0
+  let neutralScore = 0
+  
+  // Count sentiment indicators
+  sentimentMap.positive.forEach(word => {
+    if (lowerText.includes(word)) positiveScore++
+  })
+  
+  sentimentMap.negative.forEach(word => {
+    if (lowerText.includes(word)) negativeScore++
+  })
+  
+  sentimentMap.neutral.forEach(word => {
+    if (lowerText.includes(word)) neutralScore++
+  })
+  
+  // Determine overall sentiment
+  if (positiveScore > negativeScore && positiveScore > neutralScore) {
+    return positiveScore >= 2 ? 'very-positive' : 'positive'
+  } else if (negativeScore > positiveScore && negativeScore > neutralScore) {
+    return negativeScore >= 2 ? 'very-negative' : 'negative'
+  } else if (neutralScore > 0 || (positiveScore === negativeScore && positiveScore > 0)) {
+    return 'neutral'
+  }
+  
+  // Default based on punctuation and structure
+  if (text.includes('!')) return 'positive'
+  if (text.includes('?')) return 'curious'
+  
+  return 'neutral'
+}
+
+/**
+ * NEW: Extract potentially confusing terms for educational purposes
+ */
+function extractTechnicalTerms(text: string): string[] {
+  const technicalTerms: string[] = []
+  const lowerText = text.toLowerCase()
+  
+  // Common technical terms that users might ask about
+  const termPatterns = [
+    // Crypto terms
+    /\b(defi|nft|dao|dapp|smart contract|blockchain|cryptocurrency|yield farming|staking|liquidity|airdrop|tokenomics|rugpull|whale|diamond hands|paper hands|hodl|fomo|fud)\b/gi,
+    
+    // Tech terms
+    /\b(ai|ml|api|saas|mvp|b2b|b2c|vc|ipo|agm|kpi|roi|cto|ceo|cfo)\b/gi,
+    
+    // Social media terms
+    /\b(viral|engagement|algorithm|influencer|creator|content|monetize|brand|organic reach)\b/gi,
+    
+    // Web3/Farcaster specific
+    /\b(farcaster|warpcast|cast|frame|miniapp|hub|signer|custody|recovery|mention|channel)\b/gi
+  ]
+  
+  termPatterns.forEach(pattern => {
+    const matches = text.match(pattern)
+    if (matches) {
+      technicalTerms.push(...matches.map(term => term.toLowerCase()))
+    }
+  })
+  
+  return [...new Set(technicalTerms)] // Remove duplicates
+}
+
+/**
+ * ENHANCED: Content parsing with educational and conversational features
  */
 function enhancedContentParsing(text: string, mentions?: Array<{ username: string }>, embeds?: Array<{ url?: string }>): ParsedData {
   const basicParsing = ContentParser.parseContent(text)
@@ -215,24 +346,73 @@ function enhancedContentParsing(text: string, mentions?: Array<{ username: strin
     topics: extractTopics(text),
     sentiment: analyzeSentiment(text),
     mentions: mentions?.map(m => m.username) || basicParsing.mentions,
-    urls: embeds?.map(e => e.url).filter((url): url is string => typeof url === 'string') || basicParsing.urls
+    urls: embeds?.map(e => e.url).filter((url): url is string => typeof url === 'string') || basicParsing.urls,
+    // Add technical terms for educational purposes
+    technical_terms: extractTechnicalTerms(text),
+    // Enhanced word count and readability
+    word_count: text.split(/\s+/).filter(word => word.length > 0).length,
+    sentence_count: text.split(/[.!?]+/).filter(sentence => sentence.trim().length > 0).length,
+    // Add question detection for better conversational handling
+    has_questions: text.includes('?'),
+    // Add exclamation detection for sentiment
+    has_exclamations: text.includes('!')
   }
 }
 
 /**
- * Simple sentiment analysis
+ * NEW: Get conversation-friendly summary of a cast
  */
-function analyzeSentiment(text: string): string {
-  const positiveWords = ['good', 'great', 'awesome', 'amazing', 'love', 'excellent', 'fantastic', '❤️', '😍', '🎉', '🚀']
-  const negativeWords = ['bad', 'terrible', 'hate', 'awful', 'worse', 'disappointed', '😡', '😢', '💔', '😞']
+export function getCastSummary(analysis: AnalyzedCast): string {
+  const { author, text, parsed_data } = analysis
+  const topics = parsed_data.topics || []
+  const sentiment = parsed_data.sentiment || 'neutral'
+  const wordCount = parsed_data.word_count || 0
   
-  const lowerText = text.toLowerCase()
-  const positiveCount = positiveWords.filter(word => lowerText.includes(word)).length
-  const negativeCount = negativeWords.filter(word => lowerText.includes(word)).length
+  let summary = `@${author.username} `
   
-  if (positiveCount > negativeCount) return 'positive'
-  if (negativeCount > positiveCount) return 'negative'
-  return 'neutral'
+  // Add sentiment descriptor
+  if (sentiment.includes('positive')) {
+    summary += 'enthusiastically '
+  } else if (sentiment.includes('negative')) {
+    summary += 'critically '
+  }
+  
+  // Add action verb based on content
+  if (text.includes('?')) {
+    summary += 'asks about '
+  } else if (text.includes('!')) {
+    summary += 'announces something about '
+  } else {
+    summary += 'discusses '
+  }
+  
+  // Add main topics
+  if (topics.length > 0) {
+    summary += topics.slice(0, 2).join(' and ')
+  } else {
+    summary += 'general topics'
+  }
+  
+  // Add length descriptor
+  if (wordCount > 50) {
+    summary += ' in detail'
+  } else if (wordCount > 20) {
+    summary += ' briefly'
+  }
+  
+  return summary + '.'
+}
+
+/**
+ * NEW: Check if cast contains educational opportunities
+ */
+export function hasEducationalContent(analysis: AnalyzedCast): boolean {
+  const technicalTerms = analysis.parsed_data.technical_terms || []
+  const topics = analysis.parsed_data.topics || []
+  
+  // Check for technical terms or complex topics
+  return technicalTerms.length > 0 || 
+         topics.some(topic => ['crypto', 'defi', 'ai', 'web3', 'dao'].includes(topic))
 }
 
 /**

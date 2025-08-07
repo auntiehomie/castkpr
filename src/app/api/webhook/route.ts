@@ -21,6 +21,23 @@ interface NeynarReplyResponse {
   message?: string
 }
 
+// NEW: Simple in-memory context for conversations (upgrade to Redis/DB later)
+const conversationContext = new Map<string, {
+  lastAnalyzedCast?: AnalyzedCast
+  lastResponse?: string
+  timestamp: number
+}>()
+
+// Clean up old contexts periodically (prevent memory leaks)
+setInterval(() => {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000)
+  for (const [key, value] of conversationContext.entries()) {
+    if (value.timestamp < oneHourAgo) {
+      conversationContext.delete(key)
+    }
+  }
+}, 10 * 60 * 1000) // Clean every 10 minutes
+
 /**
  * Posts a reply cast using Neynar API
  */
@@ -72,6 +89,97 @@ async function postReplyWithNeynar(
       success: false, 
       message: error instanceof Error ? error.message : 'Unknown error' 
     }
+  }
+}
+
+/**
+ * NEW: Extract terms from natural language questions
+ */
+function extractTermFromQuery(text: string): string | null {
+  const patterns = [
+    /what does ([^?]+) mean/i,
+    /explain ([^?]+)/i,
+    /define ([^?]+)/i,
+    /tell me about ([^?]+)/i,
+    /what is ([^?]+)/i,
+    /what's ([^?]+)/i,
+  ]
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match) {
+      return match[1].trim().replace(/[\"\']/g, '')
+    }
+  }
+  
+  return null
+}
+
+/**
+ * NEW: AI-powered term explanation with cast context
+ */
+async function explainTermWithContext(term: string, context?: AnalyzedCast): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    return `"${term}" - I'd need OpenAI to explain this clearly!`
+  }
+
+  try {
+    const contextInfo = context 
+      ? `Context: This term appeared in a post by @${context.author.username}: "${context.text}"`
+      : ''
+
+    const prompt = `
+Explain this term in simple, clear language (under 180 characters): "${term}"
+
+${contextInfo}
+
+Focus on:
+- What it means in everyday language  
+- Why someone might encounter it on social media
+- Keep it concise and educational
+
+Format: Just the explanation, no extra text.
+`
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 60
+    })
+
+    const explanation = completion.choices[0]?.message?.content
+    return explanation || `"${term}" - Let me research that for you next time!`
+    
+  } catch (error) {
+    console.error('❌ Error explaining term:', error)
+    return `"${term}" - I'll learn about that and get back to you!`
+  }
+}
+
+/**
+ * NEW: Enhanced command detection with conversational patterns
+ */
+function detectConversationalCommands(text: string) {
+  const lowerText = text.toLowerCase()
+  
+  return {
+    // Existing commands
+    save: lowerText.includes('save this') || lowerText.includes('save'),
+    analyze: lowerText.includes('analyze this') || lowerText.includes('analyze'),
+    quality: lowerText.includes('quality') || lowerText.includes('rate'),
+    sentiment: lowerText.includes('sentiment') || lowerText.includes('feeling'),
+    topics: lowerText.includes('topics') || lowerText.includes('categories'),
+    help: lowerText.includes('help') || lowerText.includes('commands'),
+    stats: lowerText.includes('stats') || lowerText.includes('statistics'),
+    
+    // NEW: Conversational patterns
+    explainWord: /what does (.+) mean|explain (.+)|define (.+)/i.test(text),
+    askAbout: /tell me about (.+)|what is (.+)|what's (.+)/i.test(text),
+    thanks: lowerText.includes('thank') || lowerText.includes('thanks'),
+    followUp: lowerText.includes('tell me more') || lowerText.includes('elaborate'),
+    reference: lowerText.includes('that word') || lowerText.includes('it') || 
+               lowerText.includes('that term') || lowerText.includes('this'),
   }
 }
 
@@ -161,7 +269,7 @@ Format as JSON:
 }
 
 /**
- * Concise analysis response for non-Pro accounts (under 320 characters)
+ * UPDATED: Concise analysis response with educational prompt
  */
 async function formatAnalysisResponse(analysis: AnalyzedCast): Promise<string> {
   const { author, reactions, parsed_data } = analysis
@@ -169,37 +277,37 @@ async function formatAnalysisResponse(analysis: AnalyzedCast): Promise<string> {
   // Get AI-powered analysis
   const aiAnalysis = await generateAIAnalysis(analysis)
   
-  // Create a very concise 2-sentence response
+  // Create a very concise response with education prompt
   const engagement = `${reactions.likes_count}❤️ ${reactions.recasts_count}🔄 ${analysis.replies.count}💬`
   const tone = aiAnalysis.tone.split(' ')[0] // Just first word of tone
   
-  return `🤖 ${aiAnalysis.summary.split('.')[0]}. 📊 ${engagement} • ${tone} tone • ${parsed_data.word_count || 0} words`
+  return `🤖 ${aiAnalysis.summary.split('.')[0]}. 📊 ${engagement} • ${tone} tone • Ask "what does [word] mean?"`
 }
 
 /**
- * Formats save confirmation response (concise)
+ * UPDATED: Formats save confirmation response with educational prompt
  */
 function formatSaveResponse(cast: SavedCast): string {
-  return `✅ Cast saved from @${cast.username}! View all saved casts in your dashboard.`
+  return `✅ Cast saved from @${cast.username}! Ask me about any words you don't understand.`
 }
 
 /**
- * Formats help response (concise)
+ * UPDATED: Formats help response with new conversational features
  */
 function formatHelpResponse(): string {
-  return `🤖 Commands: @cstkpr save this | analyze this | stats | help`
+  return `🤖 Commands: save this | analyze this | stats | help | "what does [word] mean?"`
 }
 
 /**
  * Formats stats response (concise)
  */
 function formatStatsResponse(stats: { totalCasts: number }, username: string): string {
-  return `📊 @${username} has saved ${stats.totalCasts} cast${stats.totalCasts !== 1 ? 's' : ''}! Keep saving great content 🚀`
+  return `📊 @${username} has saved ${stats.totalCasts} cast${stats.totalCasts !== 1 ? 's' : ''}! Keep exploring! 🚀`
 }
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('🎯 Enhanced webhook received!')
+    console.log('🎯 Enhanced conversational webhook received!')
     
     const body = await request.json()
     console.log('📦 Webhook payload received')
@@ -232,19 +340,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Bot not mentioned' })
     }
     
-    const text = cast.text.toLowerCase()
+    const text = cast.text // Keep original case for better parsing
     console.log('💬 Cast text:', text)
     
     // Enhanced command detection
-    const commands = {
-      save: text.includes('save this') || text.includes('save'),
-      analyze: text.includes('analyze this') || text.includes('analyze'),
-      quality: text.includes('quality') || text.includes('rate'),
-      sentiment: text.includes('sentiment') || text.includes('feeling'),
-      topics: text.includes('topics') || text.includes('categories'),
-      help: text.includes('help') || text.includes('commands'),
-      stats: text.includes('stats') || text.includes('statistics')
-    }
+    const commands = detectConversationalCommands(text)
     
     console.log('🔍 Enhanced command detection:', commands)
     
@@ -252,6 +352,7 @@ export async function POST(request: NextRequest) {
     const signerUuid = process.env.NEYNAR_SIGNER_UUID
     const apiKey = process.env.NEYNAR_API_KEY
     const openaiKey = process.env.OPENAI_API_KEY
+    const userId = cast.author.username
     
     // 🔍 DEBUG: Environment Variables
     console.log('🔍 Environment Debug:')
@@ -261,7 +362,6 @@ export async function POST(request: NextRequest) {
     console.log('- NEYNAR_SIGNER_UUID first 8 chars:', signerUuid?.substring(0, 8) || 'MISSING')
     console.log('- OPENAI_API_KEY exists?', !!openaiKey)
     console.log('- OPENAI_API_KEY first 8 chars:', openaiKey?.substring(0, 8) || 'MISSING')
-    console.log('- All env vars:', Object.keys(process.env).filter(key => key.includes('NEYNAR') || key.includes('OPENAI')))
 
     if (!signerUuid) {
       console.error('❌ NEYNAR_SIGNER_UUID is undefined!')
@@ -282,7 +382,95 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
     
-    // Handle different commands
+    // NEW: Handle conversational patterns FIRST (before basic commands)
+    if (commands.thanks) {
+      console.log('💝 Thanks detected')
+      
+      if (signerUuid) {
+        const response = '😊 You\'re welcome! Happy to help you learn!'
+        const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+        console.log('📤 Thanks reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
+      }
+      
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Thanks response sent' 
+      })
+    }
+    
+    if (commands.explainWord || commands.askAbout) {
+      console.log('🔍 Word explanation request detected')
+      
+      const term = extractTermFromQuery(text)
+      if (term) {
+        console.log('📚 Explaining term:', term)
+        
+        // Get context from recent analysis
+        const userContext = conversationContext.get(userId)
+        const response = await explainTermWithContext(term, userContext?.lastAnalyzedCast)
+        
+        if (signerUuid) {
+          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+          console.log('📤 Explanation reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
+          
+          // Save this interaction
+          conversationContext.set(userId, {
+            ...userContext,
+            lastResponse: response,
+            timestamp: Date.now()
+          })
+        }
+        
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Term explanation sent',
+          term,
+          explanation: response
+        })
+      } else {
+        if (signerUuid) {
+          const response = '🤖 What specific word would you like me to explain?'
+          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+        }
+        
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Clarification request sent' 
+        })
+      }
+    }
+    
+    if (commands.reference || commands.followUp) {
+      console.log('🔍 Contextual question detected')
+      
+      const userContext = conversationContext.get(userId)
+      if (userContext?.lastAnalyzedCast) {
+        const topics = userContext.lastAnalyzedCast.parsed_data.topics?.join(', ') || 'general topics'
+        const response = `🤖 The last cast I analyzed was by @${userContext.lastAnalyzedCast.author.username} about ${topics}. What would you like to know?`
+        
+        if (signerUuid) {
+          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+          console.log('📤 Context reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
+        }
+        
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Contextual response sent' 
+        })
+      } else {
+        if (signerUuid) {
+          const response = '🤖 I\'d need to analyze a cast first to answer questions about it!'
+          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+        }
+        
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Context prompt sent' 
+        })
+      }
+    }
+    
+    // Handle existing commands
     if (commands.help) {
       console.log('❓ Help command detected')
       
@@ -302,10 +490,10 @@ export async function POST(request: NextRequest) {
       console.log('📊 Stats command detected')
       
       try {
-        const stats = await CastService.getUserStats(cast.author.username)
+        const stats = await CastService.getUserStats(userId)
         
         if (signerUuid) {
-          const response = formatStatsResponse(stats, cast.author.username)
+          const response = formatStatsResponse(stats, userId)
           const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
           console.log('📤 Stats reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
         }
@@ -345,8 +533,13 @@ export async function POST(request: NextRequest) {
         if (analysis) {
           console.log('✅ Analysis completed successfully')
           
+          // SAVE context for future conversations
+          conversationContext.set(userId, {
+            lastAnalyzedCast: analysis,
+            timestamp: Date.now()
+          })
+          
           if (signerUuid) {
-            // NOTE: formatAnalysisResponse is now async and needs await
             const response = await formatAnalysisResponse(analysis)
             console.log('📝 Formatted response length:', response.length)
             console.log('📝 Response content:', response)
@@ -430,9 +623,9 @@ export async function POST(request: NextRequest) {
             cast_url: analysis.cast_url,
             author_pfp_url: analysis.author.pfp_url,
             author_display_name: analysis.author.display_name,
-            saved_by_user_id: cast.author.username,
+            saved_by_user_id: userId,
             category: 'saved-via-bot',
-            notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
+            notes: `💾 Saved via @cstkpr bot by ${userId} on ${new Date().toLocaleDateString()}`,
             parsed_data: analysis.parsed_data
           } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
           
@@ -466,9 +659,9 @@ export async function POST(request: NextRequest) {
             cast_url: `https://warpcast.com/~/conversations/${parentHash}`,
             author_pfp_url: undefined,
             author_display_name: `User ${cast.parent_author?.fid || 'Unknown'}`,
-            saved_by_user_id: cast.author.username,
+            saved_by_user_id: userId,
             category: 'saved-via-bot',
-            notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
+            notes: `💾 Saved via @cstkpr bot by ${userId} on ${new Date().toLocaleDateString()}`,
             parsed_data: {
               urls: [`https://warpcast.com/~/conversations/${parentHash}`],
               hashtags: ['cstkpr', 'saved'],
@@ -512,7 +705,7 @@ export async function POST(request: NextRequest) {
     // Default response for unrecognized commands
     if (signerUuid) {
       const replyResult = await postReplyWithNeynar(
-        '🤖 Command not recognized. Try "@cstkpr help" for commands!',
+        '🤖 Try: save this | analyze this | stats | help | "what does [word] mean?"',
         cast.hash,
         signerUuid
       )
@@ -521,7 +714,8 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({ 
       success: true, 
-      message: 'Bot mentioned but no recognized command' 
+      message: 'Enhanced conversational response processed',
+      commandsDetected: Object.entries(commands).filter(([k, v]) => v).map(([k]) => k)
     })
     
   } catch (error) {
