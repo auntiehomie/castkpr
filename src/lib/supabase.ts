@@ -121,6 +121,26 @@ export interface CastCollection {
   added_at: string
 }
 
+// NEW: Bot conversation tracking
+export interface BotConversation {
+  id: string
+  user_id: string // Farcaster username
+  user_fid?: number
+  parent_cast_hash?: string // If replying to a cast
+  user_message: string
+  bot_response: string
+  command_type: string // 'opinion', 'analyze', 'explain', 'save', etc.
+  context_data?: {
+    analysis?: AnalyzedCast
+    explained_term?: string
+    topics?: string[]
+    sentiment?: string
+    [key: string]: any
+  }
+  created_at: string
+  updated_at: string
+}
+
 // Helper functions for database operations
 export class CastService {
   // Save a new cast
