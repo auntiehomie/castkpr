@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService } from '@/lib/supabase'
 import { analyzeCast } from '@/lib/cast-analyzer'
-import type { SavedCast, ParsedData } from '@/lib/supabase'
+import type { SavedCast } from '@/lib/supabase'
 import type { AnalyzedCast } from '@/lib/cast-analyzer'
 import OpenAI from 'openai'
 
@@ -21,7 +21,7 @@ interface NeynarReplyResponse {
   message?: string
 }
 
-// NEW: Simple in-memory context for conversations (upgrade to Redis/DB later)
+// Simple in-memory context for conversations (upgrade to Redis/DB later)
 const conversationContext = new Map<string, {
   lastAnalyzedCast?: AnalyzedCast
   lastResponse?: string
@@ -93,7 +93,7 @@ async function postReplyWithNeynar(
 }
 
 /**
- * NEW: Extract terms from natural language questions
+ * Extract terms from natural language questions
  */
 function extractTermFromQuery(text: string): string | null {
   const patterns = [
@@ -116,8 +116,53 @@ function extractTermFromQuery(text: string): string | null {
 }
 
 /**
- * NEW: AI-powered term explanation with cast context
+ * NEW: AI-powered thoughtful opinion generation
  */
+async function generateThoughtfulOpinion(analysis: AnalyzedCast): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    return `🤔 I'd need OpenAI to share my thoughts on this cast!`
+  }
+
+  try {
+    const { text, author, reactions, parsed_data } = analysis
+    
+    const prompt = `
+You are CastKPR, a thoughtful AI assistant analyzing a Farcaster cast. Someone asked "what do you think about this?" 
+
+Give your honest, thoughtful opinion in a conversational tone (under 200 characters).
+
+CAST DETAILS:
+Author: @${author.username}
+Text: "${text}"
+Topics: ${parsed_data.topics?.join(', ') || 'general'}
+Sentiment: ${parsed_data.sentiment || 'neutral'}
+Engagement: ${reactions.likes_count} likes, ${reactions.recasts_count} recasts
+
+Be conversational, insightful, and give a genuine perspective. You can:
+- Agree or disagree respectfully
+- Point out interesting aspects
+- Share what you find compelling or concerning
+- Connect it to broader trends
+- Be supportive of good ideas
+
+Format: Just your thoughtful response, no extra text.
+`
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8, // Higher temperature for more personality
+      max_tokens: 70
+    })
+
+    const thought = completion.choices[0]?.message?.content
+    return thought || `🤔 That's an interesting perspective from @${author.username}. I'd need to think more about it!`
+    
+  } catch (error) {
+    console.error('❌ Error generating thoughtful opinion:', error)
+    return `🤔 That's thought-provoking! I'd love to share more thoughts but I'm having trouble processing right now.`
+  }
+}
 async function explainTermWithContext(term: string, context?: AnalyzedCast): Promise<string> {
   if (!process.env.OPENAI_API_KEY) {
     return `"${term}" - I'd need OpenAI to explain this clearly!`
@@ -158,7 +203,7 @@ Format: Just the explanation, no extra text.
 }
 
 /**
- * NEW: Enhanced command detection with conversational patterns
+ * Enhanced command detection with conversational patterns
  */
 function detectConversationalCommands(text: string) {
   const lowerText = text.toLowerCase()
@@ -173,13 +218,17 @@ function detectConversationalCommands(text: string) {
     help: lowerText.includes('help') || lowerText.includes('commands'),
     stats: lowerText.includes('stats') || lowerText.includes('statistics'),
     
-    // NEW: Conversational patterns
+    // Conversational patterns
     explainWord: /what does (.+) mean|explain (.+)|define (.+)/i.test(text),
     askAbout: /tell me about (.+)|what is (.+)|what's (.+)/i.test(text),
     thanks: lowerText.includes('thank') || lowerText.includes('thanks'),
     followUp: lowerText.includes('tell me more') || lowerText.includes('elaborate'),
     reference: lowerText.includes('that word') || lowerText.includes('it') || 
                lowerText.includes('that term') || lowerText.includes('this'),
+    
+    // NEW: Opinion/thought requests
+    opinion: /what do you think|your thoughts|opinion|what's your take/i.test(text) &&
+             (lowerText.includes('this') || lowerText.includes('about')),
   }
 }
 
@@ -193,7 +242,7 @@ async function generateAIAnalysis(analysis: AnalyzedCast): Promise<{
   keyPoints: string[]
 }> {
   try {
-    const { text, author, reactions, parsed_data, channel } = analysis
+    const { text, author, reactions, channel } = analysis
     
     // Create a comprehensive prompt for GPT
     const prompt = `
@@ -204,9 +253,9 @@ Author: @${author.username}
 Text: "${text}"
 Channel: ${channel?.id || 'general feed'}
 Engagement: ${reactions.likes_count} likes, ${reactions.recasts_count} recasts, ${analysis.replies.count} replies
-Topics detected: ${parsed_data.topics?.join(', ') || 'none'}
-Links: ${parsed_data.urls?.length || 0}
-Mentions: ${parsed_data.mentions?.length || 0}
+Topics detected: ${analysis.parsed_data.topics?.join(', ') || 'none'}
+Links: ${analysis.parsed_data.urls?.length || 0}
+Mentions: ${analysis.parsed_data.mentions?.length || 0}
 
 Please provide:
 1. SUMMARY: A 2-3 sentence conversational summary of what this post is really about (not just restating the text, but explaining the context, meaning, or significance)
@@ -226,7 +275,7 @@ Format as JSON:
     console.log('🤖 Requesting AI analysis from OpenAI...')
     
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Cost-effective model
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -269,10 +318,10 @@ Format as JSON:
 }
 
 /**
- * UPDATED: Concise analysis response with educational prompt
+ * Concise analysis response with educational prompt
  */
 async function formatAnalysisResponse(analysis: AnalyzedCast): Promise<string> {
-  const { author, reactions, parsed_data } = analysis
+  const { reactions } = analysis
   
   // Get AI-powered analysis
   const aiAnalysis = await generateAIAnalysis(analysis)
@@ -285,17 +334,17 @@ async function formatAnalysisResponse(analysis: AnalyzedCast): Promise<string> {
 }
 
 /**
- * UPDATED: Formats save confirmation response with educational prompt
+ * Formats save confirmation response with educational prompt
  */
 function formatSaveResponse(cast: SavedCast): string {
   return `✅ Cast saved from @${cast.username}! Ask me about any words you don't understand.`
 }
 
 /**
- * UPDATED: Formats help response with new conversational features
+ * Formats help response with new conversational features
  */
 function formatHelpResponse(): string {
-  return `🤖 Commands: save this | analyze this | stats | help | "what does [word] mean?"`
+  return `🤖 Commands: save this | analyze this | "what do you think?" | stats | help | "what does [word] mean?"`
 }
 
 /**
@@ -382,7 +431,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
     
-    // NEW: Handle conversational patterns FIRST (before basic commands)
+    // Handle conversational patterns FIRST (before basic commands)
     if (commands.thanks) {
       console.log('💝 Thanks detected')
       
@@ -430,7 +479,7 @@ export async function POST(request: NextRequest) {
       } else {
         if (signerUuid) {
           const response = '🤖 What specific word would you like me to explain?'
-          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+          await postReplyWithNeynar(response, cast.hash, signerUuid)
         }
         
         return NextResponse.json({ 
@@ -460,13 +509,86 @@ export async function POST(request: NextRequest) {
       } else {
         if (signerUuid) {
           const response = '🤖 I\'d need to analyze a cast first to answer questions about it!'
-          const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+          await postReplyWithNeynar(response, cast.hash, signerUuid)
         }
         
         return NextResponse.json({ 
           success: true, 
           message: 'Context prompt sent' 
         })
+      }
+    }
+    
+    if (commands.opinion) {
+      console.log('🤔 Opinion request detected')
+      
+      if (!parentHash) {
+        console.log('❌ No parent cast to give opinion on')
+        
+        if (signerUuid) {
+          const replyResult = await postReplyWithNeynar(
+            '🤔 No parent cast found. Reply to a cast with "@cstkpr what do you think about this?"',
+            cast.hash,
+            signerUuid
+          )
+          console.log('📤 Error reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
+        }
+        
+        return NextResponse.json({ message: 'No parent cast for opinion' })
+      }
+      
+      try {
+        const analysis = await analyzeCast(parentHash)
+        
+        if (analysis) {
+          console.log('✅ Analysis completed, generating opinion')
+          
+          // Save context for future conversations
+          conversationContext.set(userId, {
+            lastAnalyzedCast: analysis,
+            timestamp: Date.now()
+          })
+          
+          if (signerUuid) {
+            const response = await generateThoughtfulOpinion(analysis)
+            console.log('📝 Opinion response length:', response.length)
+            console.log('📝 Opinion content:', response)
+            
+            const replyResult = await postReplyWithNeynar(response, cast.hash, signerUuid)
+            
+            if (replyResult.success) {
+              console.log('✅ Opinion response sent successfully')
+            } else {
+              console.error('❌ Failed to send opinion response:', replyResult.message)
+            }
+          }
+          
+          return NextResponse.json({ 
+            success: true, 
+            message: 'Opinion completed and response sent',
+            analysis: {
+              hash: analysis.hash,
+              sentiment: analysis.parsed_data.sentiment,
+              topics: analysis.parsed_data.topics
+            }
+          })
+        } else {
+          console.log('❌ Analysis failed for opinion')
+          
+          if (signerUuid) {
+            const replyResult = await postReplyWithNeynar(
+              '🤔 Sorry, I couldn\'t form an opinion on that cast. It might be unavailable.',
+              cast.hash,
+              signerUuid
+            )
+            console.log('📤 Opinion failure reply result:', replyResult.success ? 'SUCCESS' : replyResult.message)
+          }
+          
+          return NextResponse.json({ error: 'Opinion analysis failed' }, { status: 500 })
+        }
+      } catch (error) {
+        console.error('❌ Error in opinion generation:', error)
+        return NextResponse.json({ error: 'Opinion error' }, { status: 500 })
       }
     }
     
@@ -705,7 +827,7 @@ export async function POST(request: NextRequest) {
     // Default response for unrecognized commands
     if (signerUuid) {
       const replyResult = await postReplyWithNeynar(
-        '🤖 Try: save this | analyze this | stats | help | "what does [word] mean?"',
+        '🤖 Try: save this | analyze this | "what do you think?" | stats | help | "what does [word] mean?"',
         cast.hash,
         signerUuid
       )
@@ -715,7 +837,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       message: 'Enhanced conversational response processed',
-      commandsDetected: Object.entries(commands).filter(([k, v]) => v).map(([k]) => k)
+      commandsDetected: Object.entries(commands).filter(([_, v]) => v).map(([commandName]) => commandName)
     })
     
   } catch (error) {
