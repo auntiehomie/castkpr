@@ -1,48 +1,14 @@
-import { NextRequest, NextResponse }
-
-// Function to post reply to Farcaster
-async function postReplyToFarcaster(message: string, parentAuthorFid: number, parentCastHash: string): Promise<void> {
-  try {
-    console.log('📤 Attempting to post reply to Farcaster...')
-    
-    // Check if we have the required environment variables
-    const neynarApiKey = process.env.NEYNAR_API_KEY
-    const signerUuid = process.env.NEYNAR_SIGNER_UUID
-    
-    if (!neynarApiKey || !signerUuid) {
-      console.error('❌ Missing required environment variables for posting')
-      console.error('Need: NEYNAR_API_KEY and NEYNAR_SIGNER_UUID')
-      return
-    }
-    
-    // Post the reply using Neynar API
-    const response = await fetch('https://api.neynar.com/v2/farcaster/cast', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api_key': neynarApiKey,
-      },
-      body: JSON.stringify({
-        signer_uuid: signerUuid,
-        text: message,
-        parent: parentCastHash,
-      }),
-    })
-    
-    if (response.ok) {
-      const result = await response.json()
-      console.log('✅ Successfully posted reply to Farcaster:', result.cast.hash)
-    } else {
-      const errorText = await response.text()
-      console.error('❌ Failed to post reply:', response.status, errorText)
-    }
-    
-  } catch (postError) {
-    console.error('💥 Error posting reply to Farcaster:', postError)
-  } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
+
+/**
+ * Required Environment Variables for Bot Replies:
+ * - NEYNAR_API_KEY: Your Neynar API key for posting casts
+ * - NEYNAR_SIGNER_UUID: Signer UUID for the bot account
+ * 
+ * Without these, the bot will process mentions but won't reply to casts.
+ */
 
 // Type definitions for webhook payload
 interface CastAuthor {
@@ -99,8 +65,20 @@ export async function POST(request: NextRequest) {
     console.log('👤 User ID:', userId)
     console.log('👆 Parent hash:', parentHash)
     
-    // Generate response for any bot mention (save, help, stats, or general)
+    // Generate response for any bot mention
     const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash, cast)
+    
+    // Post reply to Farcaster (reply to the cast that mentioned the bot)
+    const castHash = cast.hash || body.data?.hash
+    console.log('🔗 Cast hash for reply:', castHash)
+    
+    if (castHash) {
+      await postReplyToFarcaster(response, cast.author.fid || 0, castHash)
+    } else {
+      console.error('❌ No cast hash found to reply to')
+      console.log('📋 Available cast data:', Object.keys(cast))
+      console.log('📋 Available body.data:', Object.keys(body.data || {}))
+    }
     
     // Save the conversation using regular service
     try {
@@ -296,5 +274,48 @@ Visit castkpr.vercel.app to explore your collection!`
 I can help you save great conversations for later! Just reply "save this" to any cast you want to keep, or ask me what I think about anything.
 
 Visit castkpr.vercel.app to browse your saved collection! 💜`
+  }
+}
+
+// Function to post reply to Farcaster
+async function postReplyToFarcaster(message: string, parentAuthorFid: number, parentCastHash: string): Promise<void> {
+  try {
+    console.log('📤 Attempting to post reply to Farcaster...')
+    
+    // Check if we have the required environment variables
+    const neynarApiKey = process.env.NEYNAR_API_KEY
+    const signerUuid = process.env.NEYNAR_SIGNER_UUID
+    
+    if (!neynarApiKey || !signerUuid) {
+      console.error('❌ Missing required environment variables for posting')
+      console.error('Need: NEYNAR_API_KEY and NEYNAR_SIGNER_UUID')
+      return
+    }
+    
+    // Post the reply using Neynar API
+    const response = await fetch('https://api.neynar.com/v2/farcaster/cast', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api_key': neynarApiKey,
+      },
+      body: JSON.stringify({
+        signer_uuid: signerUuid,
+        text: message,
+        parent: parentCastHash,
+      }),
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Successfully posted reply to Farcaster:', result.cast.hash)
+    } else {
+      const errorText = await response.text()
+      console.error('❌ Failed to post reply:', response.status, errorText)
+    }
+    
+  } catch (postError) {
+    console.error('💥 Error posting reply to Farcaster:', postError)
   }
 }
