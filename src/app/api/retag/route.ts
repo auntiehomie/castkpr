@@ -15,6 +15,11 @@ interface RetagResult {
   error?: string
 }
 
+interface AIAnalysisResponse {
+  tags: string[]
+  category: string
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await request.json()
@@ -26,17 +31,25 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
+    if (!userId) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'User ID is required' 
+      }, { status: 400 })
+    }
+
     console.log(`🧠 Starting AI retagging for user: ${userId}`)
 
     // Get all user's casts
-    const casts = await CastService.getUserCasts(userId, 1000) // Get more casts
+    const casts = await CastService.getUserCasts(userId, 1000)
     
     if (casts.length === 0) {
       return NextResponse.json({ 
         success: true, 
         processed: 0, 
         errors: 0, 
-        results: [] 
+        results: [],
+        message: 'No casts found to process'
       })
     }
 
@@ -53,41 +66,27 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`🔄 Processing cast ${i + 1}/${casts.length}: ${cast.cast_hash.slice(0, 10)}...`)
 
-        // Generate AI tags and category
-        const prompt = `Analyze this social media post and provide relevant tags and category:
-
-Content: "${cast.cast_content}"
-Author: @${cast.username}
-
-Please respond with a JSON object containing:
-1. "tags": An array of 3-8 relevant lowercase tags (without # symbols)
-2. "category": A single category from: tech, social, business, crypto, news, entertainment, sports, science, politics, art, other
-
-Focus on the main topics, themes, and content type. Make tags specific and useful for searching.`
-
-        const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.3,
-          max_tokens: 200
-        })
-
-        const aiResponse = completion.choices[0]?.message?.content
-        if (!aiResponse) {
-          throw new Error('No response from AI')
+        // Skip if content is too short or already has AI category
+        if (cast.cast_content.length < 10) {
+          console.log(`⏭️ Skipping short cast: ${cast.cast_hash.slice(0, 10)}`)
+          continue
         }
 
-        // Parse AI response
-        const aiData = JSON.parse(aiResponse)
-        const newTags = aiData.tags || []
-        const category = aiData.category || 'other'
+        // Generate AI tags and category
+        const aiAnalysis = await analyzeWithAI(cast.cast_content, cast.username)
+        
+        if (!aiAnalysis) {
+          throw new Error('No valid response from AI')
+        }
+
+        const { tags: newTags, category } = aiAnalysis
 
         // Combine existing tags with AI tags (preserve existing ones)
         const existingTags = cast.tags || []
         const combinedTags = [...new Set([...existingTags, ...newTags])]
 
         // Handle parsed_data properly - create new object or merge with existing
-        const existingParsedData = cast.parsed_data || {}
+        const existingParsedData = cast.parsed_data as ParsedData || {}
         const updatedParsedData: ParsedData = {
           // Preserve existing parsed data
           urls: existingParsedData.urls || [],
@@ -95,10 +94,10 @@ Focus on the main topics, themes, and content type. Make tags specific and usefu
           hashtags: existingParsedData.hashtags || [],
           numbers: existingParsedData.numbers || [],
           dates: existingParsedData.dates || [],
-          word_count: existingParsedData.word_count || 0,
+          word_count: existingParsedData.word_count || cast.cast_content.split(' ').length,
           sentiment: existingParsedData.sentiment || 'neutral',
+          topics: existingParsedData.topics || [],
           // Add/update AI data
-          topics: newTags,
           ai_category: category,
           ai_tags: newTags
         }
@@ -119,9 +118,9 @@ Focus on the main topics, themes, and content type. Make tags specific and usefu
 
         processed++
         
-        // Add delay to respect rate limits
+        // Add delay to respect rate limits (reduce from 1000ms to 500ms for faster processing)
         if (i < casts.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay
+          await new Promise(resolve => setTimeout(resolve, 500))
         }
 
       } catch (error) {
@@ -135,6 +134,9 @@ Focus on the main topics, themes, and content type. Make tags specific and usefu
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         })
+
+        // Continue processing even if one fails
+        continue
       }
     }
 
@@ -144,7 +146,12 @@ Focus on the main topics, themes, and content type. Make tags specific and usefu
       success: true,
       processed,
       errors,
-      results
+      total: casts.length,
+      results: results.slice(0, 10), // Return only first 10 results to avoid large responses
+      summary: {
+        categories: summarizeCategories(results),
+        mostCommonTags: summarizeTags(results)
+      }
     })
 
   } catch (error) {
@@ -154,4 +161,79 @@ Focus on the main topics, themes, and content type. Make tags specific and usefu
       error: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
+}
+
+async function analyzeWithAI(content: string, username: string): Promise<AIAnalysisResponse | null> {
+  try {
+    const prompt = `Analyze this social media post and provide relevant tags and category:
+
+Content: "${content}"
+Author: @${username}
+
+Please respond with a JSON object containing:
+1. "tags": An array of 3-8 relevant lowercase tags (without # symbols)
+2. "category": A single category from: tech, social, business, crypto, news, entertainment, sports, science, politics, art, other
+
+Focus on the main topics, themes, and content type. Make tags specific and useful for searching.
+
+Example response:
+{"tags": ["web3", "blockchain", "defi"], "category": "crypto"}`
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 200,
+      response_format: { type: "json_object" }
+    })
+
+    const aiResponse = completion.choices[0]?.message?.content
+    if (!aiResponse) {
+      return null
+    }
+
+    // Parse AI response
+    const aiData = JSON.parse(aiResponse) as AIAnalysisResponse
+    
+    // Validate response structure
+    if (!aiData.tags || !Array.isArray(aiData.tags) || !aiData.category) {
+      console.warn('Invalid AI response structure:', aiData)
+      return null
+    }
+
+    return {
+      tags: aiData.tags.slice(0, 8), // Limit to 8 tags max
+      category: aiData.category
+    }
+
+  } catch (error) {
+    console.error('Error in AI analysis:', error)
+    return null
+  }
+}
+
+function summarizeCategories(results: RetagResult[]): Record<string, number> {
+  const categories: Record<string, number> = {}
+  results.forEach(result => {
+    if (result.success) {
+      categories[result.category] = (categories[result.category] || 0) + 1
+    }
+  })
+  return categories
+}
+
+function summarizeTags(results: RetagResult[]): Array<{ tag: string; count: number }> {
+  const tagCounts: Record<string, number> = {}
+  results.forEach(result => {
+    if (result.success) {
+      result.newTags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1
+      })
+    }
+  })
+  
+  return Object.entries(tagCounts)
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10) // Top 10 tags
 }
