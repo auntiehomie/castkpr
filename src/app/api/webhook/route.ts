@@ -6,6 +6,7 @@ import type { SavedCast } from '@/lib/supabase'
  * Required Environment Variables for Bot Replies:
  * - NEYNAR_API_KEY: Your Neynar API key for posting casts
  * - NEYNAR_SIGNER_UUID: Signer UUID for the bot account
+ * - OPENAI_API_KEY: OpenAI API key for cast comprehension
  * 
  * Without these, the bot will process mentions but won't reply to casts.
  */
@@ -215,7 +216,7 @@ Visit castkpr.vercel.app to explore your collection!`
     }
   }
   
-  // Conversational responses for opinion questions
+  // Conversational responses for opinion questions - now with AI comprehension
   if (lowerText.includes('what do you think') || 
       lowerText.includes('your thoughts') || 
       lowerText.includes('do you agree') || 
@@ -227,17 +228,24 @@ Visit castkpr.vercel.app to explore your collection!`
       lowerText.includes('what\'s your take') ||
       lowerText.includes('how do you feel')) {
     
+    // Get the cast content to analyze
+    const castToAnalyze = parentHash ? 
+      await getCastContent(parentHash) : 
+      cast.text
+    
+    if (castToAnalyze) {
+      const aiResponse = await generateAIResponse(castToAnalyze, text)
+      return {
+        commandType: 'conversation',
+        response: aiResponse
+      }
+    }
+    
+    // Fallback to generic response if no content found
     const responses = [
       "🤔 Interesting perspective! I think there's always multiple angles to consider. What's your take?",
       "💭 That's thought-provoking! As a cast-saving bot, I see all kinds of takes. This one's worth saving! Try 'save this' 😉",
-      "🧠 Great question! I process a lot of conversations and this feels like one worth keeping track of.",
-      "💡 I find this fascinating! You know what would help? Saving good discussions like this for later reference.",
-      "🤖 My circuits are buzzing! This is the kind of content that makes people want to save casts for future reference.",
-      "⚡ Solid point! I've processed tons of discussions and the best ones always spark more questions.",
-      "🎯 You're onto something here! This feels like premium content worth preserving.",
-      "🔥 Now that's a hot take! I'm just a humble cast-saving bot, but this seems worth archiving.",
-      "✨ Love seeing active discussions like this! Makes me want to remind everyone they can save great threads.",
-      "🌟 This is exactly the kind of engagement that makes Farcaster special!"
+      "🧠 Great question! I process a lot of conversations and this feels like one worth keeping track of."
     ]
     
     const randomResponse = responses[Math.floor(Math.random() * responses.length)]
@@ -248,14 +256,26 @@ Visit castkpr.vercel.app to explore your collection!`
     }
   }
   
-  // Agreement/disagreement responses
+  // Agreement/disagreement responses - now with AI comprehension
   if (lowerText.includes('agree') || lowerText.includes('disagree')) {
+    // Get the cast content to analyze
+    const castToAnalyze = parentHash ? 
+      await getCastContent(parentHash) : 
+      cast.text
+    
+    if (castToAnalyze) {
+      const aiResponse = await generateAIResponse(castToAnalyze, text)
+      return {
+        commandType: 'conversation',
+        response: aiResponse
+      }
+    }
+    
+    // Fallback responses
     const responses = [
       "🤝 I see both sides! That's what makes discussions interesting.",
       "⚖️ Truth usually lies somewhere in the middle. What made you lean that way?",
-      "🧩 Every perspective adds a piece to the puzzle. Thanks for sharing yours!",
-      "💬 Love seeing different viewpoints clash in a good way. This is worth saving!",
-      "🎭 The beauty of discourse! Everyone brings their own lens to the conversation."
+      "🧩 Every perspective adds a piece to the puzzle. Thanks for sharing yours!"
     ]
     
     const randomResponse = responses[Math.floor(Math.random() * responses.length)]
@@ -266,7 +286,20 @@ Visit castkpr.vercel.app to explore your collection!`
     }
   }
   
-  // Default response for general mentions
+  // Default response for general mentions - now with AI comprehension
+  const castToAnalyze = parentHash ? 
+    await getCastContent(parentHash) : 
+    cast.text
+
+  if (castToAnalyze && lowerText.length > 10) { // Only use AI for substantial mentions
+    const aiResponse = await generateAIResponse(castToAnalyze, text)
+    return {
+      commandType: 'general',
+      response: aiResponse
+    }
+  }
+
+  // Fallback response for simple mentions
   return {
     commandType: 'general',
     response: `🤖 Hey! I'm CastKPR, your cast-saving companion. 
@@ -317,5 +350,107 @@ async function postReplyToFarcaster(message: string, parentAuthorFid: number, pa
     
   } catch (postError) {
     console.error('💥 Error posting reply to Farcaster:', postError)
+  }
+}
+
+// Function to get cast content from Neynar API
+async function getCastContent(castHash: string): Promise<string | null> {
+  try {
+    const neynarApiKey = process.env.NEYNAR_API_KEY
+    
+    if (!neynarApiKey) {
+      console.error('❌ Missing NEYNAR_API_KEY for fetching cast content')
+      return null
+    }
+    
+    const response = await fetch(`https://api.neynar.com/v2/farcaster/cast?identifier=${castHash}&type=hash`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'api_key': neynarApiKey,
+      },
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      return result.cast.text || null
+    } else {
+      console.error('❌ Failed to fetch cast content:', response.status)
+      return null
+    }
+    
+  } catch (fetchError) {
+    console.error('💥 Error fetching cast content:', fetchError)
+    return null
+  }
+}
+
+// Function to generate AI response based on cast content
+async function generateAIResponse(castContent: string, userMessage: string): Promise<string> {
+  try {
+    const openaiApiKey = process.env.OPENAI_API_KEY
+    
+    if (!openaiApiKey) {
+      console.error('❌ Missing OPENAI_API_KEY for AI responses')
+      return "🤖 I'd love to share my thoughts, but I need my AI capabilities configured! For now, this seems like great content worth saving."
+    }
+    
+    const prompt = `You are CastKPR, a helpful and engaging Farcaster bot that helps people save and discuss casts. 
+
+Someone shared this cast: "${castContent}"
+
+They asked you: "${userMessage}"
+
+Please respond in a thoughtful, conversational way that:
+- Shows you understand the cast content
+- Gives a genuine, helpful perspective 
+- Stays under 280 characters
+- Uses emojis appropriately
+- Occasionally mentions that great content like this is worth saving with "save this"
+- Maintains a friendly, knowledgeable tone
+
+Don't be overly promotional about saving casts - just be helpful and engaging.`
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are CastKPR, a helpful Farcaster bot that helps save and discuss casts. Be conversational, insightful, and under 280 characters.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 150,
+        temperature: 0.7,
+      }),
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      const aiResponse = result.choices[0]?.message?.content?.trim() || ''
+      
+      // Ensure response is under 280 characters
+      if (aiResponse.length > 280) {
+        return aiResponse.substring(0, 277) + '...'
+      }
+      
+      return aiResponse
+    } else {
+      console.error('❌ Failed to generate AI response:', response.status)
+      return "🤖 That's really interesting! I'm having trouble with my analysis right now, but this seems like quality content worth discussing."
+    }
+    
+  } catch (aiError) {
+    console.error('💥 Error generating AI response:', aiError)
+    return "🤖 Fascinating topic! My circuits are a bit overloaded right now, but I can tell this is the kind of content worth keeping track of."
   }
 }
