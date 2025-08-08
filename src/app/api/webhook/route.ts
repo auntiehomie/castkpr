@@ -26,6 +26,7 @@ interface WebhookCast {
   parent_author?: CastAuthor
   author: CastAuthor
   mentioned_profiles?: Array<{ username?: string; fid?: number }>
+  thread_hash?: string
 }
 
 export async function POST(request: NextRequest) {
@@ -50,11 +51,16 @@ export async function POST(request: NextRequest) {
       return profile.username === 'cstkpr'
     })
     
-    console.log('🤖 Bot mentioned?', mentionsBot)
+    // Check if this is a reply to one of the bot's previous casts
+    const isReplyToBot = await isReplyToBotCast(cast.parent_hash)
     
-    if (!mentionsBot) {
-      console.log('❌ Bot not mentioned, skipping')
-      return NextResponse.json({ message: 'Bot not mentioned' })
+    console.log('🤖 Bot mentioned?', mentionsBot)
+    console.log('💬 Reply to bot?', isReplyToBot)
+    
+    // Process if bot is mentioned OR if it's a reply to bot's previous cast
+    if (!mentionsBot && !isReplyToBot) {
+      console.log('❌ Bot not mentioned and not a reply to bot, skipping')
+      return NextResponse.json({ message: 'Bot not involved in conversation' })
     }
     
     // Process the bot mention
@@ -66,15 +72,22 @@ export async function POST(request: NextRequest) {
     console.log('👤 User ID:', userId)
     console.log('👆 Parent hash:', parentHash)
     
-    // Generate response for any bot mention
-    const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash, cast)
+    // Generate response - different logic for mentions vs follow-ups
+    const { commandType, response, contextData } = mentionsBot ? 
+      await generateBotResponse(text, userId, parentHash, cast) :
+      await generateFollowUpResponse(text, userId, cast)
     
     // Post reply to Farcaster (reply to the cast that mentioned the bot)
     const castHash = cast.hash || body.data?.hash
     console.log('🔗 Cast hash for reply:', castHash)
     
     if (castHash) {
-      await postReplyToFarcaster(response, cast.author.fid || 0, castHash)
+      const replyHash = await postReplyToFarcaster(response, cast.author.fid || 0, castHash)
+      
+      // Store this conversation for future follow-ups
+      if (replyHash) {
+        await storeBotConversation(castHash, replyHash, cast.thread_hash || castHash)
+      }
     } else {
       console.error('❌ No cast hash found to reply to')
       console.log('📋 Available cast data:', Object.keys(cast))
@@ -311,7 +324,7 @@ Visit castkpr.vercel.app to browse your saved collection! 💜`
 }
 
 // Function to post reply to Farcaster
-async function postReplyToFarcaster(message: string, parentAuthorFid: number, parentCastHash: string): Promise<void> {
+async function postReplyToFarcaster(message: string, parentAuthorFid: number, parentCastHash: string): Promise<string | null> {
   try {
     console.log('📤 Attempting to post reply to Farcaster...')
     
@@ -322,7 +335,7 @@ async function postReplyToFarcaster(message: string, parentAuthorFid: number, pa
     if (!neynarApiKey || !signerUuid) {
       console.error('❌ Missing required environment variables for posting')
       console.error('Need: NEYNAR_API_KEY and NEYNAR_SIGNER_UUID')
-      return
+      return null
     }
     
     // Post the reply using Neynar API
@@ -343,13 +356,16 @@ async function postReplyToFarcaster(message: string, parentAuthorFid: number, pa
     if (response.ok) {
       const result = await response.json()
       console.log('✅ Successfully posted reply to Farcaster:', result.cast.hash)
+      return result.cast.hash
     } else {
       const errorText = await response.text()
       console.error('❌ Failed to post reply:', response.status, errorText)
+      return null
     }
     
   } catch (postError) {
     console.error('💥 Error posting reply to Farcaster:', postError)
+    return null
   }
 }
 
@@ -452,5 +468,153 @@ Don't be overly promotional about saving casts - just be helpful and engaging.`
   } catch (aiError) {
     console.error('💥 Error generating AI response:', aiError)
     return "🤖 Fascinating topic! My circuits are a bit overloaded right now, but I can tell this is the kind of content worth keeping track of."
+  }
+}
+
+// Function to check if a cast is a reply to one of the bot's previous casts
+async function isReplyToBotCast(parentHash: string | undefined): Promise<boolean> {
+  if (!parentHash) return false
+  
+  try {
+    // Check if this parent hash is in our stored bot conversations
+    const { data, error } = await supabase
+      .from('bot_conversations')
+      .select('bot_cast_hash')
+      .eq('bot_cast_hash', parentHash)
+      .single()
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('Error checking bot conversations:', error)
+      return false
+    }
+    
+    return !!data
+  } catch (checkError) {
+    console.error('💥 Error checking if reply to bot:', checkError)
+    return false
+  }
+}
+
+// Function to generate follow-up responses (when replying to bot's previous cast)
+async function generateFollowUpResponse(text: string, userId: string, cast: WebhookCast): Promise<{
+  commandType: string;
+  response: string;
+  contextData?: Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>;
+}> {
+  console.log('🔄 Generating follow-up response for:', text)
+  
+  // Get the conversation context
+  const conversationContext = await getConversationContext(cast.parent_hash)
+  
+  const openaiApiKey = process.env.OPENAI_API_KEY
+  
+  if (!openaiApiKey) {
+    return {
+      commandType: 'followup',
+      response: "🤖 Thanks for following up! I'm still processing our conversation. What specifically would you like to know more about?"
+    }
+  }
+  
+  try {
+    const prompt = `You are CastKPR, a helpful Farcaster bot. You're in an ongoing conversation thread.
+
+Previous context: ${conversationContext || 'Continuing our discussion'}
+
+The user just said: "${text}"
+
+Please respond naturally as if you're continuing the conversation. Keep it:
+- Under 280 characters
+- Conversational and helpful
+- Related to the ongoing discussion
+- Use emojis appropriately
+
+Don't mention saving casts unless directly relevant.`
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are CastKPR, having a natural conversation. Be helpful, concise, and conversational.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 120,
+        temperature: 0.8,
+      }),
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      let aiResponse = result.choices[0]?.message?.content?.trim() || ''
+      
+      // Ensure response is under 280 characters
+      if (aiResponse.length > 280) {
+        aiResponse = aiResponse.substring(0, 277) + '...'
+      }
+      
+      return {
+        commandType: 'followup',
+        response: aiResponse
+      }
+    } else {
+      console.error('❌ Failed to generate follow-up response:', response.status)
+      return {
+        commandType: 'followup',
+        response: "🤔 That's a great point! I'm thinking through what you said. Could you elaborate a bit more?"
+      }
+    }
+    
+  } catch (followupError) {
+    console.error('💥 Error generating follow-up response:', followupError)
+    return {
+      commandType: 'followup',
+      response: "💭 Interesting perspective! I'm still processing our conversation. What would you like to explore further?"
+    }
+  }
+}
+
+// Function to store bot conversation for future tracking
+async function storeBotConversation(originalCastHash: string, botReplyHash: string, threadHash: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('bot_conversations')
+      .insert({
+        original_cast_hash: originalCastHash,
+        bot_cast_hash: botReplyHash,
+        thread_hash: threadHash,
+        created_at: new Date().toISOString()
+      })
+    
+    if (error) {
+      console.error('❌ Error storing bot conversation:', error)
+    } else {
+      console.log('✅ Stored bot conversation for future tracking')
+    }
+  } catch (storeError) {
+    console.error('💥 Error storing bot conversation:', storeError)
+  }
+}
+
+// Function to get conversation context
+async function getConversationContext(parentHash: string | undefined): Promise<string | null> {
+  if (!parentHash) return null
+  
+  try {
+    // In a full implementation, you'd get the conversation history
+    // For now, just return a simple acknowledgment
+    return "Continuing our discussion from the previous message"
+  } catch (contextError) {
+    console.error('💥 Error getting conversation context:', contextError)
+    return null
   }
 }
