@@ -28,6 +28,24 @@ export interface SavedCast {
   recasts_count: number
 }
 
+export interface BotConversation {
+  id: string
+  user_id: string
+  original_cast_hash: string
+  bot_cast_hash: string | null
+  conversation_context: {
+    original_content?: string
+    bot_response?: string
+    timestamp?: string
+    conversation_type?: 'save_command' | 'general_question' | 'follow_up'
+    parent_hash?: string | null
+    is_follow_up?: boolean
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
 export interface ParsedData {
   urls?: string[]
   mentions?: string[]
@@ -37,29 +55,6 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
-  
-  // AI analysis fields
-  ai_category?: string
-  ai_tags?: string[]
-  
-  // Enhanced analysis fields
-  quality_score?: number
-  content_type?: string
-  engagement_potential?: string
-  entities?: {
-    people?: string[]
-    tokens?: string[]
-    projects?: string[]
-    companies?: string[]
-  }
-  confidence_score?: number
-  analysis_version?: string
-  
-  // Conversational features fields
-  technical_terms?: string[]      // Terms that users might ask about
-  sentence_count?: number         // For readability analysis
-  has_questions?: boolean         // Contains question marks
-  has_exclamations?: boolean      // Contains exclamation marks
 }
 
 export interface User {
@@ -88,20 +83,6 @@ export interface CastCollection {
   cast_id: string
   collection_id: string
   added_at: string
-}
-
-// NEW: Bot conversation interface
-export interface BotConversation {
-  id: string
-  user_id: string // Farcaster username
-  user_fid?: number
-  parent_cast_hash?: string // If replying to a cast
-  user_message: string
-  bot_response: string
-  command_type: string // 'opinion', 'analyze', 'explain', 'save', etc.
-  context_data?: Record<string, unknown>
-  created_at: string
-  updated_at: string
 }
 
 // Helper functions for database operations
@@ -204,16 +185,7 @@ export class CastService {
   }
 
   // Update cast notes or category
-  static async updateCast(
-    castId: string, 
-    userId: string, 
-    updates: { 
-      notes?: string; 
-      category?: string; 
-      tags?: string[];
-      parsed_data?: ParsedData;
-    }
-  ): Promise<SavedCast> {
+  static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .update(updates)
@@ -241,73 +213,99 @@ export class CastService {
   }
 }
 
-// Helper functions for users
-export class UserService {
-  // Create or update user
-  static async upsertUser(userData: Omit<User, 'id' | 'created_at' | 'updated_at'>): Promise<User> {
-    const { data, error } = await supabase
-      .from('users')
-      .upsert(userData, { onConflict: 'fid' })
+// Bot conversation service
+export class BotService {
+  // Store a bot conversation
+  static async storeBotConversation(data: Omit<BotConversation, 'id' | 'created_at' | 'updated_at'>): Promise<BotConversation> {
+    const { data: result, error } = await supabase
+      .from('bot_conversations')
+      .insert([data])
       .select()
       .single()
 
     if (error) {
-      console.error('Error upserting user:', error)
+      console.error('Error storing bot conversation:', error)
       throw error
     }
 
-    return data
+    return result
   }
 
-  // Get user by FID
-  static async getUserByFid(fid: number): Promise<User | null> {
+  // Check if a cast hash is a bot conversation
+  static async getBotConversationByCastHash(castHash: string): Promise<BotConversation | null> {
     const { data, error } = await supabase
-      .from('users')
+      .from('bot_conversations')
       .select('*')
-      .eq('fid', fid)
+      .eq('bot_cast_hash', castHash)
       .single()
 
     if (error) {
+      // Return null if not found, throw for other errors
       if (error.code === 'PGRST116') {
-        return null // User not found
+        return null
       }
-      console.error('Error fetching user by FID:', error)
+      console.error('Error fetching bot conversation:', error)
       throw error
     }
 
     return data
   }
 
-  // Get user by username
-  static async getUserByUsername(username: string): Promise<User | null> {
+  // Check if original cast hash has a bot conversation
+  static async getBotConversationByOriginalHash(originalHash: string): Promise<BotConversation | null> {
     const { data, error } = await supabase
-      .from('users')
+      .from('bot_conversations')
       .select('*')
-      .eq('username', username)
+      .eq('original_cast_hash', originalHash)
       .single()
 
     if (error) {
+      // Return null if not found, throw for other errors
       if (error.code === 'PGRST116') {
-        return null // User not found
+        return null
       }
-      console.error('Error fetching user by username:', error)
+      console.error('Error fetching bot conversation by original hash:', error)
       throw error
     }
 
     return data
   }
 
-  // Update last login
-  static async updateLastLogin(userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', userId)
+  // Get conversation history for a user
+  static async getUserConversations(userId: string, limit: number = 50): Promise<BotConversation[]> {
+    const { data, error } = await supabase
+      .from('bot_conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
 
     if (error) {
-      console.error('Error updating last login:', error)
+      console.error('Error fetching user conversations:', error)
       throw error
     }
+
+    return data || []
+  }
+
+  // Update bot conversation with response
+  static async updateBotConversation(
+    id: string, 
+    updates: Partial<Pick<BotConversation, 'bot_cast_hash' | 'conversation_context'>>
+  ): Promise<BotConversation> {
+    const { data, error } = await supabase
+      .from('bot_conversations')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating bot conversation:', error)
+      throw error
+    }
+
+    return data
   }
 }
 
@@ -350,42 +348,6 @@ export class CollectionService {
     return data || []
   }
 
-  // Update collection
-  static async updateCollection(collectionId: string, userId: string, updates: { 
-    name?: string; 
-    description?: string; 
-    is_public?: boolean;
-  }): Promise<Collection> {
-    const { data, error } = await supabase
-      .from('collections')
-      .update(updates)
-      .eq('id', collectionId)
-      .eq('created_by', userId)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error updating collection:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Delete collection
-  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('collections')
-      .delete()
-      .eq('id', collectionId)
-      .eq('created_by', userId)
-
-    if (error) {
-      console.error('Error deleting collection:', error)
-      throw error
-    }
-  }
-
   // Add cast to collection
   static async addCastToCollection(castId: string, collectionId: string): Promise<void> {
     const { error } = await supabase
@@ -397,20 +359,6 @@ export class CollectionService {
 
     if (error) {
       console.error('Error adding cast to collection:', error)
-      throw error
-    }
-  }
-
-  // Remove cast from collection
-  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
-    const { error } = await supabase
-      .from('cast_collections')
-      .delete()
-      .eq('cast_id', castId)
-      .eq('collection_id', collectionId)
-
-    if (error) {
-      console.error('Error removing cast from collection:', error)
       throw error
     }
   }
@@ -440,46 +388,6 @@ export class CollectionService {
       added_at: string;
       saved_casts: SavedCast[];
     }>
-  }
-}
-
-// Bot conversation service
-export class BotConversationService {
-  static async saveConversation(conversationData: Omit<BotConversation, 'id' | 'created_at' | 'updated_at'>): Promise<BotConversation> {
-    const { data, error } = await supabase
-      .from('bot_conversations')
-      .insert([conversationData])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('❌ Error saving conversation:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  static async getConversationHistory(userId: string, parentCastHash?: string, limit: number = 5): Promise<BotConversation[]> {
-    let query = supabase
-      .from('bot_conversations')
-      .select('*')
-      .eq('user_id', userId)
-
-    if (parentCastHash) {
-      query = query.eq('parent_cast_hash', parentCastHash)
-    }
-
-    const { data, error } = await query
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error('Error fetching conversation history:', error)
-      throw error
-    }
-
-    return data || []
   }
 }
 

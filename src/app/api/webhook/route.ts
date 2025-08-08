@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, BotService, supabase } from '@/lib/supabase'
+import { CastService, BotService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
+
+// Type definitions for webhook data
+interface WebhookCast {
+  hash: string
+  text: string
+  author: {
+    username: string
+    fid: number
+  }
+  parent_hash?: string
+  parent_author?: {
+    fid: number
+  }
+  mentioned_profiles: Array<{
+    username?: string
+    fid?: number
+  }>
+}
+
+interface ConversationContext {
+  original_content?: string
+  bot_response?: string
+  timestamp?: string
+  conversation_type?: 'save_command' | 'general_question' | 'follow_up'
+  parent_hash?: string | null
+  is_follow_up?: boolean
+  [key: string]: unknown
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Event type not handled' })
     }
     
-    const cast = body.data
+    const cast: WebhookCast = body.data
     console.log('📝 Processing cast from:', cast.author.username)
     
     // Check for mentions
@@ -104,12 +132,28 @@ export async function POST(request: NextRequest) {
       // Check if we have the required API key
       if (!process.env.NEYNAR_API_KEY) {
         console.error('❌ Missing NEYNAR_API_KEY environment variable')
-        return NextResponse.json({ error: 'Missing Neynar API key configuration' }, { status: 500 })
+        
+        // Store conversation even if posting fails
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+        
+        return NextResponse.json({ 
+          error: 'Missing Neynar API key configuration',
+          response_generated: responseText,
+          conversation_stored: true
+        }, { status: 500 })
       }
       
       if (!process.env.NEYNAR_SIGNER_UUID) {
         console.error('❌ Missing NEYNAR_SIGNER_UUID environment variable')
-        return NextResponse.json({ error: 'Missing Neynar signer configuration' }, { status: 500 })
+        
+        // Store conversation even if posting fails
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+        
+        return NextResponse.json({ 
+          error: 'Missing Neynar signer configuration',
+          response_generated: responseText,
+          conversation_stored: true
+        }, { status: 500 })
       }
       
       const replyResponse = await fetch('https://api.neynar.com/v2/farcaster/cast', {
@@ -136,7 +180,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ 
           error: 'Failed to post reply to Farcaster', 
           details: errorText,
-          response_generated: responseText 
+          response_generated: responseText,
+          conversation_stored: true
         }, { status: 500 })
       }
       
@@ -169,7 +214,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         error: 'Failed to post reply', 
         details: error instanceof Error ? error.message : 'Unknown error',
-        response_generated: responseText
+        response_generated: responseText,
+        conversation_storage_attempted: true
       }, { status: 500 })
     }
     
@@ -213,7 +259,7 @@ async function storeBotConversation(
   }
 }
 
-async function handleSaveCommand(parentHash: string, userId: string, mentionCast: any): Promise<void> {
+async function handleSaveCommand(parentHash: string, userId: string, mentionCast: WebhookCast): Promise<void> {
   console.log('💾 Handling save command for parent hash:', parentHash)
   
   // Create cast data that matches your SavedCast interface exactly
@@ -281,7 +327,7 @@ function generateGeneralResponse(text: string): string {
   return responses[Math.floor(Math.random() * responses.length)]
 }
 
-function generateFollowUpResponse(text: string, previousContext: any): string {
+function generateFollowUpResponse(text: string, previousContext: ConversationContext): string {
   // Thanks responses for follow-ups
   if (text.includes('thanks') || text.includes('thank')) {
     return "You're very welcome! 🙌 Happy to help you build your cast collection. Keep saving the good stuff with '@cstkpr save this'!"
