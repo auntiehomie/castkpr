@@ -38,8 +38,8 @@ export default function MiniApp() {
         setIsInMiniApp(isMiniApp)
         
         if (isMiniApp) {
-          // Get user from context
-          const context = sdk.context
+          // Get user from context (context is async, so await it)
+          const context = await sdk.context
           if (context?.user) {
             const userData = {
               fid: context.user.fid,
@@ -139,7 +139,7 @@ export default function MiniApp() {
           
           {isInMiniApp && (
             <p className="text-sm text-purple-300">
-              Running in Farcaster Mini App
+              🚀 Running in Farcaster Mini App
             </p>
           )}
         </div>
