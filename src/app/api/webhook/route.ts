@@ -1,4 +1,46 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse }
+
+// Function to post reply to Farcaster
+async function postReplyToFarcaster(message: string, parentAuthorFid: number, parentCastHash: string): Promise<void> {
+  try {
+    console.log('📤 Attempting to post reply to Farcaster...')
+    
+    // Check if we have the required environment variables
+    const neynarApiKey = process.env.NEYNAR_API_KEY
+    const signerUuid = process.env.NEYNAR_SIGNER_UUID
+    
+    if (!neynarApiKey || !signerUuid) {
+      console.error('❌ Missing required environment variables for posting')
+      console.error('Need: NEYNAR_API_KEY and NEYNAR_SIGNER_UUID')
+      return
+    }
+    
+    // Post the reply using Neynar API
+    const response = await fetch('https://api.neynar.com/v2/farcaster/cast', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api_key': neynarApiKey,
+      },
+      body: JSON.stringify({
+        signer_uuid: signerUuid,
+        text: message,
+        parent: parentCastHash,
+      }),
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Successfully posted reply to Farcaster:', result.cast.hash)
+    } else {
+      const errorText = await response.text()
+      console.error('❌ Failed to post reply:', response.status, errorText)
+    }
+    
+  } catch (postError) {
+    console.error('💥 Error posting reply to Farcaster:', postError)
+  } from 'next/server'
 import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
@@ -12,6 +54,7 @@ interface CastAuthor {
 
 interface WebhookCast {
   text: string
+  hash?: string  // Current cast hash
   parent_hash?: string
   parent_author?: CastAuthor
   author: CastAuthor
@@ -67,17 +110,19 @@ export async function POST(request: NextRequest) {
         
         return NextResponse.json({ 
           success: true, 
-          message: 'Cast saved successfully',
+          message: 'Cast saved and reply posted',
           cast_id: savedCast.cast_hash,
           saved_cast_id: savedCast.id,
-          response
+          response,
+          command_type: commandType
         })
       } else {
-        // For non-save commands (help, stats, unknown), just return the response
+        // For non-save commands (help, stats, conversation, general), just return the response
         console.log(`🤖 Bot responding with ${commandType}: ${response}`)
         return NextResponse.json({ 
           success: true, 
-          message: response,
+          message: 'Reply posted successfully',
+          response,
           command_type: commandType
         })
       }
@@ -113,7 +158,8 @@ async function generateBotResponse(
 }> {
   const lowerText = text.toLowerCase()
   
-  if (lowerText.includes('save this') || lowerText.includes('save')) {
+  // Save commands
+  if (lowerText.includes('save this') || (lowerText.includes('save') && !lowerText.includes('what do you think'))) {
     if (!parentHash) {
       return {
         commandType: 'save_error',
@@ -155,19 +201,22 @@ async function generateBotResponse(
     }
   }
   
+  // Help command
   if (lowerText.includes('help')) {
     return {
       commandType: 'help',
       response: `🤖 CastKPR Bot Commands:
       
 • Reply "save this" to any cast to save it
-• "help" - Show this help message
+• "help" - Show this help message  
 • "stats" - View your save statistics
+• Ask me what I think about anything!
 
 Visit castkpr.vercel.app to view all your saved casts!`
     }
   }
   
+  // Stats command
   if (lowerText.includes('stats')) {
     try {
       const stats = await CastService.getUserStats(userId)
@@ -188,15 +237,64 @@ Visit castkpr.vercel.app to explore your collection!`
     }
   }
   
-  // Default response for unrecognized commands or general mentions
+  // Conversational responses for opinion questions
+  if (lowerText.includes('what do you think') || 
+      lowerText.includes('your thoughts') || 
+      lowerText.includes('do you agree') || 
+      lowerText.includes('do you disagree') ||
+      lowerText.includes('what are your thoughts') ||
+      lowerText.includes('thoughts?') ||
+      lowerText.includes('opinion') ||
+      lowerText.includes('take on this') ||
+      lowerText.includes('what\'s your take') ||
+      lowerText.includes('how do you feel')) {
+    
+    const responses = [
+      "🤔 Interesting perspective! I think there's always multiple angles to consider. What's your take?",
+      "💭 That's thought-provoking! As a cast-saving bot, I see all kinds of takes. This one's worth saving! Try 'save this' 😉",
+      "🧠 Great question! I process a lot of conversations and this feels like one worth keeping track of.",
+      "💡 I find this fascinating! You know what would help? Saving good discussions like this for later reference.",
+      "🤖 My circuits are buzzing! This is the kind of content that makes people want to save casts for future reference.",
+      "⚡ Solid point! I've processed tons of discussions and the best ones always spark more questions.",
+      "🎯 You're onto something here! This feels like premium content worth preserving.",
+      "🔥 Now that's a hot take! I'm just a humble cast-saving bot, but this seems worth archiving.",
+      "✨ Love seeing active discussions like this! Makes me want to remind everyone they can save great threads.",
+      "🌟 This is exactly the kind of engagement that makes Farcaster special!"
+    ]
+    
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+    
+    return {
+      commandType: 'conversation',
+      response: randomResponse
+    }
+  }
+  
+  // Agreement/disagreement responses
+  if (lowerText.includes('agree') || lowerText.includes('disagree')) {
+    const responses = [
+      "🤝 I see both sides! That's what makes discussions interesting.",
+      "⚖️ Truth usually lies somewhere in the middle. What made you lean that way?",
+      "🧩 Every perspective adds a piece to the puzzle. Thanks for sharing yours!",
+      "💬 Love seeing different viewpoints clash in a good way. This is worth saving!",
+      "🎭 The beauty of discourse! Everyone brings their own lens to the conversation."
+    ]
+    
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+    
+    return {
+      commandType: 'conversation',
+      response: randomResponse
+    }
+  }
+  
+  // Default response for general mentions
   return {
     commandType: 'general',
-    response: `🤖 Hi there! I'm CastKPR Bot. Here's what I can do:
+    response: `🤖 Hey! I'm CastKPR, your cast-saving companion. 
 
-• Reply "save this" to any cast to save it to your collection
-• Reply "help" for detailed commands
-• Reply "stats" to see your save statistics
+I can help you save great conversations for later! Just reply "save this" to any cast you want to keep, or ask me what I think about anything.
 
-Or visit castkpr.vercel.app to browse your saved casts!`
+Visit castkpr.vercel.app to browse your saved collection! 💜`
   }
 }
