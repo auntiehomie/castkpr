@@ -425,6 +425,49 @@ export class CollectionService {
     return data
   }
 
+  // Update a collection
+  static async updateCollection(collectionId: string, userId: string, updates: {
+    name?: string;
+    description?: string;
+    is_public?: boolean;
+  }): Promise<Collection> {
+    const { data, error } = await supabase
+      .from('collections')
+      .update(updates)
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating collection:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Delete a collection
+  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
+    // First, remove all cast associations
+    await supabase
+      .from('cast_collections')
+      .delete()
+      .eq('collection_id', collectionId)
+
+    // Then delete the collection
+    const { error } = await supabase
+      .from('collections')
+      .delete()
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+
+    if (error) {
+      console.error('Error deleting collection:', error)
+      throw error
+    }
+  }
+
   // Get user's collections
   static async getUserCollections(userId: string): Promise<Collection[]> {
     const { data, error } = await supabase
@@ -456,6 +499,20 @@ export class CollectionService {
     }
   }
 
+  // Remove cast from collection
+  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
+    const { error } = await supabase
+      .from('cast_collections')
+      .delete()
+      .eq('cast_id', castId)
+      .eq('collection_id', collectionId)
+
+    if (error) {
+      console.error('Error removing cast from collection:', error)
+      throw error
+    }
+  }
+
   // Get casts in a collection
   static async getCollectionCasts(collectionId: string): Promise<Array<{
     cast_id: string;
@@ -481,6 +538,35 @@ export class CollectionService {
       added_at: string;
       saved_casts: SavedCast[];
     }>
+  }
+
+  // Get collection by ID
+  static async getCollectionById(collectionId: string): Promise<Collection | null> {
+    const { data, error } = await supabase
+      .from('collections')
+      .select('*')
+      .eq('id', collectionId)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null
+      }
+      console.error('Error fetching collection by ID:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get collection stats
+  static async getCollectionStats(collectionId: string): Promise<{ castCount: number }> {
+    const { count } = await supabase
+      .from('cast_collections')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_id', collectionId)
+
+    return { castCount: count || 0 }
   }
 }
 
