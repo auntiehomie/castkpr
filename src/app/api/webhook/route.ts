@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         console.error('❌ Missing NEYNAR_API_KEY environment variable')
         
         // Store conversation even if posting fails
-        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
         
         return NextResponse.json({ 
           error: 'Missing Neynar API key configuration',
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
         console.error('❌ Missing NEYNAR_SIGNER_UUID environment variable')
         
         // Store conversation even if posting fails
-        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
         
         return NextResponse.json({ 
           error: 'Missing Neynar signer configuration',
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
         console.error('❌ Neynar API error:', replyResponse.status, errorText)
         
         // Still try to store conversation even if posting fails
-        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
         
         return NextResponse.json({ 
           error: 'Failed to post reply to Farcaster', 
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
       console.log('✅ Successfully posted reply to Farcaster:', botCastHash)
       
       // Store the bot conversation for future reference
-      await storeBotConversation(userId, currentCastHash, botCastHash, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+      await storeBotConversation(userId, currentCastHash, botCastHash, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
       
       return NextResponse.json({ 
         success: true, 
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
       
       // Still try to store conversation even if posting fails
       try {
-        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash, isReplyToBotConversation)
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
       } catch (storageError) {
         console.error('❌ Failed to store conversation after post error:', storageError)
       }

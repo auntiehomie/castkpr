@@ -37,7 +37,7 @@ export interface BotConversation {
     original_content?: string
     bot_response?: string
     timestamp?: string
-    conversation_type?: 'save_command' | 'general_question' | 'follow_up'
+    conversation_type?: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command'
     parent_hash?: string | null
     is_follow_up?: boolean
     [key: string]: unknown
@@ -187,7 +187,12 @@ export class CastService {
   }
 
   // Update cast notes or category
-  static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }): Promise<SavedCast> {
+  static async updateCast(castId: string, userId: string, updates: { 
+    notes?: string; 
+    category?: string; 
+    tags?: string[];
+    parsed_data?: ParsedData;
+  }): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .update(updates)
