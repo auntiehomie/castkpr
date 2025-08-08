@@ -55,6 +55,8 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
+  ai_category?: string
+  ai_tags?: string[]
 }
 
 export interface User {
@@ -309,6 +311,92 @@ export class BotService {
   }
 }
 
+// User service
+export class UserService {
+  // Create or update user (upsert based on FID)
+  static async createOrUpdateUser(userData: {
+    fid: number
+    username: string
+    display_name?: string
+    pfp_url?: string
+    bio?: string
+  }): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .upsert({
+        fid: userData.fid,
+        username: userData.username,
+        display_name: userData.display_name,
+        pfp_url: userData.pfp_url,
+        bio: userData.bio,
+        last_login: new Date().toISOString()
+      }, { 
+        onConflict: 'fid',
+        ignoreDuplicates: false 
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creating/updating user:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user by FID
+  static async getUserByFid(fid: number): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('fid', fid)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null
+      }
+      console.error('Error fetching user by FID:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user by username
+  static async getUserByUsername(username: string): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null
+      }
+      console.error('Error fetching user by username:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Update user last login
+  static async updateLastLogin(fid: number): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('fid', fid)
+
+    if (error) {
+      console.error('Error updating last login:', error)
+      throw error
+    }
+  }
+}
+
 // Helper functions for collections
 export class CollectionService {
   // Create a new collection
@@ -401,7 +489,10 @@ export class ContentParser {
       numbers: this.extractNumbers(text),
       dates: this.extractDates(text),
       word_count: text.split(' ').length,
-      sentiment: 'neutral' // Can integrate sentiment analysis later
+      sentiment: 'neutral', // Can integrate sentiment analysis later
+      topics: [], // Will be filled by AI analysis
+      ai_category: undefined, // Will be filled by AI analysis
+      ai_tags: [] // Will be filled by AI analysis
     }
   }
 

@@ -285,7 +285,9 @@ async function handleSaveCommand(parentHash: string, userId: string, mentionCast
       mentions: ['cstkpr'],
       word_count: 0,
       sentiment: 'neutral' as const,
-      topics: ['saved-cast']
+      topics: ['saved-cast'],
+      ai_category: 'saved-via-bot',
+      ai_tags: ['bot-saved', 'farcaster-cast']
     }
   } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
   

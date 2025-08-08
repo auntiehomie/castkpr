@@ -38,8 +38,8 @@ export default function MiniApp() {
         setIsInMiniApp(isMiniApp)
         
         if (isMiniApp) {
-          // Get user from context (context is async, so await it)
-          const context = await sdk.context
+          // Get user from context
+          const context = sdk.context
           if (context?.user) {
             const userData = {
               fid: context.user.fid,
@@ -53,7 +53,7 @@ export default function MiniApp() {
             // Save/update user in database
             try {
               if (userData.username && userData.fid) {
-                await UserService.upsertUser({
+                await UserService.createOrUpdateUser({
                   fid: userData.fid,
                   username: userData.username,
                   display_name: userData.displayName,
@@ -139,6 +139,7 @@ export default function MiniApp() {
           
           {isInMiniApp && (
             <p className="text-sm text-purple-300">
+              Running in Farcaster Mini App
             </p>
           )}
         </div>
