@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
+
+// Create Supabase client for this API route
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 /**
  * Required Environment Variables for Bot Replies:
  * - NEYNAR_API_KEY: Your Neynar API key for posting casts
  * - NEYNAR_SIGNER_UUID: Signer UUID for the bot account
  * - OPENAI_API_KEY: OpenAI API key for cast comprehension
+ * 
+ * Required Database Table (add to Supabase):
+ * CREATE TABLE bot_conversations (
+ *   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   original_cast_hash TEXT NOT NULL,
+ *   bot_cast_hash TEXT NOT NULL,
+ *   thread_hash TEXT NOT NULL,
+ *   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+ * );
  * 
  * Without these, the bot will process mentions but won't reply to casts.
  */
