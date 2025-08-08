@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, BotConversationService, supabase } from '@/lib/supabase'
+import { CastService, BotConversationService } from '@/lib/supabase'
 import type { SavedCast, ParsedData } from '@/lib/supabase'
 
 // Type definitions for webhook data
@@ -65,11 +65,11 @@ export async function POST(request: NextRequest) {
     console.log('👆 Parent hash:', parentHash)
     
     // Determine command type and generate response
-    const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash ?? null, cast)
+    const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash, cast)
     
-    // Save the conversation using service role bypass
+    // Save the conversation using regular service
     try {
-      await saveConversationWithBypass({
+      await BotConversationService.saveConversation({
         user_id: userId,
         user_fid: cast.author.fid,
         parent_cast_hash: parentHash || undefined,
@@ -126,10 +126,10 @@ async function saveConversationWithBypass(conversationData: {
   const { data, error } = await supabase.rpc('insert_bot_conversation', {
     p_user_id: conversationData.user_id,
     p_user_fid: conversationData.user_fid,
-    p_parent_cast_hash: conversationData.parent_cast_hash,
     p_user_message: conversationData.user_message,
     p_bot_response: conversationData.bot_response,
     p_command_type: conversationData.command_type,
+    p_parent_cast_hash: conversationData.parent_cast_hash,
     p_context_data: conversationData.context_data || {}
   })
 
