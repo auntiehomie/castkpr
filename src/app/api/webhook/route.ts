@@ -47,31 +47,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Bot not mentioned' })
     }
     
-    // Check for save command
+    // Process the bot mention
     const text = cast.text.toLowerCase()
-    console.log('💬 Cast text:', text)
-    
-    const isSaveCommand = text.includes('save this') || text.includes('save')
-    console.log('💾 Is save command?', isSaveCommand)
-    
-    if (!isSaveCommand) {
-      console.log('❌ Not a save command, skipping')
-      return NextResponse.json({ message: 'Not a save command' })
-    }
-    
-    // Check for parent hash - Convert undefined to null for consistency
-    const parentHash = cast.parent_hash ?? null
     const userId = cast.author.username ?? 'unknown-user'
+    const parentHash = cast.parent_hash ?? null
     
-    console.log('👆 Parent hash:', parentHash)
+    console.log('💬 Cast text:', text)
     console.log('👤 User ID:', userId)
+    console.log('👆 Parent hash:', parentHash)
     
-    if (!parentHash) {
-      console.log('❌ No parent cast to save')
-      return NextResponse.json({ message: 'No parent cast to save' })
-    }
-    
-    // Determine command type and generate response
+    // Generate response for any bot mention (save, help, stats, or general)
     const { commandType, response, contextData } = await generateBotResponse(text, userId, parentHash, cast)
     
     // Save the conversation using regular service
@@ -88,6 +73,8 @@ export async function POST(request: NextRequest) {
           response
         })
       } else {
+        // For non-save commands (help, stats, unknown), just return the response
+        console.log(`🤖 Bot responding with ${commandType}: ${response}`)
         return NextResponse.json({ 
           success: true, 
           message: response,
@@ -201,11 +188,15 @@ Visit castkpr.vercel.app to explore your collection!`
     }
   }
   
-  // Default response for unrecognized commands
+  // Default response for unrecognized commands or general mentions
   return {
-    commandType: 'unknown',
-    response: `🤖 Hi! I didn't understand that command. 
+    commandType: 'general',
+    response: `🤖 Hi there! I'm CastKPR Bot. Here's what I can do:
 
-Reply "help" for available commands or "save this" to save a cast!`
+• Reply "save this" to any cast to save it to your collection
+• Reply "help" for detailed commands
+• Reply "stats" to see your save statistics
+
+Or visit castkpr.vercel.app to browse your saved casts!`
   }
 }
