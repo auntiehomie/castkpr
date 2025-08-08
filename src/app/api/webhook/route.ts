@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, supabase } from '@/lib/supabase'
+import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
+
+// Type definitions for webhook payload
+interface CastAuthor {
+  fid?: number
+  username?: string
+  display_name?: string
+  pfp_url?: string
+}
+
+interface WebhookCast {
+  text: string
+  parent_hash?: string
+  parent_author?: CastAuthor
+  author: CastAuthor
+  mentioned_profiles?: Array<{ username?: string; fid?: number }>
+}
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🎯 Webhook received!')
-    
-    // Debug environment variables
-    console.log('🔍 Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Set' : 'Missing')
-    console.log('🔍 Supabase Key:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Set (length: ' + process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.length + ')' : 'Missing')
-    console.log('🔍 Actual Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
     
     const body = await request.json()
     console.log('📦 Webhook payload received')
@@ -20,7 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Event type not handled' })
     }
     
-    const cast = body.data
+    const cast: WebhookCast = body.data
     console.log('📝 Processing cast from:', cast.author.username)
     
     // Check for mentions
@@ -50,7 +61,7 @@ export async function POST(request: NextRequest) {
     
     // Check for parent hash - Convert undefined to null for consistency
     const parentHash = cast.parent_hash ?? null
-    const userId = cast.author.username
+    const userId = cast.author.username ?? 'unknown-user'
     
     console.log('👆 Parent hash:', parentHash)
     console.log('👤 User ID:', userId)
@@ -86,16 +97,18 @@ export async function POST(request: NextRequest) {
       
     } catch (saveError) {
       console.error('❌ Error saving cast:', saveError)
-      console.error('❌ Save error details:', saveError instanceof Error ? saveError.message : saveError)
+      const errorMessage = saveError instanceof Error ? saveError.message : 'Unknown error'
+      console.error('❌ Save error details:', errorMessage)
       return NextResponse.json({ 
         error: 'Failed to save cast', 
-        details: saveError instanceof Error ? saveError.message : 'Unknown error' 
+        details: errorMessage 
       }, { status: 500 })
     }
     
-  } catch (error) {
-    console.error('💥 Webhook error:', error)
-    console.error('💥 Webhook error details:', error instanceof Error ? error.message : error)
+  } catch (webhookError) {
+    console.error('💥 Webhook error:', webhookError)
+    const errorMessage = webhookError instanceof Error ? webhookError.message : 'Unknown error'
+    console.error('💥 Webhook error details:', errorMessage)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -104,8 +117,8 @@ export async function POST(request: NextRequest) {
 async function generateBotResponse(
   text: string, 
   userId: string, 
-  parentHash: string | null,  // Updated to accept null
-  cast: any
+  parentHash: string | null,
+  cast: WebhookCast
 ): Promise<{
   commandType: string;
   response: string;
@@ -179,7 +192,8 @@ Visit castkpr.vercel.app to view all your saved casts!`
 
 Visit castkpr.vercel.app to explore your collection!`
       }
-    } catch (error) {
+    } catch (statsError) {
+      console.error('Error fetching stats:', statsError)
       return {
         commandType: 'stats_error',
         response: 'Unable to fetch stats right now. Try again later!'
