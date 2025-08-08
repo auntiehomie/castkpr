@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
         responseText = "I'd love to analyze a cast for you! Please reply to the cast you want me to analyze with '@cstkpr analyze this' 🧠"
       } else {
         try {
-          const analysis = await handleAnalyzeCommand(parentHash, cast)
+          const analysis = await handleAnalyzeCommand(parentHash)
           responseText = analysis
         } catch (error) {
           console.error('Error handling analyze command:', error)
@@ -318,7 +318,8 @@ async function handleSaveCommand(parentHash: string, userId: string, mentionCast
   console.log('💾 Handling save command for parent hash:', parentHash)
   
   // Try to fetch the actual cast content if we have parent author info
-  let castContent = `🔗 Cast saved from Farcaster - Hash: ${parentHash}`
+  // Using const since we're not reassigning this value in the current implementation
+  const castContent = `🔗 Cast saved from Farcaster - Hash: ${parentHash}`
   let authorInfo = {
     username: `user-${mentionCast.parent_author?.fid || 'unknown'}`,
     fid: mentionCast.parent_author?.fid || 0,
@@ -370,7 +371,7 @@ async function handleSaveCommand(parentHash: string, userId: string, mentionCast
   console.log('✅ Cast saved successfully')
 }
 
-async function handleAnalyzeCommand(parentHash: string, mentionCast: WebhookCast): Promise<string> {
+async function handleAnalyzeCommand(parentHash: string): Promise<string> {
   console.log('🧠 Handling analyze command for parent hash:', parentHash)
   
   // For now, return a simple analysis response
