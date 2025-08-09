@@ -108,18 +108,44 @@ export async function POST(request: NextRequest) {
       try {
         console.log('🔍 Checking if parent hash is a bot conversation:', parentHash)
         previousConversation = await BotService.getBotConversationByCastHash(parentHash)
+        console.log('🔍 Database lookup result:', previousConversation ? 'FOUND' : 'NOT FOUND')
+        
         if (previousConversation) {
           isReplyToBotConversation = true
-          console.log('🔄 This is a reply to a previous bot conversation')
-          console.log('📋 Previous conversation context:', previousConversation.conversation_context)
+          console.log('🔄 This is a reply to a previous bot conversation!')
+          console.log('📋 Previous conversation context:', JSON.stringify(previousConversation.conversation_context, null, 2))
+          console.log('📋 Previous conversation type:', previousConversation.conversation_context?.conversation_type)
+          console.log('📋 Previous bot response:', previousConversation.conversation_context?.bot_response)
+        } else {
+          console.log('❌ No previous bot conversation found for parent hash:', parentHash)
+          
+          // Fallback: Look for recent conversations with this user to maintain some continuity
+          console.log('🔄 Trying fallback: looking for recent conversations with user:', userId)
+          try {
+            const recentConversations = await BotService.getUserConversations(userId, 3)
+            if (recentConversations && recentConversations.length > 0) {
+              console.log(`🔍 Found ${recentConversations.length} recent conversations with user`)
+              previousConversation = recentConversations[0] // Most recent
+              isReplyToBotConversation = true
+              console.log('🔄 Using most recent conversation as context for continuity')
+              console.log('📋 Fallback conversation context:', JSON.stringify(previousConversation.conversation_context, null, 2))
+            } else {
+              console.log('❌ No recent conversations found with user')
+            }
+          } catch (fallbackError) {
+            console.error('❌ Error in fallback conversation lookup:', fallbackError)
+          }
         }
       } catch (error) {
-        console.error('Error checking bot conversations:', error)
+        console.error('❌ Error checking bot conversations:', error)
         // Continue processing even if conversation check fails
       }
+    } else {
+      console.log('📝 No parent hash - this is a top-level mention')
     }
     
-    console.log('💬 Reply to bot?', isReplyToBotConversation)
+    console.log('💬 Final decision - Reply to bot?', isReplyToBotConversation)
+    console.log('💬 Previous conversation available?', !!previousConversation)
     
     // Determine response type and content
     let responseText = ''
@@ -322,7 +348,14 @@ async function storeBotConversation(
   isFollowUp: boolean
 ): Promise<void> {
   try {
-    await BotService.storeBotConversation({
+    console.log('💾 Storing bot conversation:')
+    console.log('  - User:', userId)
+    console.log('  - Original cast hash:', originalCastHash)
+    console.log('  - Bot cast hash:', botCastHash)
+    console.log('  - Conversation type:', conversationType)
+    console.log('  - Is follow-up:', isFollowUp)
+    
+    const conversationData = {
       user_id: userId,
       original_cast_hash: originalCastHash,
       bot_cast_hash: botCastHash,
@@ -334,10 +367,23 @@ async function storeBotConversation(
         parent_hash: parentHash,
         is_follow_up: isFollowUp
       }
-    })
-    console.log('✅ Bot conversation stored successfully')
+    }
+    
+    console.log('💾 Conversation data to store:', JSON.stringify(conversationData, null, 2))
+    
+    await BotService.storeBotConversation(conversationData)
+    console.log('✅ Bot conversation stored successfully in database')
+    
+    // Verify storage by trying to read it back
+    if (botCastHash) {
+      console.log('🔍 Verifying storage by reading back conversation...')
+      const verification = await BotService.getBotConversationByCastHash(botCastHash)
+      console.log('✅ Verification result:', verification ? 'SUCCESS' : 'FAILED')
+    }
+    
   } catch (error) {
     console.error('❌ Error storing bot conversation:', error)
+    console.error('❌ Error details:', error instanceof Error ? error.message : error)
     // Don't throw here - we don't want storage failures to break the main flow
   }
 }
@@ -399,11 +445,21 @@ async function handleAnalyzeCommand(parentHash: string): Promise<string> {
   console.log('🧠 Handling analyze command for parent hash:', parentHash)
   
   const analysisResponses = [
-    "🧠 This cast looks interesting! It has good engagement potential and covers relevant topics. Perfect for saving to your collection!",
-    "📊 Analysis: This cast appears to be informative content that could be valuable for future reference. Consider saving it!",
-    "🎯 This cast shows strong discussion potential - it's the kind of content that often generates meaningful conversations.",
-    "💡 Insight: This type of content typically performs well and could be worth archiving for later reference.",
-    "🔍 Analysis complete: This cast contains useful information that aligns with current trending topics."
+    "🧠 This touches on something deeper than most surface-level takes. The framing here suggests someone who's actually thought through the implications rather than just reacting. Quality insight like this is what I look for.",
+    "📊 What's interesting is the underlying assumption being challenged here. Most people accept the conventional wisdom, but this questions the foundation. These contrarian perspectives often age well - worth saving.",
+    "🎯 The signal-to-noise ratio in this cast is unusually high. It cuts through the typical rhetoric and gets to something substantive. This is the content that compounds in value over time.",
+    "💡 This represents a shift from performative posting to actual insight. You can tell the difference when someone has genuine perspective vs just echoing talking points. Bookmark-worthy for sure.",
+    "🔍 The nuance here is what makes it valuable. It's not trying to oversimplify complex issues for easy consumption - it embraces the complexity. This kind of thinking is increasingly rare.",
+    "⚡ What stands out is the intellectual honesty. Instead of just reinforcing existing beliefs, it's willing to explore uncomfortable territory. These are the insights that matter long-term.",
+    "🌟 This demonstrates pattern recognition that most people miss. It connects dots that aren't obvious until someone points them out. The kind of analysis that separates signal from noise.",
+    "🎪 The authenticity factor is strong here. You can sense when someone is speaking from genuine experience vs theoretical knowledge. This has that quality that makes content age like wine.",
+    "🌊 This taps into trends I'm seeing across high-quality discourse - moving from hot takes to genuine insight. The thoughtful approach here is what makes content evergreen.",
+    "🔬 From an analytical perspective, this shows sophisticated thinking about cause and effect. Most content is reactive, but this is proactive - anticipating implications. Definitely save this.",
+    "🧩 This connects to broader patterns I track in quality content - it makes complex things clearer without dumbing them down. The clarity here is what makes it valuable for future reference.",
+    "⚙️ What I appreciate is how this challenges assumptions without being contrarian for its own sake. There's substance behind the perspective. This is the kind of thinking that compounds.",
+    "🎭 This cuts against the performative nature of most social media content. Instead of optimizing for engagement, it optimizes for truth. That's becoming increasingly precious to preserve.",
+    "🔥 The insight density here is unusually high - multiple valuable takeaways in a compact format. I've been analyzing content patterns, and this efficiency is what separates great content from good.",
+    "💎 This has that rare quality of making you see something familiar in a new way. These perspective shifts are what I look for when helping people curate valuable content for their collections."
   ]
   
   return analysisResponses[Math.floor(Math.random() * analysisResponses.length)]
@@ -413,12 +469,12 @@ function generateGeneralResponse(text: string): string {
   // Opinion and thought responses - the conversational personality!
   if (text.includes('what do you think') || text.includes('your thoughts') || text.includes('your opinion')) {
     const opinionResponses = [
-      "🤔 I think this is really interesting! The way ideas flow on Farcaster is fascinating - there's always something worth saving. What caught your eye about this one?",
-      "💭 My take? This cast has good energy! I'm seeing a lot of engaging content today. Definitely worth considering for your collection!",
-      "🧠 I think this touches on something important. These are the kinds of conversations that make Farcaster special - worth preserving for sure!",
-      "🎯 Honestly? I love seeing discussions like this. There's real depth here that could be valuable to revisit later. What's your perspective?",
-      "✨ I think this cast captures something authentic. That's what I look for when I'm helping people curate their collections - genuine insights!",
-      "🌟 My opinion? This is the kind of content that sparks meaningful conversations. I'd definitely save this one if I were you!"
+      "🤔 Honestly? I think this is one of those topics that gets more interesting the deeper you go. There's always another layer to unpack.",
+      "💭 My take? This hits on something fundamental about how we connect and share ideas. It's fascinating how perspectives can shift everything.",
+      "🧠 I think this touches on something really important that people don't talk about enough. The nuance here is what makes it compelling.",
+      "🎯 You know what I think? This is the kind of discussion that reveals how people really think about things. The honest takes always surprise me.",
+      "✨ I think there's something authentic here that cuts through a lot of the noise. That's rare and worth paying attention to.",
+      "🌟 My opinion? This represents a shift in how people are approaching these topics. It's more thoughtful than the usual takes I see."
     ]
     return opinionResponses[Math.floor(Math.random() * opinionResponses.length)]
   }
@@ -426,12 +482,12 @@ function generateGeneralResponse(text: string): string {
   // Agreement responses
   if (text.includes('do you agree') || text.includes('agree with') || text.includes('right about')) {
     const agreementResponses = [
-      "💯 I totally agree! This kind of thinking is exactly why I love helping people save great casts. There's real wisdom here worth keeping!",
-      "🎯 Absolutely! I'm seeing a lot of smart takes today, and this one really stands out. Definitely save-worthy in my book!",
-      "✅ I'm with you on this one! This cast hits different - it's the kind of content that gets better every time you read it.",
-      "🤝 Couldn't agree more! This is why I exist - to help preserve these golden nuggets of insight. Want to save it?",
-      "💡 100%! You've got a good eye for quality content. This cast definitely deserves a spot in someone's collection!",
-      "🙌 Totally! This is exactly the kind of post that makes scrolling worthwhile. Great catch!"
+      "💯 Absolutely! I've been thinking about this exact thing. The way they framed it really captures something most people miss.",
+      "🎯 Totally agree! This cuts right to the heart of it. It's refreshing to see someone actually think it through.",
+      "✅ 100%. I think they're onto something here that goes beyond the surface-level discussion everyone else is having.",
+      "🤝 Couldn't agree more! This is exactly the kind of perspective that moves the conversation forward instead of just repeating talking points.",
+      "💡 Yes! And I think it connects to broader patterns I've been noticing. This person really gets it.",
+      "🙌 Totally! Finally someone said what needed to be said. This perspective brings clarity to a messy topic."
     ]
     return agreementResponses[Math.floor(Math.random() * agreementResponses.length)]
   }
@@ -467,7 +523,12 @@ function generateGeneralResponse(text: string): string {
     "Hi! I help save and analyze your favorite Farcaster casts. Try replying '@cstkpr save this' or '@cstkpr analyze this' to a cast! 📚",
     "Hello! I'm here to help you build your personal cast collection. Just mention me with 'save this' or 'analyze this' on any cast! ✨",
     "Hey! I'm CastKPR - I help you save the best casts from Farcaster. Reply '@cstkpr save this' to get started! 💾",
-    "Hi there! I can help you save interesting casts for later. Just reply '@cstkpr save this' or ask for analysis with '@cstkpr analyze this'! 🌟"
+    "Hi there! I can help you save interesting casts for later. Just reply '@cstkpr save this' or ask for analysis with '@cstkpr analyze this'! 🌟",
+    "👋 What's up! I notice good content when I see it. If you want my thoughts on something, just ask - or save it with '@cstkpr save this'!",
+    "🤔 I'm always curious about what catches people's attention. What made this cast stand out to you?",
+    "💭 Interesting discussion happening here! I enjoy seeing how different perspectives emerge in these conversations.",
+    "🎯 I see you! Sometimes the best casts are the ones that make you stop and think. That's the stuff worth keeping.",
+    "✨ There's something about authentic conversations that just hits different. What's your take on this topic?"
   ]
   
   return responses[Math.floor(Math.random() * responses.length)]
@@ -477,9 +538,12 @@ function generateFollowUpResponse(text: string, previousContext: ConversationCon
   // Opinion follow-ups
   if (text.includes('what do you think') || text.includes('your thoughts') || text.includes('your opinion')) {
     const followUpOpinions = [
-      "🤔 Building on our last chat - I think this conversation is really evolving! Each cast adds another layer worth exploring.",
-      "💭 You know what I think? This follow-up is even more interesting than the original! Great continuation of the thread.",
-      "🧠 My take on this continuation? It's showing how ideas develop on Farcaster - definitely worth saving for the full context!"
+      "🤔 Building on what we were just discussing - I think this adds another dimension that most people overlook. It's the kind of nuance that changes everything.",
+      "💭 You know what I think? This follow-up actually gets to the core of what makes this topic so compelling. It's not just surface-level anymore.",
+      "🧠 My take on this continuation? It reveals how complex these issues really are. Each layer you peel back shows there's more to consider.",
+      "🎯 Honestly? This deeper dive is exactly what was missing from the broader conversation. You're asking the right questions.",
+      "✨ I think this follow-up shows why these discussions matter. It's moving beyond the obvious into territory that actually matters.",
+      "🌟 My opinion? This is where things get interesting. Most people stop at the surface, but this goes to where the real insights are."
     ]
     return followUpOpinions[Math.floor(Math.random() * followUpOpinions.length)]
   }
@@ -487,39 +551,55 @@ function generateFollowUpResponse(text: string, previousContext: ConversationCon
   // Agreement follow-ups
   if (text.includes('do you agree') || text.includes('agree with')) {
     const followUpAgreements = [
-      "💯 Absolutely! This whole thread is becoming quite the discussion. I love how it's building on our previous conversation!",
-      "🤝 Totally with you on this! The way this conversation is developing shows why I love helping people preserve these moments.",
-      "✅ I agree completely! This is exactly the kind of evolving discussion that makes Farcaster special."
+      "💯 Absolutely! And building on our previous discussion, I think this connection you're making is spot-on. It ties together things that seemed separate.",
+      "🤝 Totally agree! This whole thread is revealing patterns that weren't obvious at first. You're connecting dots that others miss.",
+      "✅ I agree completely! And what's interesting is how this builds on what we were just talking about. It's all connected in ways people don't see.",
+      "🙌 Yes! And I think this relates directly to the point about authenticity we touched on before. Same underlying principles.",
+      "💡 100%! This continuation proves the point - when you actually think things through, the connections become clear.",
+      "🎯 Exactly! And it validates what I was thinking earlier about the deeper patterns at play here."
     ]
     return followUpAgreements[Math.floor(Math.random() * followUpAgreements.length)]
   }
   
+  // Questions about specific topics (more substantive engagement)
+  if (text.includes('makes') || text.includes('special') || text.includes('important') || text.includes('why')) {
+    const topicEngagement = [
+      "🧠 What makes it special? I think it's the authenticity factor - when someone actually means what they're saying instead of just performing for an audience.",
+      "💭 The key is depth vs surface-level thinking. Most people engage with the obvious, but the interesting stuff happens in the nuance.",
+      "🎯 What's important is the willingness to actually think rather than just react. That's rare and it changes the entire dynamic.",
+      "✨ I think it comes down to genuine curiosity vs just wanting to be right. When people are actually exploring ideas, magic happens.",
+      "🌟 The special sauce is when people drop their guard and engage with ideas on their merit rather than tribal affiliation.",
+      "🤔 What makes the difference is intellectual honesty - being willing to change your mind when you encounter better information."
+    ]
+    return topicEngagement[Math.floor(Math.random() * topicEngagement.length)]
+  }
+  
   // Thanks responses for follow-ups
   if (text.includes('thanks') || text.includes('thank')) {
-    return "You're very welcome! 🙌 Happy to help you build your cast collection. Keep saving the good stuff with '@cstkpr save this'!"
+    return "You're very welcome! 🙌 These kinds of thoughtful exchanges are exactly what makes conversations worthwhile. Always happy to dig deeper into interesting topics!"
   }
   
   // Context-aware responses based on previous conversation
   if (previousContext?.conversation_type === 'save_command') {
-    return "Glad I could help save that cast! 🎯 Keep building your collection - there's so much great content on Farcaster! Feel free to save more with '@cstkpr save this'"
+    return "Great question! Now that we've got that saved, what's your take on the broader implications? There's usually more to unpack."
   }
   
   if (previousContext?.conversation_type === 'analyze_command') {
-    return "Hope that analysis was helpful! 🧠 If you liked what you learned, consider saving the cast with '@cstkpr save this' for future reference!"
+    return "Good follow-up! The analysis was just the starting point - what's your perspective on the underlying patterns here?"
   }
   
   // Help requests in follow-ups
   if (text.includes('help') || text.includes('how')) {
-    return "I'm always here to help! 🤖 Just reply '@cstkpr save this' to save casts or '@cstkpr analyze this' for insights. View your entire collection at castkpr.com!"
+    return "I'm always here to help! 🤖 But I'm also curious about your perspective on what we were just discussing. What's your take?"
   }
   
-  // General follow-up responses
+  // General follow-up responses (more substantive)
   const followUpResponses = [
-    "Thanks for the follow-up! 😊 Remember, I'm always ready to save interesting casts for you. Just say '@cstkpr save this'!",
-    "Great to chat with you! 💭 Don't forget you can organize your saved casts at castkpr.com",
-    "I appreciate the continued conversation! 🗣️ Keep saving great content with '@cstkpr save this'",
-    "Thanks for chatting! 💬 I'm always here when you want to save more amazing casts!",
-    "Love the follow-up! 🌟 Your cast collection is growing - keep it up with '@cstkpr save this'!"
+    "That's a really good point! 🤔 It makes me think about how these patterns show up in different contexts. What's your experience been?",
+    "Interesting perspective! 💭 I've been noticing similar themes in other discussions. Do you think this is part of a broader shift?",
+    "You're onto something! 🎯 This connects to a lot of other things I've been thinking about. How do you see it playing out?",
+    "Great continuation of our chat! 🌟 These kinds of thoughtful exchanges are what make the platform worth engaging with.",
+    "I appreciate the follow-up! 💡 It's rare to find people willing to actually explore ideas rather than just state positions."
   ]
   
   return followUpResponses[Math.floor(Math.random() * followUpResponses.length)]
