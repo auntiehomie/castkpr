@@ -8,8 +8,7 @@ interface IntelligenceDashboardProps {
   userId?: string
 }
 
-// src/components/IntelligenceDashboard.tsx
-export defa
+export default function IntelligenceDashboard({ userId = 'demo-user' }: IntelligenceDashboardProps) {
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([])
   const [userRecommendations, setUserRecommendations] = useState<{
     topics: string[]
