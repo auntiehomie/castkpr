@@ -1,3 +1,4 @@
+// src/components/SavedCasts.tsx
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -15,6 +16,7 @@ interface TagInfo {
   type: 'manual' | 'ai' | 'hashtag' | 'system' | 'analysis'
 }
 
+// Enhanced parsed data interface with safer defaults
 interface EnhancedParsedData {
   hashtags?: string[]
   urls?: string[]
@@ -23,7 +25,7 @@ interface EnhancedParsedData {
   topics?: string[]
   ai_category?: string
   ai_tags?: string[]
-  // Enhanced analysis fields
+  // Enhanced analysis fields (might not exist in older casts)
   quality_score?: number
   sentiment?: 'positive' | 'negative' | 'neutral'
   sentiment_score?: number
@@ -56,12 +58,17 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   const [engagementFilter, setEngagementFilter] = useState<string>('')
   const [showAnalysisFilters, setShowAnalysisFilters] = useState(false)
 
-  // Calculate enhanced statistics
+  // Calculate enhanced statistics with better error handling
   const enhancedStats = useMemo(() => {
+    console.log('📊 Calculating enhanced stats for', allCasts.length, 'casts')
+    
     const enhancedCasts = allCasts.filter(cast => {
       const parsedData = cast.parsed_data as EnhancedParsedData
-      return parsedData?.quality_score !== undefined
+      const hasEnhancedData = parsedData?.quality_score !== undefined
+      return hasEnhancedData
     })
+
+    console.log('🧠 Enhanced casts found:', enhancedCasts.length)
 
     const avgQuality = enhancedCasts.length > 0 
       ? enhancedCasts.reduce((sum, cast) => {
@@ -91,59 +98,77 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
     }
   }, [allCasts])
 
-  // Calculate all available tags with counts and types
+  // Calculate all available tags with better error handling
   const tagStats = useMemo(() => {
+    console.log('🏷️ Calculating tag stats for', allCasts.length, 'casts')
     const tagMap = new Map<string, TagInfo>()
 
-    allCasts.forEach(cast => {
-      const parsedData = cast.parsed_data as EnhancedParsedData
+    allCasts.forEach((cast, index) => {
+      try {
+        const parsedData = cast.parsed_data as EnhancedParsedData
 
-      // Manual tags (in cast.tags but not in AI or hashtags)
-      const manualTags = (cast.tags || []).filter(tag => 
-        !parsedData?.hashtags?.includes(tag) && 
-        !parsedData?.ai_tags?.includes(tag) &&
-        !parsedData?.topics?.includes(tag) &&
-        tag !== 'saved-via-bot' &&
-        tag !== 'enhanced-analysis'
-      )
+        // Safely extract tags from different sources
+        const castTags = Array.isArray(cast.tags) ? cast.tags : []
+        const hashtagsFromData = Array.isArray(parsedData?.hashtags) ? parsedData.hashtags : []
+        const aiTagsFromData = Array.isArray(parsedData?.ai_tags) ? parsedData.ai_tags : []
+        const topicsFromData = Array.isArray(parsedData?.topics) ? parsedData.topics : []
 
-      manualTags.forEach(tag => {
-        const existing = tagMap.get(tag) || { tag, count: 0, type: 'manual' as const }
-        tagMap.set(tag, { ...existing, count: existing.count + 1 })
-      })
+        // Manual tags (in cast.tags but not in other categories)
+        const manualTags = castTags.filter(tag => 
+          typeof tag === 'string' &&
+          !hashtagsFromData.includes(tag) && 
+          !aiTagsFromData.includes(tag) &&
+          !topicsFromData.includes(tag) &&
+          tag !== 'saved-via-bot' &&
+          tag !== 'enhanced-analysis'
+        )
 
-      // AI tags
-      const aiTags = parsedData?.ai_tags || []
-      aiTags.forEach((tag: string) => {
-        const existing = tagMap.get(tag) || { tag, count: 0, type: 'ai' as const }
-        tagMap.set(tag, { ...existing, count: existing.count + 1 })
-      })
+        manualTags.forEach(tag => {
+          const existing = tagMap.get(tag) || { tag, count: 0, type: 'manual' as const }
+          tagMap.set(tag, { ...existing, count: existing.count + 1 })
+        })
 
-      // Topics from enhanced analysis
-      const topics = parsedData?.topics || []
-      topics.forEach((tag: string) => {
-        const existing = tagMap.get(tag) || { tag, count: 0, type: 'analysis' as const }
-        tagMap.set(tag, { ...existing, count: existing.count + 1 })
-      })
+        // AI tags
+        aiTagsFromData.forEach((tag: string) => {
+          if (typeof tag === 'string') {
+            const existing = tagMap.get(tag) || { tag, count: 0, type: 'ai' as const }
+            tagMap.set(tag, { ...existing, count: existing.count + 1 })
+          }
+        })
 
-      // Hashtags from content
-      const hashtags = parsedData?.hashtags || []
-      hashtags.forEach((tag: string) => {
-        const existing = tagMap.get(tag) || { tag, count: 0, type: 'hashtag' as const }
-        tagMap.set(tag, { ...existing, count: existing.count + 1 })
-      })
+        // Topics from enhanced analysis
+        topicsFromData.forEach((tag: string) => {
+          if (typeof tag === 'string') {
+            const existing = tagMap.get(tag) || { tag, count: 0, type: 'analysis' as const }
+            tagMap.set(tag, { ...existing, count: existing.count + 1 })
+          }
+        })
 
-      // System tags
-      const systemTags = (cast.tags || []).filter(tag => 
-        tag === 'saved-via-bot' || tag === 'enhanced-analysis'
-      )
-      systemTags.forEach(tag => {
-        const existing = tagMap.get(tag) || { tag, count: 0, type: 'system' as const }
-        tagMap.set(tag, { ...existing, count: existing.count + 1 })
-      })
+        // Hashtags from content
+        hashtagsFromData.forEach((tag: string) => {
+          if (typeof tag === 'string') {
+            const existing = tagMap.get(tag) || { tag, count: 0, type: 'hashtag' as const }
+            tagMap.set(tag, { ...existing, count: existing.count + 1 })
+          }
+        })
+
+        // System tags
+        const systemTags = castTags.filter(tag => 
+          tag === 'saved-via-bot' || tag === 'enhanced-analysis'
+        )
+        systemTags.forEach(tag => {
+          const existing = tagMap.get(tag) || { tag, count: 0, type: 'system' as const }
+          tagMap.set(tag, { ...existing, count: existing.count + 1 })
+        })
+
+      } catch (tagError) {
+        console.warn(`⚠️ Error processing tags for cast ${index}:`, tagError)
+      }
     })
 
-    return Array.from(tagMap.values()).sort((a, b) => b.count - a.count)
+    const result = Array.from(tagMap.values()).sort((a, b) => b.count - a.count)
+    console.log('🏷️ Tag stats calculated:', result.length, 'unique tags')
+    return result
   }, [allCasts])
 
   const fetchCasts = useCallback(async (): Promise<void> => {
@@ -151,7 +176,21 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
       setLoading(true)
       setError(null)
       
+      console.log('🔍 Fetching casts for user:', userId)
       const savedCasts = await CastService.getUserCasts(userId, 100)
+      console.log('📦 Fetched', savedCasts.length, 'casts')
+      
+      // Debug first few casts
+      if (savedCasts.length > 0) {
+        console.log('📝 Sample cast structure:', {
+          id: savedCasts[0].id,
+          username: savedCasts[0].username,
+          content_length: savedCasts[0].cast_content?.length,
+          has_parsed_data: !!savedCasts[0].parsed_data,
+          parsed_data_keys: savedCasts[0].parsed_data ? Object.keys(savedCasts[0].parsed_data) : []
+        })
+      }
+      
       setAllCasts(savedCasts)
       
       // Apply current filters
@@ -160,58 +199,85 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
       // Apply tag filters
       if (selectedTags.length > 0) {
         filteredCasts = filteredCasts.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          const castTags = new Set([
-            ...(cast.tags || []),
-            ...(parsedData?.hashtags || []),
-            ...(parsedData?.ai_tags || []),
-            ...(parsedData?.topics || [])
-          ])
-          
-          return selectedTags.every(selectedTag => castTags.has(selectedTag))
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            const castTags = new Set([
+              ...(Array.isArray(cast.tags) ? cast.tags : []),
+              ...(Array.isArray(parsedData?.hashtags) ? parsedData.hashtags : []),
+              ...(Array.isArray(parsedData?.ai_tags) ? parsedData.ai_tags : []),
+              ...(Array.isArray(parsedData?.topics) ? parsedData.topics : [])
+            ])
+            
+            return selectedTags.every(selectedTag => castTags.has(selectedTag))
+          } catch (filterError) {
+            console.warn('⚠️ Error applying tag filter to cast:', cast.id, filterError)
+            return false
+          }
         })
       }
 
       // Apply enhanced analysis filters
       if (qualityFilter) {
         filteredCasts = filteredCasts.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          const quality = parsedData?.quality_score || 0
-          switch (qualityFilter) {
-            case 'excellent': return quality >= 80
-            case 'good': return quality >= 60 && quality < 80
-            case 'fair': return quality >= 40 && quality < 60
-            case 'poor': return quality < 40
-            default: return true
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            const quality = parsedData?.quality_score || 0
+            switch (qualityFilter) {
+              case 'excellent': return quality >= 80
+              case 'good': return quality >= 60 && quality < 80
+              case 'fair': return quality >= 40 && quality < 60
+              case 'poor': return quality < 40
+              default: return true
+            }
+          } catch (filterError) {
+            console.warn('⚠️ Error applying quality filter to cast:', cast.id, filterError)
+            return qualityFilter === 'poor' // Default poor quality for errored casts
           }
         })
       }
 
       if (sentimentFilter) {
         filteredCasts = filteredCasts.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          return parsedData?.sentiment === sentimentFilter
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            return parsedData?.sentiment === sentimentFilter
+          } catch (filterError) {
+            console.warn('⚠️ Error applying sentiment filter to cast:', cast.id, filterError)
+            return sentimentFilter === 'neutral' // Default neutral for errored casts
+          }
         })
       }
 
       if (contentTypeFilter) {
         filteredCasts = filteredCasts.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          return parsedData?.content_type === contentTypeFilter
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            return parsedData?.content_type === contentTypeFilter
+          } catch (filterError) {
+            console.warn('⚠️ Error applying content type filter to cast:', cast.id, filterError)
+            return false
+          }
         })
       }
 
       if (engagementFilter) {
         filteredCasts = filteredCasts.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          return parsedData?.engagement_potential === engagementFilter
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            return parsedData?.engagement_potential === engagementFilter
+          } catch (filterError) {
+            console.warn('⚠️ Error applying engagement filter to cast:', cast.id, filterError)
+            return false
+          }
         })
       }
       
       setCasts(filteredCasts)
+      console.log('✅ Applied filters, showing', filteredCasts.length, 'casts')
+      
     } catch (err) {
-      console.error('Error fetching saved casts:', err)
-      setError('Failed to load saved casts')
+      console.error('❌ Error fetching saved casts:', err)
+      setError('Failed to load saved casts: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
       setLoading(false)
     }
@@ -227,7 +293,9 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
       setIsSearching(true)
       setError(null)
       
+      console.log('🔍 Searching casts with query:', query)
       const searchResults = await CastService.searchCasts(userId, query)
+      console.log('📊 Search returned', searchResults.length, 'results')
       
       // Apply all current filters to search results
       let filteredResults = searchResults
@@ -235,58 +303,80 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
       // Apply tag filters
       if (selectedTags.length > 0) {
         filteredResults = filteredResults.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          const castTags = new Set([
-            ...(cast.tags || []),
-            ...(parsedData?.hashtags || []),
-            ...(parsedData?.ai_tags || []),
-            ...(parsedData?.topics || [])
-          ])
-          
-          return selectedTags.every(selectedTag => castTags.has(selectedTag))
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            const castTags = new Set([
+              ...(Array.isArray(cast.tags) ? cast.tags : []),
+              ...(Array.isArray(parsedData?.hashtags) ? parsedData.hashtags : []),
+              ...(Array.isArray(parsedData?.ai_tags) ? parsedData.ai_tags : []),
+              ...(Array.isArray(parsedData?.topics) ? parsedData.topics : [])
+            ])
+            
+            return selectedTags.every(selectedTag => castTags.has(selectedTag))
+          } catch (filterError) {
+            return false
+          }
         })
       }
 
       // Apply enhanced analysis filters to search results
       if (qualityFilter) {
         filteredResults = filteredResults.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          const quality = parsedData?.quality_score || 0
-          switch (qualityFilter) {
-            case 'excellent': return quality >= 80
-            case 'good': return quality >= 60 && quality < 80
-            case 'fair': return quality >= 40 && quality < 60
-            case 'poor': return quality < 40
-            default: return true
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            const quality = parsedData?.quality_score || 0
+            switch (qualityFilter) {
+              case 'excellent': return quality >= 80
+              case 'good': return quality >= 60 && quality < 80
+              case 'fair': return quality >= 40 && quality < 60
+              case 'poor': return quality < 40
+              default: return true
+            }
+          } catch (filterError) {
+            return qualityFilter === 'poor'
           }
         })
       }
 
       if (sentimentFilter) {
         filteredResults = filteredResults.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          return parsedData?.sentiment === sentimentFilter
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            return parsedData?.sentiment === sentimentFilter
+          } catch (filterError) {
+            return sentimentFilter === 'neutral'
+          }
         })
       }
 
       if (contentTypeFilter) {
         filteredResults = filteredResults.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          return parsedData?.content_type === contentTypeFilter
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            return parsedData?.content_type === contentTypeFilter
+          } catch (filterError) {
+            return false
+          }
         })
       }
 
       if (engagementFilter) {
         filteredResults = filteredResults.filter(cast => {
-          const parsedData = cast.parsed_data as EnhancedParsedData
-          return parsedData?.engagement_potential === engagementFilter
+          try {
+            const parsedData = cast.parsed_data as EnhancedParsedData
+            return parsedData?.engagement_potential === engagementFilter
+          } catch (filterError) {
+            return false
+          }
         })
       }
       
       setCasts(filteredResults)
+      console.log('✅ Search filtered to', filteredResults.length, 'results')
+      
     } catch (err) {
-      console.error('Error searching casts:', err)
-      setError('Failed to search casts')
+      console.error('❌ Error searching casts:', err)
+      setError('Failed to search casts: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
       setIsSearching(false)
     }
@@ -315,16 +405,19 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
 
   const handleDelete = async (castId: string): Promise<void> => {
     try {
+      console.log('🗑️ Deleting cast:', castId)
       await CastService.deleteCast(castId, userId)
       setCasts(casts.filter(cast => cast.id !== castId))
       setAllCasts(allCasts.filter(cast => cast.id !== castId))
+      console.log('✅ Cast deleted successfully')
     } catch (err) {
-      console.error('Error deleting cast:', err)
+      console.error('❌ Error deleting cast:', err)
       setError('Failed to delete cast')
     }
   }
 
   const handleCastUpdate = (updatedCast: SavedCast): void => {
+    console.log('🔄 Updating cast:', updatedCast.id)
     setCasts(prevCasts => 
       prevCasts.map(cast => 
         cast.id === updatedCast.id ? updatedCast : cast
@@ -422,9 +515,16 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   return (
     <div className="space-y-6">
       {/* Enhanced Stats Overview */}
-      {enhancedStats.enhanced > 0 && (
+      {enhancedStats.total > 0 && (
         <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20">
-          <h3 className="text-lg font-bold text-white mb-4">📊 Your Cast Analytics</h3>
+          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            📊 Your Cast Analytics
+            {enhancedStats.enhanced < enhancedStats.total && (
+              <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full">
+                {enhancedStats.enhanced} of {enhancedStats.total} enhanced
+              </span>
+            )}
+          </h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-white">{enhancedStats.total}</div>
@@ -432,10 +532,12 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-purple-400">{enhancedStats.enhanced}</div>
-              <div className="text-xs text-gray-400">Enhanced</div>
+              <div className="text-xs text-gray-400">AI Enhanced</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-400">{enhancedStats.avgQuality}/100</div>
+              <div className="text-2xl font-bold text-blue-400">
+                {enhancedStats.enhanced > 0 ? `${enhancedStats.avgQuality}/100` : 'N/A'}
+              </div>
               <div className="text-xs text-gray-400">Avg Quality</div>
             </div>
             <div className="text-center">
@@ -447,6 +549,14 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
               <div className="text-xs text-gray-400">High Quality</div>
             </div>
           </div>
+          {enhancedStats.enhanced === 0 && enhancedStats.total > 0 && (
+            <div className="mt-4 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+              <p className="text-sm text-blue-300">
+                💡 Use the enhanced webhook to start getting AI analysis on new saves! 
+                Old casts can be enhanced by re-analyzing them.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -456,16 +566,18 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">Saved Casts</h2>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowAnalysisFilters(!showAnalysisFilters)}
-              className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
-                showAnalysisFilters 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
-              }`}
-            >
-              🧠 Analysis Filters
-            </button>
+            {enhancedStats.enhanced > 0 && (
+              <button
+                onClick={() => setShowAnalysisFilters(!showAnalysisFilters)}
+                className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
+                  showAnalysisFilters 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                }`}
+              >
+                🧠 Analysis Filters
+              </button>
+            )}
             <button
               onClick={() => setShowTagPanel(!showTagPanel)}
               className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
@@ -484,7 +596,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
         </div>
 
         {/* Enhanced Analysis Filter Panel */}
-        {showAnalysisFilters && (
+        {showAnalysisFilters && enhancedStats.enhanced > 0 && (
           <div className="mb-6 p-4 bg-blue-500/5 rounded-lg border border-blue-500/20">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">🧠 Analysis Filters</h3>
@@ -701,7 +813,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
             )}
           </div>
           <p className="text-xs text-gray-500 mt-1">
-            💡 Tip: Search content, authors, tags, and notes. Use filters above for enhanced analysis data!
+            💡 Tip: Search content, authors, tags, and notes. Use enhanced filters for AI analysis data!
           </p>
         </div>
 
@@ -729,28 +841,38 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
               </button>
             ) : (
               <div className="bg-white/5 rounded-lg p-4 max-w-md mx-auto">
-                <h4 className="font-semibold text-white mb-2">Enhanced Commands:</h4>
+                <h4 className="font-semibold text-white mb-2">🤖 Enhanced Commands:</h4>
                 <ol className="text-sm text-gray-300 text-left space-y-1">
-                  <li>• @cstkpr save this - Save with analysis</li>
-                  <li>• @cstkpr analyze this - Deep analysis</li>
-                  <li>• @cstkpr quality score - Get quality rating</li>
-                  <li>• @cstkpr sentiment - Analyze mood</li>
+                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr save this</code> - Save with AI analysis</li>
+                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr analyze</code> - Deep analysis</li>
+                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr opinion</code> - Get AI opinion</li>
+                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr trending</code> - See what's hot</li>
                 </ol>
               </div>
             )}
           </div>
         ) : (
           <div className="space-y-4">
-            {casts.map((cast: SavedCast) => (
-              <CastCard 
-                key={cast.id}
-                cast={cast} 
-                compact={false}
-                userId={userId}
-                onUpdate={handleCastUpdate}
-                onDelete={handleDelete}
-              />
-            ))}
+            {casts.map((cast: SavedCast) => {
+              // Debug log for each cast being rendered
+              console.log(`🎯 Rendering cast ${cast.id}:`, {
+                content_preview: cast.cast_content?.substring(0, 30) + '...',
+                username: cast.username,
+                has_enhanced_data: !!(cast.parsed_data as EnhancedParsedData)?.quality_score
+              })
+              
+              return (
+                <CastCard 
+                  key={cast.id}
+                  cast={cast} 
+                  compact={false}
+                  userId={userId}
+                  onUpdate={handleCastUpdate}
+                  onDelete={handleDelete}
+                  showAnalytics={true} // Show enhanced analytics in main saved casts view
+                />
+              )
+            })}
           </div>
         )}
 
@@ -763,6 +885,11 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
                 : `Showing all ${casts.length} saved cast${casts.length !== 1 ? 's' : ''}`
               }
             </p>
+            {enhancedStats.enhanced > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                🧠 {enhancedStats.enhanced} cast{enhancedStats.enhanced !== 1 ? 's' : ''} enhanced with AI analysis
+              </p>
+            )}
           </div>
         )}
       </div>
