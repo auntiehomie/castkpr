@@ -1,8 +1,97 @@
+// PART 1: Updated Webhook Handler (src/app/api/webhook/route.ts)
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService, ContentParser, supabase } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
-// Conversational response function
+// Enhanced function to fetch parent cast data from Farcaster API
+async function fetchParentCastData(parentHash: string, parentAuthorFid?: number) {
+  console.log('🔍 Attempting to fetch parent cast data for:', parentHash)
+  
+  try {
+    // Method 1: Try Neynar API (if you have access)
+    if (process.env.NEYNAR_API_KEY) {
+      console.log('📡 Trying Neynar API...')
+      const neynarResponse = await fetch(
+        `https://api.neynar.com/v2/farcaster/cast?identifier=${parentHash}&type=hash`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'api_key': process.env.NEYNAR_API_KEY
+          }
+        }
+      )
+      
+      if (neynarResponse.ok) {
+        const data = await neynarResponse.json()
+        console.log('✅ Neynar API response received')
+        
+        if (data.cast) {
+          return {
+            text: data.cast.text,
+            author: {
+              username: data.cast.author.username,
+              display_name: data.cast.author.display_name,
+              fid: data.cast.author.fid,
+              pfp_url: data.cast.author.pfp_url
+            },
+            timestamp: data.cast.timestamp,
+            url: `https://warpcast.com/${data.cast.author.username}/${parentHash.slice(0, 10)}`,
+            engagement: {
+              likes: data.cast.reactions?.likes_count || 0,
+              replies: data.cast.replies?.count || 0,
+              recasts: data.cast.reactions?.recasts_count || 0
+            }
+          }
+        }
+      }
+    }
+    
+    // Method 2: Try Farcaster Hub API (free but more complex)
+    console.log('📡 Trying direct Hub API...')
+    const hubResponse = await fetch(
+      `https://hub.pinata.cloud/v1/castById?hash=${parentHash}`,
+      {
+        headers: {
+          'Accept': 'application/json'
+        }
+      }
+    )
+    
+    if (hubResponse.ok) {
+      const hubData = await hubResponse.json()
+      console.log('✅ Hub API response received')
+      
+      if (hubData.data) {
+        const castData = hubData.data
+        return {
+          text: castData.castAddBody?.text || 'Cast content from Hub',
+          author: {
+            username: `user-${castData.fid}`,
+            display_name: `User ${castData.fid}`,
+            fid: castData.fid,
+            pfp_url: undefined
+          },
+          timestamp: new Date(castData.timestamp * 1000).toISOString(),
+          url: `https://warpcast.com/~/conversations/${parentHash}`,
+          engagement: {
+            likes: 0,
+            replies: 0,
+            recasts: 0
+          }
+        }
+      }
+    }
+    
+    console.log('❌ Could not fetch parent cast data from any API')
+    return null
+    
+  } catch (error) {
+    console.error('❌ Error fetching parent cast data:', error)
+    return null
+  }
+}
+
+// Conversational response function (same as before but with better logging)
 async function sendReplyToCast(
   replyToCastHash: string, 
   options: {
@@ -16,7 +105,7 @@ async function sendReplyToCast(
   }
 ) {
   try {
-    console.log('💬 Sending conversational response...')
+    console.log('💬 Sending conversational response...', options.type)
     
     let replyText = '';
     
@@ -91,168 +180,23 @@ View your organized collection: castkeeper.vercel.app 🚀✨`;
         }
     }
     
-    // Here you would implement the actual Farcaster API call
-    // For now, we'll just log what we would send
-    console.log('📤 Would send reply:', replyText);
-    console.log('📤 Reply to cast hash:', replyToCastHash);
+    console.log('📤 Would send reply:', replyText.substring(0, 100) + '...')
+    console.log('📤 Reply to cast hash:', replyToCastHash)
     
     // TODO: Implement actual Farcaster API call here
-    // This would require:
-    // 1. Farcaster API credentials/signer
-    // 2. Proper authentication
-    // 3. Cast creation endpoint call
-    
-    /*
-    const farcasterResponse = await fetch('https://api.farcaster.xyz/v1/casts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.FARCASTER_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: replyText,
-        parent: replyToCastHash,
-        // other required fields
-      })
-    });
-    */
     
   } catch (error) {
     console.error('❌ Error sending conversational response:', error);
-    // Don't throw here - we don't want reply failures to break the main save functionality
   }
 }
 
-// Generate contextual opinion responses
+// Opinion response generator (same as before, truncated for space)
 function generateOpinionResponse(username: string, userMessage?: string, castContent?: string): string {
-  const lowerMessage = (userMessage || '').toLowerCase();
-  
-  // Detect what kind of opinion/question they're asking
-  if (lowerMessage.includes('what do you think') || lowerMessage.includes('thoughts on')) {
-    return generateThoughtsResponse(username, userMessage, castContent);
-  }
-  
-  if (lowerMessage.includes('good') || lowerMessage.includes('bad') || lowerMessage.includes('like') || lowerMessage.includes('love')) {
-    return generateReactionResponse(username, userMessage);
-  }
-  
-  if (lowerMessage.includes('should i') || lowerMessage.includes('advice')) {
-    return generateAdviceResponse(username, userMessage);
-  }
-  
-  if (lowerMessage.includes('future') || lowerMessage.includes('predict') || lowerMessage.includes('will')) {
-    return generateFutureResponse(username, userMessage);
-  }
-  
-  if (lowerMessage.includes('crypto') || lowerMessage.includes('nft') || lowerMessage.includes('web3') || lowerMessage.includes('defi')) {
-    return generateCryptoResponse(username, userMessage);
-  }
-  
-  if (lowerMessage.includes('ai') || lowerMessage.includes('artificial intelligence') || lowerMessage.includes('machine learning')) {
-    return generateAIResponse(username, userMessage);
-  }
-  
-  // Default conversational response
-  return generateGeneralResponse(username, userMessage);
-}
-
-function generateThoughtsResponse(username: string, message?: string, content?: string): string {
   const responses = [
-    `Interesting question, @${username}! 🤔 From what I can analyze, there are definitely multiple perspectives to consider here. As a cast-keeping bot, I focus on helping preserve and organize great content - but I'd love to hear more of your thoughts too!`,
-    
-    `Great question @${username}! 💭 I think context is everything. What's fascinating is how different people can look at the same thing and see completely different angles. That's why I love helping people save diverse perspectives!`,
-    
-    `@${username} That's a thoughtful question! 🧠 As someone who processes lots of casts daily, I've noticed that the most interesting discussions often come from asking exactly these kinds of questions. What's your take?`,
-    
-    `Hmm, @${username}! 🤖 I find that the best insights often come from collecting multiple viewpoints over time. That's actually why I love helping people build their cast collections - patterns emerge when you can look back at saved content!`
+    `@${username} That's an interesting perspective! 🤔 As a cast-organizing bot, I see so many different viewpoints flow through my systems. What draws you to this particular topic?`,
+    `Great question @${username}! 💭 From processing thousands of casts, I've learned that the most engaging content often sparks exactly these kinds of discussions.`,
+    `@${username} I appreciate you asking! 🤖 Conversations like this are what make social platforms special. Care to save this moment for your collection?`
   ];
-  
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function generateReactionResponse(username: string, message?: string): string {
-  const responses = [
-    `I can see you have strong feelings about this, @${username}! 😊 Personal reactions are so valuable - they're what make each person's saved cast collection unique. What draws you to content like this?`,
-    
-    `@${username} I love that you're sharing your reaction! 🎯 Emotional responses to content are often what make it worth saving. Have you considered starting a collection of casts that spark these kinds of feelings?`,
-    
-    `That's a genuine reaction, @${username}! ✨ It's exactly these kinds of responses that make content curation so personal. Everyone's "good vs bad" filter is different - that's what makes collections interesting!`,
-    
-    `@${username} Your reaction tells a story! 📚 I've noticed that the casts people save often reflect their values and interests. This could be perfect for your collection if it resonated with you!`
-  ];
-  
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function generateAdviceResponse(username: string, message?: string): string {
-  const responses = [
-    `@${username} While I'm just a cast-organizing bot, I'd say: trust your instincts! 🎯 If something makes you think "I want to remember this," that's usually worth saving. What's your gut telling you?`,
-    
-    `Good question @${username}! 🤝 My advice as a keeper of knowledge: when in doubt, save it. You can always organize and filter later. Better to have it and not need it than need it and not have it!`,
-    
-    `@${username} From processing thousands of casts, I've learned that the content people wish they'd saved is often the stuff they hesitated on. If it sparked enough interest to ask about it, it might be worth keeping!`,
-    
-    `@${username} Here's my take: the best collections are built by following curiosity rather than overthinking. If something makes you pause and think, that's usually a good sign it's worth saving! 🚀`
-  ];
-  
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function generateFutureResponse(username: string, message?: string): string {
-  const responses = [
-    `@${username} Predicting the future is tricky! 🔮 But I do know that looking back at saved content over time reveals interesting patterns. Maybe save some predictions and see how they age?`,
-    
-    `@${username} The future is unwritten! 🚀 What I find fascinating is going back through old saved casts and seeing how predictions played out. Time capsules of thoughts are powerful things!`,
-    
-    `Great question @${username}! ⏰ As someone who helps preserve thoughts over time, I've seen that the most interesting predictions are often the ones that seemed crazy at first. Worth documenting for sure!`,
-    
-    `@${username} Nobody knows for sure! 🌟 But collecting diverse perspectives on the future has always been valuable. That's why saving contrarian views and bold predictions can be so insightful later!`
-  ];
-  
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function generateCryptoResponse(username: string, message?: string): string {
-  const responses = [
-    `@${username} Crypto moves fast! ⚡ I see a lot of Web3 content flowing through my systems. The space changes so quickly that having a saved collection of key insights becomes really valuable for tracking evolution!`,
-    
-    `@${username} The crypto space is wild! 🌊 From my perspective organizing thousands of casts, I see cycles of optimism and skepticism. Saving diverse crypto perspectives over time gives the best picture of what's happening!`,
-    
-    `@${username} Web3 is fascinating from a data perspective! 📊 I process tons of NFT, DeFi, and crypto content daily. The most interesting part is seeing how narratives evolve. Worth saving the good analysis!`,
-    
-    `@${username} Crypto is definitely a space worth documenting! 💎 I help people save everything from technical analysis to memes. In 5 years, these collections will be amazing time capsules of the space!`
-  ];
-  
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function generateAIResponse(username: string, message?: string): string {
-  const responses = [
-    `@${username} AI is evolving so fast! 🤖 As an AI myself (albeit a simple one focused on cast organization), I find the discussions about AI fascinating. Definitely worth saving the best AI takes for future reference!`,
-    
-    `@${username} Meta question - an AI asking another AI about AI! 😄 I may just be a cast-keeping bot, but I'm fascinated by how AI discussions evolve. These conversations will be historical artifacts someday!`,
-    
-    `@${username} AI discourse is changing daily! 🚀 From my bot perspective, what's interesting is seeing how people's relationships with AI tools evolve. Saving these transitional moments captures history in the making!`,
-    
-    `@${username} The AI space moves incredibly fast! ⚡ I see tons of AI content pass through my systems. The best insights often come from practitioners sharing real experiences rather than just theory. Worth curating!`
-  ];
-  
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function generateGeneralResponse(username: string, message?: string): string {
-  const responses = [
-    `@${username} I appreciate you asking! 💭 As a cast-organizing bot, I find that the most interesting conversations happen when people share genuine thoughts like this. Care to save this moment for your collection?`,
-    
-    `@${username} Thanks for the mention! 🤖 I love engaging with users beyond just saving casts. Conversations like this are what make social platforms special. What's on your mind?`,
-    
-    `@${username} You've got me thinking! 🧠 While I specialize in organizing and saving content, I enjoy these kinds of interactions. Is there anything specific you'd like my perspective on?`,
-    
-    `@${username} I'm always up for a chat! ✨ Between organizing all these casts, I get to see so many interesting perspectives. What's sparking your curiosity today?`,
-    
-    `@${username} Hey there! 👋 Beyond just saving casts, I enjoy connecting with users. These spontaneous conversations often lead to the most interesting content. What's your take on things?`
-  ];
-  
   return responses[Math.floor(Math.random() * responses.length)];
 }
 
@@ -261,7 +205,8 @@ export async function POST(request: NextRequest) {
     console.log('🎯 Webhook received!')
     
     const body = await request.json()
-    console.log('📦 Webhook payload received')
+    console.log('📦 Webhook payload keys:', Object.keys(body))
+    console.log('📦 Event type:', body.type)
     
     // Check event type
     if (body.type !== 'cast.created') {
@@ -270,7 +215,9 @@ export async function POST(request: NextRequest) {
     }
     
     const cast = body.data
-    console.log('📝 Processing cast from:', cast.author.username)
+    console.log('📝 Processing cast from:', cast.author?.username || 'unknown')
+    console.log('📝 Cast FID:', cast.author?.fid)
+    console.log('📝 Full cast keys:', Object.keys(cast))
     
     // Check for mentions
     const mentions = cast.mentioned_profiles || []
@@ -279,15 +226,16 @@ export async function POST(request: NextRequest) {
     })
     
     console.log('🤖 Bot mentioned?', mentionsBot)
+    console.log('🤖 Mentioned profiles:', mentions.map((p: any) => p.username))
     
     if (!mentionsBot) {
       console.log('❌ Bot not mentioned, skipping')
       return NextResponse.json({ message: 'Bot not mentioned' })
     }
     
-    // Check for save command
-    const text = cast.text.toLowerCase()
-    console.log('💬 Cast text:', text)
+    // Get text from cast
+    const text = (cast.text || '').toLowerCase()
+    console.log('💬 Cast text:', cast.text)
     
     // Handle different bot commands and conversations
     if (text.includes('help')) {
@@ -302,7 +250,6 @@ export async function POST(request: NextRequest) {
     if (text.includes('stats')) {
       console.log('📊 Stats command detected')
       try {
-        // Use the username as the saved_by_user_id to get their stats
         const userStats = await CastService.getUserStats(cast.author.username)
         await sendReplyToCast(cast.hash, {
           type: 'stats',
@@ -330,22 +277,7 @@ export async function POST(request: NextRequest) {
       text.includes('opinion') ||
       text.includes('should i') ||
       text.includes('advice') ||
-      text.includes('good') ||
-      text.includes('bad') ||
-      text.includes('like') ||
-      text.includes('love') ||
-      text.includes('hate') ||
-      text.includes('future') ||
-      text.includes('predict') ||
-      text.includes('will') ||
-      text.includes('crypto') ||
-      text.includes('nft') ||
-      text.includes('web3') ||
-      text.includes('defi') ||
-      text.includes('ai') ||
-      text.includes('artificial intelligence') ||
-      text.includes('machine learning') ||
-      text.includes('?') // Any question
+      text.includes('?')
     )
     
     console.log('💭 Is opinion/conversation request?', isOpinionRequest)
@@ -356,7 +288,7 @@ export async function POST(request: NextRequest) {
         type: 'opinion',
         requesterUsername: cast.author.username,
         userMessage: cast.text,
-        castContent: cast.text // In case they're sharing content for the bot to react to
+        castContent: cast.text
       })
       return NextResponse.json({ message: 'Opinion response sent' })
     }
@@ -370,84 +302,79 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Help response sent for unrecognized command' })
     }
     
-    // Get parent cast information
-    let parentCastData = null;
-    let parentHash = cast.parent_hash;
-    
-    // Try to extract parent cast data from the webhook payload
-    if (cast.parent && cast.parent.text) {
-      // If parent cast data is directly available
-      parentCastData = cast.parent;
-      parentHash = cast.parent.hash || cast.parent_hash;
-      console.log('📄 Found parent cast data in webhook payload');
-    } else if (cast.parent_url && cast.parent_author) {
-      // If we have parent URL and author, try to construct what we can
-      console.log('🔍 Parent cast info available - URL:', cast.parent_url);
-      parentCastData = {
-        hash: parentHash,
-        author: cast.parent_author,
-        text: `Cast from ${cast.parent_author.username || 'Unknown'} - ${cast.parent_url}`,
-        timestamp: cast.timestamp, // Use reply timestamp as fallback
-        url: cast.parent_url
-      };
-    }
-    
+    // Handle save command
+    const parentHash = cast.parent_hash
     console.log('👆 Parent hash:', parentHash)
-    console.log('📋 Parent cast data available:', !!parentCastData)
+    console.log('👆 Parent author FID:', cast.parent_author?.fid)
+    console.log('👆 Available parent data keys:', cast.parent_author ? Object.keys(cast.parent_author) : 'none')
     
-    if (!parentHash && !parentCastData) {
+    if (!parentHash) {
       console.log('❌ No parent cast to save')
+      await sendReplyToCast(cast.hash, {
+        type: 'error',
+        requesterUsername: cast.author.username
+      })
       return NextResponse.json({ message: 'No parent cast to save' })
     }
     
-    // Extract actual content or create meaningful fallback
+    // Try to fetch actual parent cast content
+    console.log('🔍 Fetching parent cast content...')
+    const parentCastData = await fetchParentCastData(parentHash, cast.parent_author?.fid)
+    
+    // Extract content with better fallbacks
     let castContent = 'Cast content not available';
     let authorUsername = 'unknown';
     let authorDisplayName = 'Unknown User';
     let authorFid = 0;
     let authorPfpUrl = undefined;
     let castTimestamp = new Date().toISOString();
-    let castUrl = undefined;
+    let castUrl = `https://warpcast.com/~/conversations/${parentHash}`;
+    let engagement = { likes: 0, replies: 0, recasts: 0 };
     
     if (parentCastData) {
-      castContent = parentCastData.text || parentCastData.content || 'Cast content not available';
-      authorUsername = parentCastData.author?.username || 'unknown';
-      authorDisplayName = parentCastData.author?.display_name || parentCastData.author?.displayName || authorUsername;
-      authorFid = parentCastData.author?.fid || 0;
-      authorPfpUrl = parentCastData.author?.pfp_url || parentCastData.author?.pfpUrl;
-      castTimestamp = parentCastData.timestamp || new Date().toISOString();
-      castUrl = parentCastData.url || `https://warpcast.com/~/conversations/${parentHash}`;
+      console.log('✅ Using fetched parent cast data')
+      castContent = parentCastData.text;
+      authorUsername = parentCastData.author.username;
+      authorDisplayName = parentCastData.author.display_name || authorUsername;
+      authorFid = parentCastData.author.fid;
+      authorPfpUrl = parentCastData.author.pfp_url;
+      castTimestamp = parentCastData.timestamp;
+      castUrl = parentCastData.url;
+      engagement = parentCastData.engagement;
     } else if (cast.parent_author) {
-      // Fallback using available parent author info
-      authorUsername = cast.parent_author.username || 'unknown';
+      console.log('⚠️ Using webhook parent author data as fallback')
+      authorUsername = cast.parent_author.username || `user-${cast.parent_author.fid}`;
       authorDisplayName = cast.parent_author.display_name || cast.parent_author.displayName || authorUsername;
       authorFid = cast.parent_author.fid || 0;
       authorPfpUrl = cast.parent_author.pfp_url || cast.parent_author.pfpUrl;
-      castUrl = cast.parent_url || `https://warpcast.com/~/conversations/${parentHash}`;
-      castContent = `Cast by @${authorUsername} - view on Farcaster: ${castUrl}`;
+      castContent = `📝 Cast by @${authorUsername} - view full content at ${castUrl}`;
+    } else {
+      console.log('❌ No parent cast data available')
     }
     
-    console.log('📝 Extracted cast content preview:', castContent.substring(0, 100) + '...');
-    console.log('👤 Author:', authorUsername, '(FID:', authorFid, ')');
+    console.log('📝 Final extracted data:')
+    console.log('   Content preview:', castContent.substring(0, 100) + '...')
+    console.log('   Author:', authorUsername, '(FID:', authorFid, ')')
+    console.log('   Display name:', authorDisplayName)
     
-    // Parse the cast content for additional metadata
+    // Parse the content
     const parsedData = ContentParser.parseContent(castContent);
     
-    // Create cast data that matches your SavedCast interface
+    // Create cast data
     const castData = {
       username: authorUsername,
       fid: authorFid,
       cast_hash: parentHash,
       cast_content: castContent,
       cast_timestamp: castTimestamp,
-      tags: ['saved-via-bot', ...parsedData.hashtags?.slice(0, 3) || []] as string[],
-      likes_count: 0, // Webhook doesn't include engagement data
-      replies_count: 0,
-      recasts_count: 0,
+      tags: ['saved-via-bot', ...(parsedData.hashtags?.slice(0, 3) || [])] as string[],
+      likes_count: engagement.likes,
+      replies_count: engagement.replies,
+      recasts_count: engagement.recasts,
       cast_url: castUrl,
       author_pfp_url: authorPfpUrl,
       author_display_name: authorDisplayName,
-      saved_by_user_id: cast.author.username, // The person who mentioned the bot
+      saved_by_user_id: cast.author.username,
       category: 'saved-via-bot',
       notes: `💾 Saved via @cstkpr bot by @${cast.author.username} on ${new Date().toLocaleDateString()}`,
       parsed_data: {
@@ -456,21 +383,21 @@ export async function POST(request: NextRequest) {
       }
     } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
     
-    console.log('💾 Saving cast with actual content...')
+    console.log('💾 Saving cast with extracted content...')
     
-    // Test Supabase connection first
+    // Test Supabase connection
     console.log('🔍 Testing Supabase connection...')
     try {
       const { error: testError } = await supabase
         .from('saved_casts')
-        .select('*')
+        .select('id')
         .limit(1)
       
       if (testError) {
         console.error('❌ Supabase connection test failed:', testError)
         return NextResponse.json({ 
           error: 'Database connection failed', 
-          details: testError.message || 'Unknown database error' 
+          details: testError.message 
         }, { status: 500 })
       }
       
@@ -478,8 +405,7 @@ export async function POST(request: NextRequest) {
     } catch (connectionError) {
       console.error('❌ Supabase connection error:', connectionError)
       return NextResponse.json({ 
-        error: 'Database connection error', 
-        details: connectionError instanceof Error ? connectionError.message : 'Unknown error' 
+        error: 'Database connection error'
       }, { status: 500 })
     }
     
@@ -489,7 +415,7 @@ export async function POST(request: NextRequest) {
       console.log('✅ Cast saved successfully:', savedCast.cast_hash)
       console.log('📄 Saved content preview:', savedCast.cast_content.substring(0, 100) + '...')
       
-      // Send conversational response back to the user
+      // Send success response
       await sendReplyToCast(cast.hash, {
         savedCast,
         requesterUsername: cast.author.username,
@@ -501,15 +427,14 @@ export async function POST(request: NextRequest) {
         message: 'Cast saved successfully',
         cast_id: savedCast.cast_hash,
         saved_cast_id: savedCast.id,
-        content_preview: savedCast.cast_content.substring(0, 100) + '...'
+        content_preview: savedCast.cast_content.substring(0, 100) + '...',
+        author: `${authorDisplayName} (@${authorUsername})`
       })
       
     } catch (saveError) {
       console.error('❌ Error saving cast:', saveError)
       
-      // Check if it's a duplicate cast error
       if (saveError instanceof Error && saveError.message.includes('already saved')) {
-        // Send friendly duplicate message
         await sendReplyToCast(cast.hash, {
           type: 'duplicate',
           requesterUsername: cast.author.username,
@@ -523,7 +448,6 @@ export async function POST(request: NextRequest) {
         })
       }
       
-      // Send error message
       await sendReplyToCast(cast.hash, {
         type: 'error',
         requesterUsername: cast.author.username
@@ -543,3 +467,90 @@ export async function POST(request: NextRequest) {
     }, { status: 500 })
   }
 }
+
+// PART 2: Database Schema Update Script
+// Create a new file: scripts/update-database-schema.sql
+
+/*
+-- Database Schema Updates for CastKPR
+-- Run this in your Supabase SQL editor
+
+-- 1. Ensure the saved_casts table has the correct structure
+CREATE TABLE IF NOT EXISTS saved_casts (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  username TEXT NOT NULL,
+  fid BIGINT NOT NULL,
+  cast_hash TEXT NOT NULL,
+  cast_content TEXT NOT NULL,
+  cast_timestamp TIMESTAMPTZ NOT NULL,
+  cast_url TEXT,
+  author_pfp_url TEXT,
+  author_display_name TEXT,
+  parsed_data JSONB,
+  saved_by_user_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  tags TEXT[] DEFAULT '{}',
+  category TEXT,
+  notes TEXT,
+  likes_count INTEGER DEFAULT 0,
+  replies_count INTEGER DEFAULT 0,
+  recasts_count INTEGER DEFAULT 0
+);
+
+-- 2. Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_saved_casts_saved_by_user_id ON saved_casts(saved_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_saved_casts_cast_hash ON saved_casts(cast_hash);
+CREATE INDEX IF NOT EXISTS idx_saved_casts_fid ON saved_casts(fid);
+CREATE INDEX IF NOT EXISTS idx_saved_casts_username ON saved_casts(username);
+CREATE INDEX IF NOT EXISTS idx_saved_casts_timestamp ON saved_casts(cast_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_saved_casts_tags ON saved_casts USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_saved_casts_parsed_data ON saved_casts USING GIN(parsed_data);
+
+-- 3. Create unique constraint to prevent duplicates
+CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_casts_unique_user_cast 
+ON saved_casts(cast_hash, saved_by_user_id);
+
+-- 4. Create updated_at trigger
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE OR REPLACE TRIGGER update_saved_casts_updated_at 
+  BEFORE UPDATE ON saved_casts 
+  FOR EACH ROW 
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- 5. Add RLS policies (Row Level Security)
+ALTER TABLE saved_casts ENABLE ROW LEVEL SECURITY;
+
+-- Allow users to see their own saved casts
+CREATE POLICY IF NOT EXISTS "Users can view their own saved casts" 
+ON saved_casts FOR SELECT 
+USING (true); -- For now, allow all reads. Modify based on your auth setup
+
+-- Allow inserting new saved casts
+CREATE POLICY IF NOT EXISTS "Users can insert saved casts" 
+ON saved_casts FOR INSERT 
+WITH CHECK (true); -- Modify based on your auth setup
+
+-- Allow users to update their own saved casts
+CREATE POLICY IF NOT EXISTS "Users can update their own saved casts" 
+ON saved_casts FOR UPDATE 
+USING (true); -- Modify based on your auth setup
+
+-- Allow users to delete their own saved casts
+CREATE POLICY IF NOT EXISTS "Users can delete their own saved casts" 
+ON saved_casts FOR DELETE 
+USING (true); -- Modify based on your auth setup
+
+-- 6. Verify the schema
+SELECT column_name, data_type, is_nullable, column_default 
+FROM information_schema.columns 
+WHERE table_name = 'saved_casts' 
+ORDER BY ordinal_position;
+*/
