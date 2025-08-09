@@ -90,8 +90,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Rate limited' })
     }
 
-    // Check if this is a reply to a previous bot conversation
+    // Get cast details
+    const text = cast.text.toLowerCase()
+    const currentCastHash = cast.hash
     const parentHash = cast.parent_hash
+    
+    console.log('💬 Cast text:', text)
+    console.log('👤 User ID:', userId)
+    console.log('👆 Parent hash:', parentHash)
+    console.log('🔗 Current cast hash:', currentCastHash)
+
+    // Check if this is a reply to a previous bot conversation (SOPHISTICATED MEMORY SYSTEM)
     let isReplyToBotConversation = false
     let previousConversation = null
     
@@ -102,6 +111,7 @@ export async function POST(request: NextRequest) {
         if (previousConversation) {
           isReplyToBotConversation = true
           console.log('🔄 This is a reply to a previous bot conversation')
+          console.log('📋 Previous conversation context:', previousConversation.conversation_context)
         }
       } catch (error) {
         console.error('Error checking bot conversations:', error)
@@ -110,39 +120,6 @@ export async function POST(request: NextRequest) {
     }
     
     console.log('💬 Reply to bot?', isReplyToBotConversation)
-
-    // Check if this is a reply to a previous bot conversation
-    const parentHash = cast.parent_hash
-    let isReplyToBotConversation = false
-    
-    if (parentHash) {
-      console.log('🔍 Checking if parent hash is a bot conversation:', parentHash)
-      // If there's a parent hash and the user is mentioning the bot,
-      // and the text suggests a follow-up conversation, treat it as such
-      const isFollowUpText = text.includes('what do you think') || 
-                            text.includes('do you agree') || 
-                            text.includes('your thoughts') ||
-                            text.includes('makes') ||
-                            text.includes('why') ||
-                            text.includes('how') ||
-                            text.includes('conversation') ||
-                            text.includes('special')
-      
-      if (isFollowUpText) {
-        isReplyToBotConversation = true
-        console.log('🔄 This appears to be a follow-up conversation based on text content')
-      }
-    }
-    
-    console.log('💬 Reply to bot?', isReplyToBotConversation)
-    const text = cast.text.toLowerCase()
-    const currentCastHash = cast.hash
-    const parentHash = cast.parent_hash
-    
-    console.log('💬 Cast text:', text)
-    console.log('👤 User ID:', userId)
-    console.log('👆 Parent hash:', parentHash)
-    console.log('🔗 Current cast hash:', currentCastHash)
     
     // Determine response type and content
     let responseText = ''
@@ -152,16 +129,17 @@ export async function POST(request: NextRequest) {
       // This is a follow-up to a previous conversation with full context
       conversationType = 'follow_up'
       responseText = generateFollowUpResponse(text, previousConversation.conversation_context)
+      console.log('🎯 Using sophisticated conversation memory for follow-up response')
     } else if (text.includes('save this') || (text.includes('save') && parentHash)) {
       // This is a save command
       conversationType = 'save_command'
       
-      if (!cast.parent_hash) {
+      if (!parentHash) {
         responseText = "I'd love to help you save a cast! Please reply to the cast you want to save with '@cstkpr save this' 💾"
       } else {
         // Handle save command
         try {
-          await handleSaveCommand(cast.parent_hash, userId, cast)
+          await handleSaveCommand(parentHash, userId, cast)
           responseText = "✅ Cast saved successfully! You can view all your saved casts at castkpr.com 📚"
         } catch (error) {
           console.error('Error handling save command:', error)
@@ -176,11 +154,11 @@ export async function POST(request: NextRequest) {
       // This is an analyze command
       conversationType = 'analyze_command'
       
-      if (!cast.parent_hash) {
+      if (!parentHash) {
         responseText = "I'd love to analyze a cast for you! Please reply to the cast you want me to analyze with '@cstkpr analyze this' 🧠"
       } else {
         try {
-          const analysis = await handleAnalyzeCommand(cast.parent_hash)
+          const analysis = await handleAnalyzeCommand(parentHash)
           responseText = analysis
         } catch (error) {
           console.error('Error handling analyze command:', error)
@@ -272,7 +250,7 @@ export async function POST(request: NextRequest) {
       
       console.log('✅ Successfully posted reply to Farcaster:', botCastHash)
       
-      // Store the bot conversation for future reference
+      // Store the bot conversation for future reference (SOPHISTICATED MEMORY SYSTEM)
       await storeBotConversation(userId, currentCastHash, botCastHash, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
       
       return NextResponse.json({ 
@@ -280,7 +258,8 @@ export async function POST(request: NextRequest) {
         message: 'Bot response posted successfully',
         response_text: responseText,
         conversation_type: conversationType,
-        bot_cast_hash: botCastHash
+        bot_cast_hash: botCastHash,
+        conversation_memory_used: isReplyToBotConversation
       })
       
     } catch (error) {
