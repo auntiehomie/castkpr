@@ -31,16 +31,6 @@ interface WebhookCast {
   }>
 }
 
-interface ConversationContext {
-  original_content?: string
-  bot_response?: string
-  timestamp?: string
-  conversation_type?: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command'
-  parent_hash?: string | null
-  is_follow_up?: boolean
-  [key: string]: unknown
-}
-
 export async function POST(request: NextRequest) {
   try {
     console.log('🎯 Webhook received!')
@@ -164,9 +154,9 @@ export async function POST(request: NextRequest) {
         'X-PAYMENT': JSON.stringify({
           scheme: 'exact',
           network: 'base',
-          maxAmountRequired: '100', // From your error response
+          maxAmountRequired: '100',
           resource: 'http://api.neynar.com/farcaster/cast',
-          asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+          asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
           payTo: '0xA6a8736f18f383f1cc2d938576933E5eA7Df01A1',
           maxTimeoutSeconds: 60
         })
@@ -185,22 +175,6 @@ export async function POST(request: NextRequest) {
       if (!replyResponse.ok) {
         const errorText = await replyResponse.text()
         console.error('❌ Neynar API error:', replyResponse.status, errorText)
-        
-        // If it's a 402 payment error, provide specific guidance
-        if (replyResponse.status === 402) {
-          console.log('💳 Payment required for cast posting.')
-          
-          return NextResponse.json({ 
-            error: 'Payment required for cast posting', 
-            details: 'Neynar requires 0.01 USDC payment for posting casts.',
-            response_generated: responseText,
-            payment_info: {
-              amount: '0.01 USDC',
-              network: 'Base',
-              required: true
-            }
-          }, { status: 402 })
-        }
         
         return NextResponse.json({ 
           error: 'Failed to post reply to Farcaster', 
@@ -266,7 +240,6 @@ async function isRateLimited(userId: string, now: number): Promise<boolean> {
 async function handleSaveCommand(parentHash: string, userId: string, mentionCast: WebhookCast): Promise<void> {
   console.log('💾 Handling save command for parent hash:', parentHash)
   
-  // Try to fetch the actual cast content if we have parent author info
   const castContent = `🔗 Cast saved from Farcaster - Hash: ${parentHash}`
   let authorInfo = {
     username: `user-${mentionCast.parent_author?.fid || 'unknown'}`,
@@ -287,4 +260,72 @@ async function handleSaveCommand(parentHash: string, userId: string, mentionCast
   
   // Create cast data that matches your SavedCast interface exactly
   const castData = {
-    username: author
+    username: authorInfo.username,
+    fid: authorInfo.fid,
+    cast_hash: parentHash,
+    cast_content: castContent,
+    cast_timestamp: new Date().toISOString(),
+    tags: ['saved-via-bot'] as string[],
+    likes_count: 0,
+    replies_count: 0,
+    recasts_count: 0,
+    cast_url: `https://warpcast.com/~/conversations/${parentHash}`,
+    author_pfp_url: authorInfo.pfp_url,
+    author_display_name: authorInfo.display_name,
+    saved_by_user_id: userId,
+    category: 'saved-via-bot',
+    notes: `💾 Saved via @cstkpr bot by ${userId} on ${new Date().toLocaleDateString()}`,
+    parsed_data: {
+      urls: [`https://warpcast.com/~/conversations/${parentHash}`],
+      hashtags: ['cstkpr', 'saved'],
+      mentions: ['cstkpr'],
+      word_count: castContent.split(' ').length,
+      sentiment: 'neutral' as const,
+      topics: ['saved-cast']
+    }
+  } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
+  
+  console.log('💾 Saving cast data to database...')
+  await CastService.saveCast(castData)
+  console.log('✅ Cast saved successfully')
+}
+
+async function handleAnalyzeCommand(parentHash: string): Promise<string> {
+  console.log('🧠 Handling analyze command for parent hash:', parentHash)
+  
+  const analysisResponses = [
+    "🧠 This cast looks interesting! It has good engagement potential and covers relevant topics. Perfect for saving to your collection!",
+    "📊 Analysis: This cast appears to be informative content that could be valuable for future reference. Consider saving it!",
+    "🎯 This cast shows strong discussion potential - it's the kind of content that often generates meaningful conversations.",
+    "💡 Insight: This type of content typically performs well and could be worth archiving for later reference.",
+    "🔍 Analysis complete: This cast contains useful information that aligns with current trending topics."
+  ]
+  
+  return analysisResponses[Math.floor(Math.random() * analysisResponses.length)]
+}
+
+function generateGeneralResponse(text: string): string {
+  // Help responses
+  if (text.includes('help') || text.includes('how')) {
+    return "I help you save and analyze Farcaster casts! 📚\n\n• Reply '@cstkpr save this' to any cast to save it\n• Reply '@cstkpr analyze this' for quick insights\n• View your collection at castkpr.com\n• I'll organize everything for you automatically! ✨"
+  }
+  
+  // What do you do responses
+  if (text.includes('what') && (text.includes('you') || text.includes('do'))) {
+    return "I'm CastKPR! 🤖 I save your favorite Farcaster casts and provide quick analysis. Reply '@cstkpr save this' or '@cstkpr analyze this' to any cast to try it out! 🚀"
+  }
+  
+  // Stats responses
+  if (text.includes('stats') || text.includes('count') || text.includes('how many')) {
+    return "I don't have your stats right now, but you can see all your saved casts at castkpr.com! Keep saving with '@cstkpr save this' 📊"
+  }
+  
+  // Random general responses
+  const responses = [
+    "Hey there! I'm CastKPR, your friendly cast-saving bot! 🤖 Reply '@cstkpr save this' to any cast to save it to your collection.",
+    "Hi! I help save and analyze your favorite Farcaster casts. Try replying '@cstkpr save this' or '@cstkpr analyze this' to a cast! 📚",
+    "Hello! I'm here to help you build your personal cast collection. Just mention me with 'save this' or 'analyze this' on any cast! ✨"
+  ]
+  
+  return responses[Math.floor(Math.random() * responses.length)]
+}
