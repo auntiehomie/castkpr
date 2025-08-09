@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService } from '@/lib/supabase'
+import { CastService, BotService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
 // Type definitions for webhook data
@@ -31,6 +31,16 @@ interface WebhookCast {
   }>
 }
 
+interface ConversationContext {
+  original_content?: string
+  bot_response?: string
+  timestamp?: string
+  conversation_type?: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command'
+  parent_hash?: string | null
+  is_follow_up?: boolean
+  [key: string]: unknown
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('🎯 Webhook received!')
@@ -47,16 +57,28 @@ export async function POST(request: NextRequest) {
     const cast: WebhookCast = body.data
     console.log('📝 Processing cast from:', cast.author.username)
     
-    // Check for mentions
+    // Check for mentions OR if this is a reply to the bot
     const mentions = cast.mentioned_profiles || []
     const mentionsBot = mentions.some((profile: { username?: string; fid?: number }) => {
       return profile.username === 'cstkpr'
     })
     
-    console.log('🤖 Bot mentioned?', mentionsBot)
+    // Also check if this is a reply to a bot message (even without mention)
+    let isReplyToBotMessage = false
+    if (cast.parent_hash && !mentionsBot) {
+      // TODO: We could check if parent_hash belongs to a message posted by our bot
+      // For now, we'll require mentions for simplicity
+      console.log('📝 Reply detected but bot not mentioned - skipping for now')
+    }
     
-    if (!mentionsBot) {
-      console.log('❌ Bot not mentioned, skipping')
+    const shouldProcessMessage = mentionsBot || isReplyToBotMessage
+    
+    console.log('🤖 Bot mentioned?', mentionsBot)
+    console.log('🔄 Reply to bot message?', isReplyToBotMessage)
+    console.log('✅ Should process?', shouldProcessMessage)
+    
+    if (!shouldProcessMessage) {
+      console.log('❌ Bot not mentioned and not a reply to bot message, skipping')
       return NextResponse.json({ message: 'Bot not mentioned' })
     }
 
@@ -68,7 +90,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Rate limited' })
     }
 
-    // Get cast details
+    // Check if this is a reply to a previous bot conversation
+    const parentHash = cast.parent_hash
+    let isReplyToBotConversation = false
+    let previousConversation = null
+    
+    if (parentHash) {
+      try {
+        console.log('🔍 Checking if parent hash is a bot conversation:', parentHash)
+        previousConversation = await BotService.getBotConversationByCastHash(parentHash)
+        if (previousConversation) {
+          isReplyToBotConversation = true
+          console.log('🔄 This is a reply to a previous bot conversation')
+        }
+      } catch (error) {
+        console.error('Error checking bot conversations:', error)
+        // Continue processing even if conversation check fails
+      }
+    }
+    
+    console.log('💬 Reply to bot?', isReplyToBotConversation)
+
+    // Check if this is a reply to a previous bot conversation
+    const parentHash = cast.parent_hash
+    let isReplyToBotConversation = false
+    
+    if (parentHash) {
+      console.log('🔍 Checking if parent hash is a bot conversation:', parentHash)
+      // If there's a parent hash and the user is mentioning the bot,
+      // and the text suggests a follow-up conversation, treat it as such
+      const isFollowUpText = text.includes('what do you think') || 
+                            text.includes('do you agree') || 
+                            text.includes('your thoughts') ||
+                            text.includes('makes') ||
+                            text.includes('why') ||
+                            text.includes('how') ||
+                            text.includes('conversation') ||
+                            text.includes('special')
+      
+      if (isFollowUpText) {
+        isReplyToBotConversation = true
+        console.log('🔄 This appears to be a follow-up conversation based on text content')
+      }
+    }
+    
+    console.log('💬 Reply to bot?', isReplyToBotConversation)
     const text = cast.text.toLowerCase()
     const currentCastHash = cast.hash
     const parentHash = cast.parent_hash
@@ -82,19 +148,20 @@ export async function POST(request: NextRequest) {
     let responseText = ''
     let conversationType: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command' = 'general_question'
     
-    // TODO: Implement conversation thread logic if needed.
-    // For now, skip follow-up logic to avoid reference errors.
-
-    if (text.includes('save this') || (text.includes('save') && parentHash)) {
+    if (isReplyToBotConversation && previousConversation) {
+      // This is a follow-up to a previous conversation with full context
+      conversationType = 'follow_up'
+      responseText = generateFollowUpResponse(text, previousConversation.conversation_context)
+    } else if (text.includes('save this') || (text.includes('save') && parentHash)) {
       // This is a save command
       conversationType = 'save_command'
       
-      if (!parentHash) {
+      if (!cast.parent_hash) {
         responseText = "I'd love to help you save a cast! Please reply to the cast you want to save with '@cstkpr save this' 💾"
       } else {
         // Handle save command
         try {
-          await handleSaveCommand(parentHash, userId, cast)
+          await handleSaveCommand(cast.parent_hash, userId, cast)
           responseText = "✅ Cast saved successfully! You can view all your saved casts at castkpr.com 📚"
         } catch (error) {
           console.error('Error handling save command:', error)
@@ -109,11 +176,11 @@ export async function POST(request: NextRequest) {
       // This is an analyze command
       conversationType = 'analyze_command'
       
-      if (!parentHash) {
+      if (!cast.parent_hash) {
         responseText = "I'd love to analyze a cast for you! Please reply to the cast you want me to analyze with '@cstkpr analyze this' 🧠"
       } else {
         try {
-          const analysis = await handleAnalyzeCommand(parentHash)
+          const analysis = await handleAnalyzeCommand(cast.parent_hash)
           responseText = analysis
         } catch (error) {
           console.error('Error handling analyze command:', error)
@@ -134,17 +201,27 @@ export async function POST(request: NextRequest) {
       // Check if we have the required API key
       if (!process.env.NEYNAR_API_KEY) {
         console.error('❌ Missing NEYNAR_API_KEY environment variable')
+        
+        // Store conversation even if posting fails
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
+        
         return NextResponse.json({ 
           error: 'Missing Neynar API key configuration',
-          response_generated: responseText
+          response_generated: responseText,
+          conversation_stored: true
         }, { status: 500 })
       }
       
       if (!process.env.NEYNAR_SIGNER_UUID) {
         console.error('❌ Missing NEYNAR_SIGNER_UUID environment variable')
+        
+        // Store conversation even if posting fails
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
+        
         return NextResponse.json({ 
           error: 'Missing Neynar signer configuration',
-          response_generated: responseText
+          response_generated: responseText,
+          conversation_stored: true
         }, { status: 500 })
       }
 
@@ -179,10 +256,14 @@ export async function POST(request: NextRequest) {
         const errorText = await replyResponse.text()
         console.error('❌ Neynar API error:', replyResponse.status, errorText)
         
+        // Still try to store conversation even if posting fails
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
+        
         return NextResponse.json({ 
           error: 'Failed to post reply to Farcaster', 
           details: errorText,
-          response_generated: responseText
+          response_generated: responseText,
+          conversation_stored: true
         }, { status: 500 })
       }
       
@@ -190,6 +271,9 @@ export async function POST(request: NextRequest) {
       const botCastHash = replyData.cast?.hash
       
       console.log('✅ Successfully posted reply to Farcaster:', botCastHash)
+      
+      // Store the bot conversation for future reference
+      await storeBotConversation(userId, currentCastHash, botCastHash, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
       
       return NextResponse.json({ 
         success: true, 
@@ -202,10 +286,18 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       console.error('❌ Error posting reply:', error)
       
+      // Still try to store conversation even if posting fails
+      try {
+        await storeBotConversation(userId, currentCastHash, null, cast.text, responseText, conversationType, parentHash ?? null, isReplyToBotConversation)
+      } catch (storageError) {
+        console.error('❌ Failed to store conversation after post error:', storageError)
+      }
+      
       return NextResponse.json({ 
         error: 'Failed to post reply', 
         details: error instanceof Error ? error.message : 'Unknown error',
-        response_generated: responseText
+        response_generated: responseText,
+        conversation_storage_attempted: true
       }, { status: 500 })
     }
     
@@ -238,6 +330,37 @@ async function isRateLimited(userId: string, now: number): Promise<boolean> {
   rateLimitMap.set(userId, recentRequests)
   
   return false
+}
+
+async function storeBotConversation(
+  userId: string, 
+  originalCastHash: string, 
+  botCastHash: string | null, 
+  originalContent: string, 
+  botResponse: string, 
+  conversationType: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command', 
+  parentHash: string | null, 
+  isFollowUp: boolean
+): Promise<void> {
+  try {
+    await BotService.storeBotConversation({
+      user_id: userId,
+      original_cast_hash: originalCastHash,
+      bot_cast_hash: botCastHash,
+      conversation_context: {
+        original_content: originalContent,
+        bot_response: botResponse,
+        timestamp: new Date().toISOString(),
+        conversation_type: conversationType,
+        parent_hash: parentHash,
+        is_follow_up: isFollowUp
+      }
+    })
+    console.log('✅ Bot conversation stored successfully')
+  } catch (error) {
+    console.error('❌ Error storing bot conversation:', error)
+    // Don't throw here - we don't want storage failures to break the main flow
+  }
 }
 
 async function handleSaveCommand(parentHash: string, userId: string, mentionCast: WebhookCast): Promise<void> {
@@ -371,7 +494,7 @@ function generateGeneralResponse(text: string): string {
   return responses[Math.floor(Math.random() * responses.length)]
 }
 
-function generateFollowUpResponse(text: string, previousContext: Record<string, unknown>): string {
+function generateFollowUpResponse(text: string, previousContext: ConversationContext): string {
   // Opinion follow-ups
   if (text.includes('what do you think') || text.includes('your thoughts') || text.includes('your opinion')) {
     const followUpOpinions = [
