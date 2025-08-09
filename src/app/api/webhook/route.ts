@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     })
     
     // Also check if this is a reply to a bot message (even without mention)
-    let isReplyToBotMessage = false
+    const isReplyToBotMessage = false
     if (cast.parent_hash && !mentionsBot) {
       // TODO: We could check if parent_hash belongs to a message posted by our bot
       // For now, we'll require mentions for simplicity
