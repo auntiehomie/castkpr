@@ -202,7 +202,7 @@ export default function RecentCasts({ userId = 'demo-user', onViewAllClick }: Re
             </p>
             
             {/* Quick stats if we have enhanced data */}
-            {casts.some(cast => cast.parsed_data?.quality_score) && (
+            {casts.some(cast => cast.parsed_data) && (
               <div className="text-xs text-gray-500">
                 🧠 Enhanced with AI analysis
               </div>
