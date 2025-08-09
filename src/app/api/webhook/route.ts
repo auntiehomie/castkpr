@@ -82,6 +82,9 @@ export async function POST(request: NextRequest) {
     let responseText = ''
     let conversationType: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command' = 'general_question'
     
+    // TODO: Implement conversation thread logic if needed.
+    // For now, skip follow-up logic to avoid reference errors.
+
     if (text.includes('save this') || (text.includes('save') && parentHash)) {
       // This is a save command
       conversationType = 'save_command'
@@ -305,6 +308,32 @@ async function handleAnalyzeCommand(parentHash: string): Promise<string> {
 }
 
 function generateGeneralResponse(text: string): string {
+  // Opinion and thought responses - the conversational personality!
+  if (text.includes('what do you think') || text.includes('your thoughts') || text.includes('your opinion')) {
+    const opinionResponses = [
+      "🤔 I think this is really interesting! The way ideas flow on Farcaster is fascinating - there's always something worth saving. What caught your eye about this one?",
+      "💭 My take? This cast has good energy! I'm seeing a lot of engaging content today. Definitely worth considering for your collection!",
+      "🧠 I think this touches on something important. These are the kinds of conversations that make Farcaster special - worth preserving for sure!",
+      "🎯 Honestly? I love seeing discussions like this. There's real depth here that could be valuable to revisit later. What's your perspective?",
+      "✨ I think this cast captures something authentic. That's what I look for when I'm helping people curate their collections - genuine insights!",
+      "🌟 My opinion? This is the kind of content that sparks meaningful conversations. I'd definitely save this one if I were you!"
+    ]
+    return opinionResponses[Math.floor(Math.random() * opinionResponses.length)]
+  }
+  
+  // Agreement responses
+  if (text.includes('do you agree') || text.includes('agree with') || text.includes('right about')) {
+    const agreementResponses = [
+      "💯 I totally agree! This kind of thinking is exactly why I love helping people save great casts. There's real wisdom here worth keeping!",
+      "🎯 Absolutely! I'm seeing a lot of smart takes today, and this one really stands out. Definitely save-worthy in my book!",
+      "✅ I'm with you on this one! This cast hits different - it's the kind of content that gets better every time you read it.",
+      "🤝 Couldn't agree more! This is why I exist - to help preserve these golden nuggets of insight. Want to save it?",
+      "💡 100%! You've got a good eye for quality content. This cast definitely deserves a spot in someone's collection!",
+      "🙌 Totally! This is exactly the kind of post that makes scrolling worthwhile. Great catch!"
+    ]
+    return agreementResponses[Math.floor(Math.random() * agreementResponses.length)]
+  }
+  
   // Help responses
   if (text.includes('help') || text.includes('how')) {
     return "I help you save and analyze Farcaster casts! 📚\n\n• Reply '@cstkpr save this' to any cast to save it\n• Reply '@cstkpr analyze this' for quick insights\n• View your collection at castkpr.com\n• I'll organize everything for you automatically! ✨"
@@ -320,12 +349,76 @@ function generateGeneralResponse(text: string): string {
     return "I don't have your stats right now, but you can see all your saved casts at castkpr.com! Keep saving with '@cstkpr save this' 📊"
   }
   
+  // Insights responses
+  if (text.includes('insights') || text.includes('insight')) {
+    return "💡 For personalized insights about your saved casts, visit castkpr.com and check out the AI section! I can help you discover patterns in your saved content."
+  }
+  
+  // Thanks responses
+  if (text.includes('thanks') || text.includes('thank')) {
+    return "You're welcome! 🙌 Happy to help you build your cast collection. Remember: '@cstkpr save this' on any cast you want to keep!"
+  }
+  
   // Random general responses
   const responses = [
     "Hey there! I'm CastKPR, your friendly cast-saving bot! 🤖 Reply '@cstkpr save this' to any cast to save it to your collection.",
     "Hi! I help save and analyze your favorite Farcaster casts. Try replying '@cstkpr save this' or '@cstkpr analyze this' to a cast! 📚",
-    "Hello! I'm here to help you build your personal cast collection. Just mention me with 'save this' or 'analyze this' on any cast! ✨"
+    "Hello! I'm here to help you build your personal cast collection. Just mention me with 'save this' or 'analyze this' on any cast! ✨",
+    "Hey! I'm CastKPR - I help you save the best casts from Farcaster. Reply '@cstkpr save this' to get started! 💾",
+    "Hi there! I can help you save interesting casts for later. Just reply '@cstkpr save this' or ask for analysis with '@cstkpr analyze this'! 🌟"
   ]
   
   return responses[Math.floor(Math.random() * responses.length)]
+}
+
+function generateFollowUpResponse(text: string, previousContext: Record<string, unknown>): string {
+  // Opinion follow-ups
+  if (text.includes('what do you think') || text.includes('your thoughts') || text.includes('your opinion')) {
+    const followUpOpinions = [
+      "🤔 Building on our last chat - I think this conversation is really evolving! Each cast adds another layer worth exploring.",
+      "💭 You know what I think? This follow-up is even more interesting than the original! Great continuation of the thread.",
+      "🧠 My take on this continuation? It's showing how ideas develop on Farcaster - definitely worth saving for the full context!"
+    ]
+    return followUpOpinions[Math.floor(Math.random() * followUpOpinions.length)]
+  }
+  
+  // Agreement follow-ups
+  if (text.includes('do you agree') || text.includes('agree with')) {
+    const followUpAgreements = [
+      "💯 Absolutely! This whole thread is becoming quite the discussion. I love how it's building on our previous conversation!",
+      "🤝 Totally with you on this! The way this conversation is developing shows why I love helping people preserve these moments.",
+      "✅ I agree completely! This is exactly the kind of evolving discussion that makes Farcaster special."
+    ]
+    return followUpAgreements[Math.floor(Math.random() * followUpAgreements.length)]
+  }
+  
+  // Thanks responses for follow-ups
+  if (text.includes('thanks') || text.includes('thank')) {
+    return "You're very welcome! 🙌 Happy to help you build your cast collection. Keep saving the good stuff with '@cstkpr save this'!"
+  }
+  
+  // Context-aware responses based on previous conversation
+  if (previousContext?.conversation_type === 'save_command') {
+    return "Glad I could help save that cast! 🎯 Keep building your collection - there's so much great content on Farcaster! Feel free to save more with '@cstkpr save this'"
+  }
+  
+  if (previousContext?.conversation_type === 'analyze_command') {
+    return "Hope that analysis was helpful! 🧠 If you liked what you learned, consider saving the cast with '@cstkpr save this' for future reference!"
+  }
+  
+  // Help requests in follow-ups
+  if (text.includes('help') || text.includes('how')) {
+    return "I'm always here to help! 🤖 Just reply '@cstkpr save this' to save casts or '@cstkpr analyze this' for insights. View your entire collection at castkpr.com!"
+  }
+  
+  // General follow-up responses
+  const followUpResponses = [
+    "Thanks for the follow-up! 😊 Remember, I'm always ready to save interesting casts for you. Just say '@cstkpr save this'!",
+    "Great to chat with you! 💭 Don't forget you can organize your saved casts at castkpr.com",
+    "I appreciate the continued conversation! 🗣️ Keep saving great content with '@cstkpr save this'",
+    "Thanks for chatting! 💬 I'm always here when you want to save more amazing casts!",
+    "Love the follow-up! 🌟 Your cast collection is growing - keep it up with '@cstkpr save this'!"
+  ]
+  
+  return followUpResponses[Math.floor(Math.random() * followUpResponses.length)]
 }
