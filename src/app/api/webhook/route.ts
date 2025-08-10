@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService, supabase, ContentParser } from '@/lib/supabase'
+// import { AIResponseService } from '@/lib/ai-responses'
+// TODO: Update the import path below to the correct location of ai-responses.ts
 import { AIResponseService } from '@/lib/ai-responses'
 import type { SavedCast } from '@/lib/supabase'
 
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest) {
         authorUsername: cast.author.username,
         mentionedUser: cast.author.username,
         command: command,
-        parentCast: result.savedCast || undefined
+        parentCast: 'savedCast' in result ? result.savedCast : undefined
       }
       
       aiResponse = await AIResponseService.generateResponse(responseContext)
