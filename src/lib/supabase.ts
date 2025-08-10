@@ -866,9 +866,9 @@ export class UserAIProfileService {
       // Calculate similarity based on shared interests
       const similarUsers = data
         .map(profile => {
-          const sharedInterests = profile.interests.filter(interest => 
-            userProfile.interests.includes(interest)
-          )
+         const sharedInterests = profile.interests.filter((interest: string) => 
+  userProfile.interests.includes(interest)
+)
           const similarity = sharedInterests.length / Math.max(userProfile.interests.length, profile.interests.length)
           
           return {
