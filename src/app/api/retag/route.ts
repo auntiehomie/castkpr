@@ -486,7 +486,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Remove the tag
-    const updatedTags = (cast.tags || []).filter(tag => tag !== tagToRemove)
+    const updatedTags = (cast.tags || []).filter((tag: string) => tag !== tagToRemove)
     
     // Update the cast
     const { error: updateError } = await supabase
