@@ -1,191 +1,323 @@
-// src/components/AIChatPanel.tsx
 'use client'
 
-import { useState } from 'react'
-
-interface Message {
-  id: string
-  text: string
-  isAi: boolean
-  timestamp: Date
-  isError?: boolean
-  hasActions?: boolean
-}
+import { useState, useEffect, useRef } from 'react'
+import { AIResponseService } from '@/lib/ai-responses'
+import { CastService, UserAIProfileService, AIContextService } from '@/lib/supabase'
+import type { UserAIProfile } from '@/lib/supabase'
 
 interface AIChatPanelProps {
   userId: string
-  onCastUpdate?: () => void // Callback to refresh cast data
+  onCastUpdate?: () => void
+}
+
+interface ChatMessage {
+  id: string
+  type: 'user' | 'ai'
+  content: string
+  timestamp: Date
+  confidence?: number
+  usedContexts?: string[]
 }
 
 export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: "Hi! I'm your CastKPR AI assistant. I can help you understand your saved casts AND take actions on them!\n\nTry asking me:\n• \"Tag my crypto casts with 'defi'\"\n• \"Add a note to my latest cast\"\n• \"What are my top topics?\"\n• \"Remove the 'test' tag from my casts\"",
-      isAi: true,
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [inputMessage, setInputMessage] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [userProfile, setUserProfile] = useState<UserAIProfile | null>(null)
+  const [stats, setStats] = useState<{
+    totalCasts: number
+    topTopics: string[]
+    engagementLevel: number
+  } | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    loadUserProfile()
+    loadUserStats()
+    addWelcomeMessage()
+  }, [userId])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const loadUserProfile = async () => {
+    try {
+      const profile = await UserAIProfileService.getProfile(userId)
+      setUserProfile(profile)
+    } catch (error) {
+      console.error('Failed to load user profile:', error)
+    }
+  }
+
+  const loadUserStats = async () => {
+    try {
+      const userStats = await CastService.getUserStats(userId)
+      const userCasts = await CastService.getUserCasts(userId, 100)
+      
+      // Calculate top topics
+      const allTopics = userCasts.flatMap(cast => cast.parsed_data?.topics || [])
+      const topicCounts = allTopics.reduce((acc: Record<string, number>, topic) => {
+        acc[topic] = (acc[topic] || 0) + 1
+        return acc
+      }, {})
+      
+      const topTopics = Object.entries(topicCounts)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 5)
+        .map(([topic]) => topic)
+
+      setStats({
+        totalCasts: userStats.totalCasts,
+        topTopics,
+        engagementLevel: userProfile?.engagement_level || 0
+      })
+    } catch (error) {
+      console.error('Failed to load user stats:', error)
+    }
+  }
+
+  const addWelcomeMessage = () => {
+    const welcomeMessage: ChatMessage = {
+      id: 'welcome',
+      type: 'ai',
+      content: `👋 Hi! I'm your CastKPR AI assistant. I can help you with:
+
+🔍 **Analyzing your saved casts**
+📊 **Understanding trends in your collection**
+🎯 **Getting personalized recommendations**
+💡 **Insights about content patterns**
+🤖 **General questions about your cast library**
+
+What would you like to explore today?`,
       timestamp: new Date()
     }
-  ])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
+    setMessages([welcomeMessage])
+  }
 
-  const sendMessage = async () => {
-    if (!input.trim()) return
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isLoading) return
 
-    const userMessage: Message = {
+    const userMessage: ChatMessage = {
       id: Date.now().toString(),
-      text: input,
-      isAi: false,
+      type: 'user',
+      content: inputMessage.trim(),
       timestamp: new Date()
     }
 
     setMessages(prev => [...prev, userMessage])
-    const currentInput = input
-    setInput('')
-    setLoading(true)
+    setInputMessage('')
+    setIsLoading(true)
 
     try {
-      console.log('🤖 Sending AI request:', { question: currentInput, userId })
-      
-      // Call your AI API endpoint
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: currentInput,
-          userId: userId
-        })
-      })
-
-      console.log('📡 AI Response status:', response.status)
-      
-      if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`)
+      // Generate AI response based on the user's message
+      const responseContext = {
+        castContent: inputMessage.trim(),
+        authorUsername: 'system',
+        mentionedUser: userId,
+        command: determineCommand(inputMessage),
+        userProfile: userProfile || undefined
       }
 
-      const data = await response.json()
-      console.log('📋 AI Response data:', data)
+      const aiResponse = await AIResponseService.generateResponse(responseContext)
 
-      const aiMessage: Message = {
+      const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        text: data.response || "I couldn't process that right now. Try asking about your saved casts!",
-        isAi: true,
+        type: 'ai',
+        content: aiResponse.content,
         timestamp: new Date(),
-        isError: !data.response,
-        hasActions: data.actionsExecuted > 0
+        confidence: aiResponse.confidence,
+        usedContexts: aiResponse.usedContexts
       }
 
       setMessages(prev => [...prev, aiMessage])
 
-      // If actions were executed, refresh the cast data
-      if (data.actionsExecuted > 0 && onCastUpdate) {
-        console.log('🔄 Refreshing cast data after AI actions')
+      // Update user profile based on interaction
+      await AIResponseService.updateUserProfileFromInteraction(
+        userId,
+        inputMessage,
+        determineCommand(inputMessage)
+      )
+
+      // Refresh cast data if needed
+      if (onCastUpdate && inputMessage.toLowerCase().includes('save')) {
         onCastUpdate()
       }
 
     } catch (error) {
-      console.error('❌ AI chat error:', error)
+      console.error('Failed to get AI response:', error)
       
-      const errorMessage: Message = {
+      const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        text: `Sorry, I'm having trouble right now. Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check if you have saved casts and try again!`,
-        isAi: true,
-        timestamp: new Date(),
-        isError: true
+        type: 'ai',
+        content: "I'm having trouble processing that request right now. Please try again in a moment!",
+        timestamp: new Date()
       }
+
       setMessages(prev => [...prev, errorMessage])
     } finally {
-      setLoading(false)
+      setIsLoading(false)
+    }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
+    }
+  }
+
+  const determineCommand = (message: string): string => {
+    const lowerMessage = message.toLowerCase()
+    
+    if (lowerMessage.includes('analyze') || lowerMessage.includes('analysis')) return 'analysis'
+    if (lowerMessage.includes('trend') || lowerMessage.includes('trending')) return 'trending'
+    if (lowerMessage.includes('recommend') || lowerMessage.includes('suggest')) return 'recommendation'
+    if (lowerMessage.includes('stats') || lowerMessage.includes('statistics')) return 'stats'
+    if (lowerMessage.includes('help')) return 'help'
+    if (lowerMessage.includes('search') || lowerMessage.includes('find')) return 'search'
+    
+    return 'conversational'
+  }
+
+  const handleQuickAction = async (action: string) => {
+    const actionMessages: Record<string, string> = {
+      'stats': 'Show me my CastKPR statistics and insights',
+      'trending': 'What are the trending topics in my saved casts?',
+      'recommendations': 'Give me personalized content recommendations',
+      'analysis': 'Analyze my cast collection and show patterns',
+      'help': 'What can you help me with?'
+    }
+
+    const message = actionMessages[action]
+    if (message) {
+      setInputMessage(message)
+      // Auto-send after a brief delay
+      setTimeout(() => {
+        handleSendMessage()
+      }, 100)
     }
   }
 
   return (
-    <div className="bg-white/5 backdrop-blur-lg rounded-xl border border-white/10 h-96 flex flex-col">
+    <div className="bg-white/5 backdrop-blur-lg rounded-xl border border-white/10 h-[600px] flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-white/10">
-        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-          🤖 CastKPR AI Assistant
-        </h3>
-        <p className="text-sm text-gray-400">Ask questions & take actions on your casts • User: {userId}</p>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            🤖 AI Assistant
+          </h2>
+          {stats && (
+            <div className="text-sm text-gray-400">
+              {stats.totalCasts} casts • Level {Math.floor(stats.engagementLevel * 10)}
+            </div>
+          )}
+        </div>
+        
+        {userProfile && (
+          <div className="text-sm text-gray-400 mt-2">
+            Interests: {userProfile.interests.slice(0, 3).join(', ')}
+            {userProfile.interests.length > 3 && '...'}
+          </div>
+        )}
+      </div>
+
+      {/* Quick Actions */}
+      <div className="p-3 border-b border-white/10">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { key: 'stats', label: '📊 Stats', color: 'bg-blue-500/20 text-blue-300' },
+            { key: 'trending', label: '🔥 Trends', color: 'bg-red-500/20 text-red-300' },
+            { key: 'recommendations', label: '🎯 Recs', color: 'bg-green-500/20 text-green-300' },
+            { key: 'analysis', label: '📈 Analysis', color: 'bg-purple-500/20 text-purple-300' }
+          ].map(action => (
+            <button
+              key={action.key}
+              onClick={() => handleQuickAction(action.key)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors hover:opacity-80 ${action.color}`}
+              disabled={isLoading}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex ${message.isAi ? 'justify-start' : 'justify-end'}`}
+            className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
               className={`max-w-[80%] p-3 rounded-lg ${
-                message.isAi
-                  ? message.isError 
-                    ? 'bg-red-600/20 text-red-100' 
-                    : message.hasActions
-                    ? 'bg-green-600/20 text-green-100 border border-green-500/30'
-                    : 'bg-purple-600/20 text-purple-100'
-                  : 'bg-blue-600/20 text-blue-100'
+                message.type === 'user'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white/10 text-gray-100 border border-white/20'
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap">{message.text}</p>
-              <p className="text-xs opacity-60 mt-1 flex items-center gap-1">
+              <div className="whitespace-pre-wrap">{message.content}</div>
+              
+              {message.type === 'ai' && message.confidence && (
+                <div className="mt-2 text-xs opacity-60">
+                  Confidence: {(message.confidence * 100).toFixed(0)}%
+                  {message.usedContexts && message.usedContexts.length > 0 && (
+                    <span className="ml-2">
+                      • Contexts: {message.usedContexts.slice(0, 2).join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
+              
+              <div className="text-xs opacity-50 mt-1">
                 {message.timestamp.toLocaleTimeString()}
-                {message.isError && ' • Error'}
-                {message.hasActions && ' • ⚡ Actions Executed'}
-              </p>
+              </div>
             </div>
           </div>
         ))}
         
-        {loading && (
+        {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-purple-600/20 text-purple-100 p-3 rounded-lg">
+            <div className="bg-white/10 border border-white/20 p-3 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
-                <span className="text-sm">Thinking and taking actions...</span>
+                <span className="text-gray-300">Thinking...</span>
               </div>
             </div>
           </div>
         )}
+        
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
       <div className="p-4 border-t border-white/10">
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-            placeholder="Ask me to tag, organize, or analyze your casts..."
-            className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-            disabled={loading}
+          <textarea
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Ask me anything about your casts..."
+            className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+            rows={1}
+            disabled={isLoading}
           />
           <button
-            onClick={sendMessage}
-            disabled={loading || !input.trim()}
-            className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors text-sm"
+            onClick={handleSendMessage}
+            disabled={!inputMessage.trim() || isLoading}
+            className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
           >
-            Send
+            {isLoading ? '⏳' : '📤'}
           </button>
         </div>
         
-        {/* Suggested actions */}
-        <div className="mt-2 flex flex-wrap gap-1">
-          {[
-            "Tag crypto casts with 'defi'",
-            "What are my top topics?",
-            "Add 'important' tag to latest cast"
-          ].map((suggestion) => (
-            <button
-              key={suggestion}
-              onClick={() => setInput(suggestion)}
-              disabled={loading}
-              className="text-xs bg-white/5 hover:bg-white/10 disabled:opacity-50 text-gray-300 px-2 py-1 rounded transition-colors"
-            >
-              {suggestion}
-            </button>
-          ))}
+        <div className="text-xs text-gray-400 mt-2 text-center">
+          Press Enter to send • Shift+Enter for new line
         </div>
       </div>
     </div>

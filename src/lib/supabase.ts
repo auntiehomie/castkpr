@@ -28,24 +28,6 @@ export interface SavedCast {
   recasts_count: number
 }
 
-export interface BotConversation {
-  id: string
-  user_id: string
-  original_cast_hash: string
-  bot_cast_hash: string | null
-  conversation_context: {
-    original_content?: string
-    bot_response?: string
-    timestamp?: string
-    conversation_type?: 'save_command' | 'general_question' | 'follow_up' | 'analyze_command'
-    parent_hash?: string | null
-    is_follow_up?: boolean
-    [key: string]: unknown
-  }
-  created_at: string
-  updated_at: string
-}
-
 export interface ParsedData {
   urls?: string[]
   mentions?: string[]
@@ -55,8 +37,6 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
-  ai_category?: string
-  ai_tags?: string[]
 }
 
 export interface User {
@@ -85,6 +65,37 @@ export interface CastCollection {
   cast_id: string
   collection_id: string
   added_at: string
+}
+
+// AI-related interfaces
+export interface AIContext {
+  id: string
+  topic: string
+  summary: string
+  key_insights: string[]
+  related_casts: string[]
+  confidence_score: number
+  created_at: string
+  updated_at: string
+}
+
+export interface UserAIProfile {
+  user_id: string
+  interests: string[]
+  interaction_patterns: Record<string, any>
+  preferred_topics: string[]
+  response_style: string
+  engagement_level: number
+  last_updated: string
+}
+
+export interface AILearning {
+  id: string
+  learning_type: string
+  learning_data: Record<string, any>
+  frequency: number
+  last_seen: string
+  created_at: string
 }
 
 // Helper functions for database operations
@@ -122,17 +133,39 @@ export class CastService {
     return data
   }
 
-  // Get all saved casts for a user
-  static async getUserCasts(userId: string, limit: number = 50): Promise<SavedCast[]> {
-    const { data, error } = await supabase
+  // Get all saved casts for a user with enhanced signature
+  static async getUserCasts(userId: string | 'all', limit: number = 50): Promise<SavedCast[]> {
+    let query = supabase
       .from('saved_casts')
       .select('*')
-      .eq('saved_by_user_id', userId)
+    
+    // If userId is 'all', don't filter by user
+    if (userId !== 'all') {
+      query = query.eq('saved_by_user_id', userId)
+    }
+    
+    const { data, error } = await query
       .order('cast_timestamp', { ascending: false })
       .limit(limit)
 
     if (error) {
       console.error('Error fetching user casts:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Get all recent casts across all users
+  static async getAllRecentCasts(limit: number = 100): Promise<SavedCast[]> {
+    const { data, error } = await supabase
+      .from('saved_casts')
+      .select('*')
+      .order('cast_timestamp', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching recent casts:', error)
       throw error
     }
 
@@ -187,12 +220,7 @@ export class CastService {
   }
 
   // Update cast notes or category
-  static async updateCast(castId: string, userId: string, updates: { 
-    notes?: string; 
-    category?: string; 
-    tags?: string[];
-    parsed_data?: ParsedData;
-  }): Promise<SavedCast> {
+  static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }): Promise<SavedCast> {
     const { data, error } = await supabase
       .from('saved_casts')
       .update(updates)
@@ -218,187 +246,22 @@ export class CastService {
 
     return { totalCasts: count || 0 }
   }
-}
 
-// Bot conversation service
-export class BotService {
-  // Store a bot conversation
-  static async storeBotConversation(data: Omit<BotConversation, 'id' | 'created_at' | 'updated_at'>): Promise<BotConversation> {
-    const { data: result, error } = await supabase
-      .from('bot_conversations')
-      .insert([data])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error storing bot conversation:', error)
-      throw error
-    }
-
-    return result
-  }
-
-  // Check if a cast hash is a bot conversation
-  static async getBotConversationByCastHash(castHash: string): Promise<BotConversation | null> {
+  // Get casts by topic/hashtag
+  static async getCastsByTopic(topic: string, limit: number = 50): Promise<SavedCast[]> {
     const { data, error } = await supabase
-      .from('bot_conversations')
+      .from('saved_casts')
       .select('*')
-      .eq('bot_cast_hash', castHash)
-      .single()
-
-    if (error) {
-      // Return null if not found, throw for other errors
-      if (error.code === 'PGRST116') {
-        return null
-      }
-      console.error('Error fetching bot conversation:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Check if original cast hash has a bot conversation
-  static async getBotConversationByOriginalHash(originalHash: string): Promise<BotConversation | null> {
-    const { data, error } = await supabase
-      .from('bot_conversations')
-      .select('*')
-      .eq('original_cast_hash', originalHash)
-      .single()
-
-    if (error) {
-      // Return null if not found, throw for other errors
-      if (error.code === 'PGRST116') {
-        return null
-      }
-      console.error('Error fetching bot conversation by original hash:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Get conversation history for a user
-  static async getUserConversations(userId: string, limit: number = 50): Promise<BotConversation[]> {
-    const { data, error } = await supabase
-      .from('bot_conversations')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+      .or(`tags.cs.{${topic}},cast_content.ilike.%${topic}%`)
+      .order('cast_timestamp', { ascending: false })
       .limit(limit)
 
     if (error) {
-      console.error('Error fetching user conversations:', error)
+      console.error('Error fetching casts by topic:', error)
       throw error
     }
 
     return data || []
-  }
-
-  // Update bot conversation with response
-  static async updateBotConversation(
-    id: string, 
-    updates: Partial<Pick<BotConversation, 'bot_cast_hash' | 'conversation_context'>>
-  ): Promise<BotConversation> {
-    const { data, error } = await supabase
-      .from('bot_conversations')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error updating bot conversation:', error)
-      throw error
-    }
-
-    return data
-  }
-}
-
-// User service
-export class UserService {
-  // Create or update user (upsert based on FID)
-  static async createOrUpdateUser(userData: {
-    fid: number
-    username: string
-    display_name?: string
-    pfp_url?: string
-    bio?: string
-  }): Promise<User> {
-    const { data, error } = await supabase
-      .from('users')
-      .upsert({
-        fid: userData.fid,
-        username: userData.username,
-        display_name: userData.display_name,
-        pfp_url: userData.pfp_url,
-        bio: userData.bio,
-        last_login: new Date().toISOString()
-      }, { 
-        onConflict: 'fid',
-        ignoreDuplicates: false 
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error creating/updating user:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Get user by FID
-  static async getUserByFid(fid: number): Promise<User | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('fid', fid)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null
-      }
-      console.error('Error fetching user by FID:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Get user by username
-  static async getUserByUsername(username: string): Promise<User | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null
-      }
-      console.error('Error fetching user by username:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Update user last login
-  static async updateLastLogin(fid: number): Promise<void> {
-    const { error } = await supabase
-      .from('users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('fid', fid)
-
-    if (error) {
-      console.error('Error updating last login:', error)
-      throw error
-    }
   }
 }
 
@@ -423,49 +286,6 @@ export class CollectionService {
     }
 
     return data
-  }
-
-  // Update a collection
-  static async updateCollection(collectionId: string, userId: string, updates: {
-    name?: string;
-    description?: string;
-    is_public?: boolean;
-  }): Promise<Collection> {
-    const { data, error } = await supabase
-      .from('collections')
-      .update(updates)
-      .eq('id', collectionId)
-      .eq('created_by', userId)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error updating collection:', error)
-      throw error
-    }
-
-    return data
-  }
-
-  // Delete a collection
-  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
-    // First, remove all cast associations
-    await supabase
-      .from('cast_collections')
-      .delete()
-      .eq('collection_id', collectionId)
-
-    // Then delete the collection
-    const { error } = await supabase
-      .from('collections')
-      .delete()
-      .eq('id', collectionId)
-      .eq('created_by', userId)
-
-    if (error) {
-      console.error('Error deleting collection:', error)
-      throw error
-    }
   }
 
   // Get user's collections
@@ -499,20 +319,6 @@ export class CollectionService {
     }
   }
 
-  // Remove cast from collection
-  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
-    const { error } = await supabase
-      .from('cast_collections')
-      .delete()
-      .eq('cast_id', castId)
-      .eq('collection_id', collectionId)
-
-    if (error) {
-      console.error('Error removing cast from collection:', error)
-      throw error
-    }
-  }
-
   // Get casts in a collection
   static async getCollectionCasts(collectionId: string): Promise<Array<{
     cast_id: string;
@@ -539,38 +345,704 @@ export class CollectionService {
       saved_casts: SavedCast[];
     }>
   }
+}
 
-  // Get collection by ID
-  static async getCollectionById(collectionId: string): Promise<Collection | null> {
+// User Service Class
+export class UserService {
+  // Create or update user
+  static async createOrUpdateUser(userData: {
+    fid: number
+    username: string
+    display_name?: string
+    pfp_url?: string
+    bio?: string
+  }): Promise<User> {
     const { data, error } = await supabase
-      .from('collections')
-      .select('*')
-      .eq('id', collectionId)
+      .from('users')
+      .upsert({
+        fid: userData.fid,
+        username: userData.username,
+        display_name: userData.display_name,
+        pfp_url: userData.pfp_url,
+        bio: userData.bio,
+        last_login: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
       .single()
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null
-      }
-      console.error('Error fetching collection by ID:', error)
+      console.error('Error creating/updating user:', error)
       throw error
     }
 
     return data
   }
 
-  // Get collection stats
-  static async getCollectionStats(collectionId: string): Promise<{ castCount: number }> {
-    const { count } = await supabase
-      .from('cast_collections')
-      .select('*', { count: 'exact', head: true })
-      .eq('collection_id', collectionId)
+  // Get user by FID
+  static async getUserByFid(fid: number): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('fid', fid)
+      .single()
 
-    return { castCount: count || 0 }
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error fetching user by FID:', error)
+      throw error
+    }
+
+    return data || null
+  }
+
+  // Get user by username
+  static async getUserByUsername(username: string): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single()
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error fetching user by username:', error)
+      throw error
+    }
+
+    return data || null
+  }
+
+  // Update user profile
+  static async updateUserProfile(
+    userId: string, 
+    updates: Partial<User>
+  ): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating user profile:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get all users with pagination
+  static async getAllUsers(limit: number = 50, offset: number = 0): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('last_login', { ascending: false })
+      .range(offset, offset + limit - 1)
+
+    if (error) {
+      console.error('Error fetching users:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Search users
+  static async searchUsers(query: string): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+      .order('last_login', { ascending: false })
+      .limit(20)
+
+    if (error) {
+      console.error('Error searching users:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Update last login
+  static async updateLastLogin(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', userId)
+
+    if (error) {
+      console.error('Error updating last login:', error)
+      throw error
+    }
+  }
+
+  // Delete user
+  static async deleteUser(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId)
+
+    if (error) {
+      console.error('Error deleting user:', error)
+      throw error
+    }
+  }
+
+  // Get user activity stats
+  static async getUserActivityStats(userId: string): Promise<{
+    totalCasts: number
+    totalCollections: number
+    lastActive: string | null
+    joinDate: string
+  }> {
+    // Get cast count
+    const { count: castCount } = await supabase
+      .from('saved_casts')
+      .select('*', { count: 'exact', head: true })
+      .eq('saved_by_user_id', userId)
+
+    // Get collection count
+    const { count: collectionCount } = await supabase
+      .from('collections')
+      .select('*', { count: 'exact', head: true })
+      .eq('created_by', userId)
+
+    // Get user info
+    const { data: user } = await supabase
+      .from('users')
+      .select('created_at, last_login')
+      .eq('id', userId)
+      .single()
+
+    return {
+      totalCasts: castCount || 0,
+      totalCollections: collectionCount || 0,
+      lastActive: user?.last_login || null,
+      joinDate: user?.created_at || new Date().toISOString()
+    }
   }
 }
 
-// Content parsing utilities
+// AI Context Service (Enhanced)
+export class AIContextService {
+  // Create new AI context
+  static async createContext(contextData: Omit<AIContext, 'created_at' | 'updated_at'>): Promise<AIContext> {
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .insert([{
+        ...contextData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creating AI context:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get AI context by topic
+  static async getContext(topic: string): Promise<AIContext | null> {
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .select('*')
+      .eq('topic', topic)
+      .single()
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error fetching AI context:', error)
+      throw error
+    }
+
+    return data || null
+  }
+
+  // Update AI context
+  static async updateContext(topic: string, updates: Partial<AIContext>): Promise<AIContext> {
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('topic', topic)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating AI context:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get all contexts ordered by confidence
+  static async getAllContexts(limit: number = 50): Promise<AIContext[]> {
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .select('*')
+      .order('confidence_score', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching AI contexts:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Search contexts by topic or keywords
+  static async searchContexts(query: string): Promise<AIContext[]> {
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .select('*')
+      .or(`topic.ilike.%${query}%,summary.ilike.%${query}%`)
+      .order('confidence_score', { ascending: false })
+
+    if (error) {
+      console.error('Error searching AI contexts:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Delete context
+  static async deleteContext(contextId: string): Promise<void> {
+    const { error } = await supabase
+      .from('ai_contexts')
+      .delete()
+      .eq('id', contextId)
+
+    if (error) {
+      console.error('Error deleting AI context:', error)
+      throw error
+    }
+  }
+
+  // Get contexts by confidence threshold
+  static async getHighConfidenceContexts(minConfidence: number = 0.7): Promise<AIContext[]> {
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .select('*')
+      .gte('confidence_score', minConfidence)
+      .order('confidence_score', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching high confidence contexts:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Get related contexts for a topic
+  static async getRelatedContexts(topic: string, limit: number = 5): Promise<AIContext[]> {
+    // Simple approach: find contexts with similar topics
+    const { data, error } = await supabase
+      .from('ai_contexts')
+      .select('*')
+      .ilike('topic', `%${topic}%`)
+      .neq('topic', topic) // Exclude exact match
+      .order('confidence_score', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching related contexts:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Update context confidence based on usage
+  static async updateContextConfidence(contextId: string, usageSuccess: boolean): Promise<void> {
+    try {
+      // Get current context
+      const { data: context, error: fetchError } = await supabase
+        .from('ai_contexts')
+        .select('confidence_score')
+        .eq('id', contextId)
+        .single()
+
+      if (fetchError || !context) {
+        console.error('Error fetching context for confidence update:', fetchError)
+        return
+      }
+
+      // Adjust confidence based on usage success
+      const currentConfidence = context.confidence_score
+      const adjustment = usageSuccess ? 0.05 : -0.02 // Small incremental changes
+      const newConfidence = Math.max(0, Math.min(1, currentConfidence + adjustment))
+
+      // Update the context
+      const { error: updateError } = await supabase
+        .from('ai_contexts')
+        .update({ 
+          confidence_score: newConfidence,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', contextId)
+
+      if (updateError) {
+        console.error('Error updating context confidence:', updateError)
+      }
+    } catch (error) {
+      console.error('Error in updateContextConfidence:', error)
+    }
+  }
+
+  // Get context usage statistics
+  static async getContextStats(): Promise<{
+    totalContexts: number
+    avgConfidence: number
+    topTopics: string[]
+    recentContexts: AIContext[]
+  }> {
+    try {
+      // Get all contexts
+      const { data: contexts, error } = await supabase
+        .from('ai_contexts')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching context stats:', error)
+        throw error
+      }
+
+      const totalContexts = contexts?.length || 0
+      const avgConfidence = totalContexts > 0 
+        ? contexts.reduce((sum, ctx) => sum + ctx.confidence_score, 0) / totalContexts
+        : 0
+
+      // Get top topics by confidence
+      const topTopics = contexts
+        ?.sort((a, b) => b.confidence_score - a.confidence_score)
+        .slice(0, 10)
+        .map(ctx => ctx.topic) || []
+
+      // Get recent contexts
+      const recentContexts = contexts?.slice(0, 5) || []
+
+      return {
+        totalContexts,
+        avgConfidence,
+        topTopics,
+        recentContexts
+      }
+    } catch (error) {
+      console.error('Error getting context stats:', error)
+      return {
+        totalContexts: 0,
+        avgConfidence: 0,
+        topTopics: [],
+        recentContexts: []
+      }
+    }
+  }
+}
+
+// User AI Profile Service (Enhanced)
+export class UserAIProfileService {
+  // Create or update user AI profile
+  static async upsertProfile(profileData: UserAIProfile): Promise<UserAIProfile> {
+    const { data, error } = await supabase
+      .from('user_ai_profiles')
+      .upsert([{
+        ...profileData,
+        last_updated: new Date().toISOString()
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error upserting user AI profile:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get user AI profile
+  static async getProfile(userId: string): Promise<UserAIProfile | null> {
+    const { data, error } = await supabase
+      .from('user_ai_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single()
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error fetching user AI profile:', error)
+      throw error
+    }
+
+    return data || null
+  }
+
+  // Get all profiles ordered by engagement
+  static async getAllProfiles(limit: number = 50): Promise<UserAIProfile[]> {
+    const { data, error } = await supabase
+      .from('user_ai_profiles')
+      .select('*')
+      .order('engagement_level', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching user AI profiles:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Update user interests based on cast interaction
+  static async updateUserInterests(userId: string, newInterests: string[]): Promise<void> {
+    const existingProfile = await this.getProfile(userId)
+    
+    const updatedInterests = existingProfile 
+      ? [...new Set([...existingProfile.interests, ...newInterests])]
+      : newInterests
+
+    await this.upsertProfile({
+      user_id: userId,
+      interests: updatedInterests,
+      interaction_patterns: existingProfile?.interaction_patterns || {},
+      preferred_topics: existingProfile?.preferred_topics || [],
+      response_style: existingProfile?.response_style || 'conversational',
+      engagement_level: existingProfile?.engagement_level || 0.0,
+      last_updated: new Date().toISOString()
+    })
+  }
+
+  // Delete user profile
+  static async deleteProfile(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('user_ai_profiles')
+      .delete()
+      .eq('user_id', userId)
+
+    if (error) {
+      console.error('Error deleting user AI profile:', error)
+      throw error
+    }
+  }
+
+  // Get users with similar interests
+  static async getSimilarUsers(userId: string, limit: number = 10): Promise<UserAIProfile[]> {
+    try {
+      // Get current user's profile
+      const userProfile = await this.getProfile(userId)
+      if (!userProfile || userProfile.interests.length === 0) {
+        return []
+      }
+
+      // Get other users with overlapping interests
+      const { data, error } = await supabase
+        .from('user_ai_profiles')
+        .select('*')
+        .neq('user_id', userId)
+        .order('engagement_level', { ascending: false })
+        .limit(50) // Get more to filter
+
+      if (error) {
+        console.error('Error fetching similar users:', error)
+        return []
+      }
+
+      if (!data) return []
+
+      // Calculate similarity based on shared interests
+      const similarUsers = data
+        .map(profile => {
+          const sharedInterests = profile.interests.filter(interest => 
+            userProfile.interests.includes(interest)
+          )
+          const similarity = sharedInterests.length / Math.max(userProfile.interests.length, profile.interests.length)
+          
+          return {
+            ...profile,
+            similarity
+          }
+        })
+        .filter(profile => profile.similarity > 0.1) // At least 10% similarity
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, limit)
+
+      return similarUsers
+    } catch (error) {
+      console.error('Error getting similar users:', error)
+      return []
+    }
+  }
+}
+
+// AI Learning Service (Enhanced)
+export class AILearningService {
+  // Log learning event
+  static async logLearning(learningType: string, learningData: Record<string, any>): Promise<AILearning> {
+    const { data, error } = await supabase
+      .from('ai_learning')
+      .insert([{
+        learning_type: learningType,
+        learning_data: learningData,
+        frequency: 1,
+        last_seen: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error logging AI learning:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get recent learning events
+  static async getRecentLearning(limit: number = 20): Promise<AILearning[]> {
+    const { data, error } = await supabase
+      .from('ai_learning')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching recent learning:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Get learning stats by type
+  static async getLearningStatsByType(): Promise<Record<string, number>> {
+    const { data, error } = await supabase
+      .from('ai_learning')
+      .select('learning_type, frequency')
+
+    if (error) {
+      console.error('Error fetching learning stats:', error)
+      throw error
+    }
+
+    const stats: Record<string, number> = {}
+    data?.forEach(item => {
+      stats[item.learning_type] = (stats[item.learning_type] || 0) + item.frequency
+    })
+
+    return stats
+  }
+
+  // Update learning frequency
+  static async updateLearningFrequency(learningType: string): Promise<void> {
+    try {
+      // Check if learning type exists
+      const { data: existing, error: fetchError } = await supabase
+        .from('ai_learning')
+        .select('*')
+        .eq('learning_type', learningType)
+        .single()
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Error fetching learning entry:', fetchError)
+        return
+      }
+
+      if (existing) {
+        // Update frequency
+        const { error: updateError } = await supabase
+          .from('ai_learning')
+          .update({
+            frequency: existing.frequency + 1,
+            last_seen: new Date().toISOString()
+          })
+          .eq('id', existing.id)
+
+        if (updateError) {
+          console.error('Error updating learning frequency:', updateError)
+        }
+      } else {
+        // Create new entry
+        await this.logLearning(learningType, { first_occurrence: true })
+      }
+    } catch (error) {
+      console.error('Error in updateLearningFrequency:', error)
+    }
+  }
+
+  // Get learning insights
+  static async getLearningInsights(): Promise<{
+    totalEvents: number
+    mostFrequentType: string
+    recentActivity: string
+    learningTrends: Array<{ type: string; frequency: number }>
+  }> {
+    try {
+      const { data, error } = await supabase
+        .from('ai_learning')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching learning insights:', error)
+        throw error
+      }
+
+      const totalEvents = data?.length || 0
+      
+      // Calculate most frequent type
+      const typeFrequency = data?.reduce((acc: Record<string, number>, item) => {
+        acc[item.learning_type] = (acc[item.learning_type] || 0) + item.frequency
+        return acc
+      }, {}) || {}
+
+      const mostFrequentType = Object.entries(typeFrequency)
+        .sort(([, a], [, b]) => b - a)[0]?.[0] || 'none'
+
+      // Get recent activity
+      const recentActivity = data?.[0]?.created_at 
+        ? new Date(data[0].created_at).toLocaleDateString()
+        : 'No recent activity'
+
+      // Learning trends
+      const learningTrends = Object.entries(typeFrequency)
+        .map(([type, frequency]) => ({ type, frequency }))
+        .sort((a, b) => b.frequency - a.frequency)
+        .slice(0, 5)
+
+      return {
+        totalEvents,
+        mostFrequentType,
+        recentActivity,
+        learningTrends
+      }
+    } catch (error) {
+      console.error('Error getting learning insights:', error)
+      return {
+        totalEvents: 0,
+        mostFrequentType: 'none',
+        recentActivity: 'No data',
+        learningTrends: []
+      }
+    }
+  }
+}
+
+// Content parsing utilities (Enhanced)
 export class ContentParser {
   static parseContent(text: string): ParsedData {
     return {
@@ -580,10 +1052,8 @@ export class ContentParser {
       numbers: this.extractNumbers(text),
       dates: this.extractDates(text),
       word_count: text.split(' ').length,
-      sentiment: 'neutral', // Can integrate sentiment analysis later
-      topics: [], // Will be filled by AI analysis
-      ai_category: undefined, // Will be filled by AI analysis
-      ai_tags: [] // Will be filled by AI analysis
+      sentiment: this.analyzeSentiment(text),
+      topics: this.extractTopics(text)
     }
   }
 
@@ -610,5 +1080,82 @@ export class ContentParser {
   static extractDates(text: string): string[] {
     const dateRegex = /\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/g
     return text.match(dateRegex) || []
+  }
+
+  static extractTopics(text: string): string[] {
+    const topicKeywords = [
+      'crypto', 'nft', 'defi', 'web3', 'blockchain', 'ethereum', 'bitcoin',
+      'art', 'music', 'gaming', 'sports', 'politics', 'tech', 'ai', 'ml',
+      'startup', 'venture', 'investment', 'trading', 'market', 'finance',
+      'social', 'community', 'meme', 'culture', 'philosophy', 'science',
+      'development', 'programming', 'design', 'marketing', 'business'
+    ]
+
+    const words = text.toLowerCase().split(/\s+/)
+    const foundTopics: string[] = []
+
+    topicKeywords.forEach(keyword => {
+      if (words.some(word => word.includes(keyword))) {
+        foundTopics.push(keyword)
+      }
+    })
+
+    return foundTopics
+  }
+
+  // Simple sentiment analysis
+  static analyzeSentiment(text: string): string {
+    const positiveWords = [
+      'good', 'great', 'awesome', 'amazing', 'excellent', 'fantastic', 
+      'wonderful', 'brilliant', 'perfect', 'love', 'like', 'enjoy',
+      'happy', 'excited', 'thrilled', 'delighted', 'pleased'
+    ]
+
+    const negativeWords = [
+      'bad', 'terrible', 'awful', 'horrible', 'disgusting', 'hate',
+      'dislike', 'angry', 'frustrated', 'disappointed', 'sad', 'upset',
+      'annoyed', 'worried', 'concerned', 'scared', 'afraid'
+    ]
+
+    const words = text.toLowerCase().split(/\s+/)
+    
+    const positiveCount = words.filter(word => 
+      positiveWords.some(posWord => word.includes(posWord))
+    ).length
+
+    const negativeCount = words.filter(word => 
+      negativeWords.some(negWord => word.includes(negWord))
+    ).length
+
+    if (positiveCount > negativeCount) return 'positive'
+    if (negativeCount > positiveCount) return 'negative'
+    return 'neutral'
+  }
+
+  // Extract key phrases (simple implementation)
+  static extractKeyPhrases(text: string, maxPhrases: number = 5): string[] {
+    // Remove common stop words
+    const stopWords = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+      'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+      'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they'
+    ])
+
+    const words = text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !stopWords.has(word))
+
+    // Simple frequency counting for key phrases
+    const wordFreq = words.reduce((acc: Record<string, number>, word) => {
+      acc[word] = (acc[word] || 0) + 1
+      return acc
+    }, {})
+
+    return Object.entries(wordFreq)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, maxPhrases)
+      .map(([word]) => word)
   }
 }

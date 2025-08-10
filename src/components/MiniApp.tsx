@@ -1,4 +1,3 @@
-// src/components/MiniApp.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -38,7 +37,7 @@ export default function MiniApp() {
         setIsInMiniApp(isMiniApp)
         
         if (isMiniApp) {
-          // Get user from context (context is async, so await it)
+          // Get user from context (context is a Promise, so await it)
           const context = await sdk.context
           if (context?.user) {
             const userData = {
@@ -114,38 +113,38 @@ export default function MiniApp() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-6 max-w-4xl">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl md:text-6xl font-bold text-white mb-4">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl md:text-5xl font-bold text-white mb-3">
             Cast<span className="text-purple-400">KPR</span>
           </h1>
           {user && (
-            <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="flex items-center justify-center gap-3 mb-3">
               {user.pfpUrl && (
                 <Image 
                   src={user.pfpUrl} 
                   alt={user.username || 'User'}
-                  width={32}
-                  height={32}
-                  className="w-8 h-8 rounded-full"
+                  width={24}
+                  height={24}
+                  className="w-6 h-6 rounded-full"
                 />
               )}
-              <p className="text-gray-300">
+              <p className="text-gray-300 text-sm">
                 Welcome back, {user.displayName || user.username || `FID ${user.fid}`}!
               </p>
             </div>
           )}
           
           {isInMiniApp && (
-            <p className="text-sm text-purple-300">
+            <p className="text-xs text-purple-300">
               🚀 Running in Farcaster Mini App
             </p>
           )}
         </div>
 
         {/* Navigation */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-6">
           <div className="bg-white/10 backdrop-blur-lg rounded-lg p-1 border border-white/20">
             <button
               onClick={() => setActiveView('home')}
@@ -185,13 +184,13 @@ export default function MiniApp() {
                   : 'text-gray-300 hover:text-white'
               }`}
             >
-              AI
+              AI Chat
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="mb-8">
+        <div className="mb-6">
           {activeView === 'home' ? (
             <RecentCasts 
               userId={userIdForDb} 
@@ -217,45 +216,44 @@ export default function MiniApp() {
         </div>
 
         {/* Bot Instructions */}
-        <div className="bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
-          <h2 className="text-xl font-bold text-white mb-4 text-center">🤖 How to Save Casts</h2>
+        <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
+          <h2 className="text-lg font-bold text-white mb-3 text-center">🤖 How to Save Casts</h2>
           
-          <div className="grid md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-3 mb-4">
             <div className="text-center">
-              <div className="bg-purple-500/20 w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-2">
-                <span className="text-lg">1️⃣</span>
+              <div className="bg-purple-500/20 w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2">
+                <span className="text-sm">1️⃣</span>
               </div>
-              <h3 className="font-semibold text-white mb-1 text-sm">Find a Cast</h3>
-              <p className="text-gray-300 text-xs">Browse Farcaster and find something interesting</p>
+              <h3 className="font-semibold text-white mb-1 text-xs">Find a Cast</h3>
+              <p className="text-gray-300 text-xs">Browse and find something interesting</p>
             </div>
             
             <div className="text-center">
-              <div className="bg-purple-500/20 w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-2">
-                <span className="text-lg">2️⃣</span>
+              <div className="bg-purple-500/20 w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2">
+                <span className="text-sm">2️⃣</span>
               </div>
-              <h3 className="font-semibold text-white mb-1 text-sm">Reply to Save</h3>
-              <p className="text-gray-300 text-xs">Reply with <code className="bg-black/30 px-1 rounded">@cstkpr save this</code></p>
+              <h3 className="font-semibold text-white mb-1 text-xs">Reply to Save</h3>
+              <p className="text-gray-300 text-xs">Reply with <code className="bg-black/30 px-1 rounded text-xs">@cstkpr save this</code></p>
             </div>
             
             <div className="text-center">
-              <div className="bg-purple-500/20 w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-2">
-                <span className="text-lg">3️⃣</span>
+              <div className="bg-purple-500/20 w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2">
+                <span className="text-sm">3️⃣</span>
               </div>
-              <h3 className="font-semibold text-white mb-1 text-sm">View Here</h3>
-              <p className="text-gray-300 text-xs">Your saved cast appears here with parsed data</p>
+              <h3 className="font-semibold text-white mb-1 text-xs">View Here</h3>
+              <p className="text-gray-300 text-xs">Your cast appears with AI insights</p>
             </div>
           </div>
 
-          <div className="text-center text-sm text-gray-400">
+          <div className="text-center text-xs text-gray-400">
             <div className="mb-2">
               <strong>Bot Commands:</strong>
             </div>
-            <div className="flex flex-wrap justify-center gap-2 text-xs">
-              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr save this</code>
-              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr analyze this</code>
-              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr help</code>
-              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr stats</code>
-              <code className="bg-black/30 px-2 py-1 rounded">@cstkpr insights</code>
+            <div className="flex flex-wrap justify-center gap-1">
+              <code className="bg-black/30 px-2 py-1 rounded text-xs">@cstkpr save this</code>
+              <code className="bg-black/30 px-2 py-1 rounded text-xs">@cstkpr opinion</code>
+              <code className="bg-black/30 px-2 py-1 rounded text-xs">@cstkpr help</code>
+              <code className="bg-black/30 px-2 py-1 rounded text-xs">@cstkpr stats</code>
             </div>
           </div>
         </div>

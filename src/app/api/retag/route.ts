@@ -1,108 +1,50 @@
-// src/app/api/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, supabase } from '@/lib/supabase'
-import { CastIntelligence } from '@/lib/intelligence'
-import { AIResponseService } from '@/lib/ai-response'
+import { CastService, supabase, ContentParser, AIContextService } from '@/lib/supabase'
+import { AIResponseService } from '@/lib/ai-responses'
 import type { SavedCast } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('🎯 Enhanced CastKPR webhook received!')
-    
-    // Debug environment variables
-    console.log('🔍 Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Set' : 'Missing')
-    console.log('🔍 Supabase Key:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Set' : 'Missing')
-    console.log('🔍 OpenAI Key:', process.env.OPENAI_API_KEY ? 'Set' : 'Missing')
+    console.log('🏷️ Retag request received')
     
     const body = await request.json()
-    console.log('📦 Webhook payload received')
+    const { 
+      castId, 
+      userId, 
+      newTags, 
+      autoTag = false, 
+      replaceExisting = false,
+      bulkOperation = false,
+      castIds = []
+    } = body
     
-    // Check event type
-    if (body.type !== 'cast.created') {
-      console.log('❌ Not a cast.created event, skipping')
-      return NextResponse.json({ message: 'Event type not handled' })
+    // Validate required parameters
+    if (!userId) {
+      return NextResponse.json({ 
+        error: 'User ID is required' 
+      }, { status: 400 })
     }
     
-    const cast = body.data
-    console.log('📝 Processing cast from:', cast.author.username)
-    
-    // Check for mentions
-    const mentions = cast.mentioned_profiles || []
-    const mentionsBot = mentions.some((profile: { username?: string; fid?: number }) => {
-      return profile.username === 'cstkpr'
-    })
-    
-    console.log('🤖 Bot mentioned?', mentionsBot)
-    
-    if (!mentionsBot) {
-      console.log('❌ Bot not mentioned, skipping')
-      return NextResponse.json({ message: 'Bot not mentioned' })
-    }
-    
-    const text = cast.text.toLowerCase()
-    const authorUsername = cast.author.username
-    
-    console.log('💬 Cast text:', text)
-    console.log('👤 Author:', authorUsername)
-    
-    // Handle different commands with AI intelligence
-    try {
-      // Save commands
-      if (text.includes('save this') || text.includes('save')) {
-        return await handleSaveCommand(cast)
+    if (bulkOperation) {
+      if (!castIds || castIds.length === 0) {
+        return NextResponse.json({ 
+          error: 'Cast IDs array is required for bulk operations' 
+        }, { status: 400 })
       }
       
-      // Opinion commands (AI-powered)
-      if (text.includes('opinion') || text.includes('thoughts') || text.includes('what do you think')) {
-        return await handleOpinionRequest(cast)
+      return await handleBulkRetag(castIds, userId, newTags, autoTag, replaceExisting)
+    } else {
+      if (!castId) {
+        return NextResponse.json({ 
+          error: 'Cast ID is required for single retag' 
+        }, { status: 400 })
       }
       
-      // Enhanced opinion with web context
-      if (text.includes('deep opinion') || text.includes('enhanced opinion') || text.includes('web context')) {
-        return await handleEnhancedOpinionRequest(cast)
-      }
-      
-      // Trending analysis (AI-powered)
-      if (text.includes('trending') || text.includes('hot topics') || text.includes('what\'s hot')) {
-        return await handleTrendingRequest(cast, authorUsername)
-      }
-      
-      // Stats and analytics
-      if (text.includes('stats') || text.includes('my stats') || text.includes('analytics')) {
-        return await handleStatsRequest(cast, authorUsername)
-      }
-      
-      // AI recommendations
-      if (text.includes('recommend') || text.includes('suggestions') || text.includes('what should i')) {
-        return await handleRecommendationRequest(cast, authorUsername)
-      }
-      
-      // Help command
-      if (text.includes('help') || text.includes('commands')) {
-        return await handleHelpRequest(cast)
-      }
-      
-      // Analysis command
-      if (text.includes('analyze') || text.includes('analysis')) {
-        return await handleAnalysisRequest(cast)
-      }
-      
-      // Default: provide opinion on the cast or parent cast
-      console.log('🤔 No specific command detected, providing default opinion...')
-      return await handleOpinionRequest(cast)
-      
-    } catch (commandError) {
-      console.error('❌ Command handling error:', commandError)
-      
-      // Fallback response
-      return NextResponse.json({
-        success: false,
-        reply: "🤖 Something went wrong with my circuits! Try '@cstkpr help' to see available commands."
-      })
+      return await handleSingleRetag(castId, userId, newTags, autoTag, replaceExisting)
     }
     
   } catch (error) {
-    console.error('💥 Webhook error:', error)
+    console.error('💥 Retag error:', error)
     return NextResponse.json({ 
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -110,390 +52,469 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleSaveCommand(cast: any) {
-  console.log('💾 Processing save command...')
-  
-  const parentHash = cast.parent_hash
-  console.log('👆 Parent hash:', parentHash)
-  
-  if (!parentHash) {
-    return NextResponse.json({ 
-      success: false,
-      reply: "🤔 I don't see a cast to save here. Reply to a cast with '@cstkpr save this' to save it!"
-    })
-  }
-  
-  // Analyze the cast before saving to provide insight
-  let analysisResult = ''
-  let qualityScore = 0
-  
+export async function GET(request: NextRequest) {
   try {
-    console.log('🧠 Analyzing cast quality...')
-    const insight = await CastIntelligence.analyzeCastQuality(
-      cast.parent_text || `Cast ${parentHash}`, 
-      {
-        likes: cast.parent_likes || 0,
-        replies: cast.parent_replies || 0,
-        recasts: cast.parent_recasts || 0
-      }
-    )
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get('userId')
+    const castId = searchParams.get('castId')
+    const suggestTags = searchParams.get('suggestTags') === 'true'
     
-    qualityScore = insight.save_worthiness
-    const scorePercent = (qualityScore * 100).toFixed(0)
-    
-    if (qualityScore > 0.7) {
-      analysisResult = ` 🔥 Excellent choice! Quality score: ${scorePercent}% - this matches patterns from highly-saved content.`
-    } else if (qualityScore > 0.4) {
-      analysisResult = ` ✨ Solid pick! Quality score: ${scorePercent}% - good content worth preserving.`
-    } else {
-      analysisResult = ` 📝 Interesting selection! Quality score: ${scorePercent}% - unique content for your collection.`
-    }
-    
-    // Add trending context if relevant
-    if (insight.trending_score > 0.5) {
-      analysisResult += ` Plus it's aligned with current trending topics!`
-    }
-    
-  } catch (analysisError) {
-    console.log('⚠️ Analysis failed, but continuing with save...', analysisError)
-    analysisResult = ' (Analysis unavailable, but saved successfully!)'
-  }
-  
-  // Create cast data that matches SavedCast interface
-  const castData = {
-    username: cast.parent_author?.username || `user-${cast.parent_author?.fid || 'unknown'}`,
-    fid: cast.parent_author?.fid || 0,
-    cast_hash: parentHash,
-    cast_content: cast.parent_text || `🔗 Cast saved from Farcaster - Hash: ${parentHash}`,
-    cast_timestamp: cast.parent_timestamp || new Date().toISOString(),
-    tags: ['saved-via-bot'] as string[],
-    likes_count: cast.parent_likes || 0,
-    replies_count: cast.parent_replies || 0,
-    recasts_count: cast.parent_recasts || 0,
-    
-    // Optional fields
-    cast_url: `https://warpcast.com/~/conversations/${parentHash}`,
-    author_pfp_url: cast.parent_author?.pfp_url,
-    author_display_name: cast.parent_author?.display_name || cast.parent_author?.username,
-    saved_by_user_id: cast.author.username,
-    category: 'saved-via-bot',
-    notes: `💾 Saved via @cstkpr bot by ${cast.author.username} on ${new Date().toLocaleDateString()}`,
-    parsed_data: {
-      urls: cast.parent_text ? 
-        [...(cast.parent_text.match(/https?:\/\/[^\s]+/g) || []), `https://warpcast.com/~/conversations/${parentHash}`] :
-        [`https://warpcast.com/~/conversations/${parentHash}`],
-      hashtags: cast.parent_text ? [...(cast.parent_text.match(/#(\w+)/g) || [])].map((h: string) => h.slice(1)) : ['cstkpr', 'saved'],
-      mentions: cast.parent_text ? [...(cast.parent_text.match(/@(\w+)/g) || [])].map((m: string) => m.slice(1)) : ['cstkpr'],
-      word_count: cast.parent_text ? cast.parent_text.split(' ').length : 0,
-      sentiment: 'neutral' as const,
-      topics: cast.parent_text ? extractTopicsFromText(cast.parent_text) : ['saved-cast']
-    }
-  } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
-  
-  console.log('💾 Saving cast to database...')
-  
-  try {
-    const savedCast = await CastService.saveCast(castData)
-    console.log('✅ Cast saved successfully:', savedCast.cast_hash)
-    
-    return NextResponse.json({ 
-      success: true,
-      reply: `💾 Cast saved successfully!${analysisResult} View all your saves at your CastKPR dashboard.`,
-      cast_id: savedCast.cast_hash,
-      saved_cast_id: savedCast.id,
-      quality_score: qualityScore
-    })
-    
-  } catch (saveError) {
-    console.error('❌ Error saving cast:', saveError)
-    
-    if (saveError instanceof Error && saveError.message.includes('already saved')) {
+    if (!userId) {
       return NextResponse.json({ 
-        success: false,
-        reply: "📝 You've already saved this cast! Check your dashboard to see all your saved content."
-      })
+        error: 'User ID is required' 
+      }, { status: 400 })
     }
     
+    if (castId) {
+      // Get suggestions for a specific cast
+      return await getSuggestedTags(castId, userId)
+    } else if (suggestTags) {
+      // Get popular tags from user's collection
+      return await getPopularTags(userId)
+    } else {
+      // Get all user's tags
+      return await getAllUserTags(userId)
+    }
+    
+  } catch (error) {
+    console.error('💥 Retag GET error:', error)
     return NextResponse.json({ 
-      success: false,
-      reply: "❌ Hmm, I couldn't save that cast. There might be a technical issue. Try again in a moment!"
-    })
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
   }
 }
 
-async function handleOpinionRequest(cast: any) {
-  console.log('🤔 Generating AI opinion...')
-  
-  const targetText = cast.parent_text || cast.text
-  const targetAuthor = cast.parent_author?.username || cast.author.username
-  const requesterUsername = cast.author.username
-  
-  if (!targetText || targetText.length < 10) {
-    return NextResponse.json({
-      reply: "🤔 I need more content to form an opinion! Tag me on a cast with some substance."
-    })
-  }
+async function handleSingleRetag(
+  castId: string, 
+  userId: string, 
+  newTags?: string[], 
+  autoTag: boolean = false, 
+  replaceExisting: boolean = false
+) {
+  console.log(`🏷️ Retagging single cast ${castId} for user ${userId}`)
   
   try {
-    // Use AI + data-driven context for intelligent response
-    console.log('🧠 Generating AI opinion with community context...')
-    const opinion = await AIResponseService.generateResponse(
-      targetText,
-      'opinion',
-      targetAuthor,
-      requesterUsername
-    )
+    // Get the cast first
+    const { data: cast, error: fetchError } = await supabase
+      .from('saved_casts')
+      .select('*')
+      .eq('id', castId)
+      .eq('saved_by_user_id', userId)
+      .single()
     
-    return NextResponse.json({
-      reply: opinion
-    })
-  } catch (error) {
-    console.error('❌ AI opinion generation failed:', error)
-    
-    // Fallback to pattern-based opinion
-    try {
-      console.log('🔄 Falling back to pattern-based opinion...')
-      const fallbackOpinion = await CastIntelligence.generateOpinion(targetText, targetAuthor)
-      return NextResponse.json({
-        reply: fallbackOpinion + " (AI temporarily unavailable)"
-      })
-    } catch (fallbackError) {
-      console.error('❌ Fallback opinion also failed:', fallbackError)
-      return NextResponse.json({
-        reply: "🤖 My analysis circuits are having a moment, but this cast seems worth considering based on my pattern recognition!"
-      })
-    }
-  }
-}
-
-async function handleEnhancedOpinionRequest(cast: any) {
-  console.log('🌐 Generating enhanced AI opinion with web context...')
-  
-  const targetText = cast.parent_text || cast.text
-  const targetAuthor = cast.parent_author?.username || cast.author.username
-  const requesterUsername = cast.author.username
-  
-  if (!targetText || targetText.length < 10) {
-    return NextResponse.json({
-      reply: "🤔 I need more content for an enhanced analysis! Tag me on a cast with substance."
-    })
-  }
-  
-  try {
-    // Use enhanced AI with web context
-    const enhancedOpinion = await AIResponseService.generateOpinionWithWebContext(
-      targetText,
-      targetAuthor,
-      requesterUsername
-    )
-    
-    return NextResponse.json({
-      reply: "🌐 " + enhancedOpinion
-    })
-  } catch (error) {
-    console.error('❌ Enhanced opinion generation failed:', error)
-    // Fallback to regular opinion
-    return handleOpinionRequest(cast)
-  }
-}
-
-async function handleTrendingRequest(cast: any, requesterUsername: string) {
-  console.log('🔥 Generating trending analysis...')
-  
-  try {
-    // Use AI to explain trends with context
-    const aiResponse = await AIResponseService.generateResponse(
-      'current trending topics and patterns in the community',
-      'trending',
-      undefined,
-      requesterUsername
-    )
-    
-    return NextResponse.json({
-      reply: aiResponse
-    })
-  } catch (error) {
-    console.error('❌ AI trending analysis failed:', error)
-    
-    // Fallback to data-only trending
-    try {
-      const trending = await CastIntelligence.getTrendingTopics('week')
-      
-      if (trending.length === 0) {
-        return NextResponse.json({
-          reply: "📊 Not enough data yet to identify trending topics. Help me learn by saving more casts! Use '@cstkpr save this' on interesting content."
-        })
-      }
-      
-      const topTrending = trending.slice(0, 5)
-      const trendingText = topTrending
-        .map((topic, i) => `${i + 1}. #${topic.topic} (${topic.save_count} saves)`)
-        .join('\n')
-      
-      return NextResponse.json({
-        reply: `🔥 This week's trending topics based on community saves:\n\n${trendingText}\n\nThese topics are getting lots of attention lately!`
-      })
-    } catch (fallbackError) {
-      return NextResponse.json({
-        reply: "📊 I'm still learning about trends. Save more casts to help me identify what's hot!"
-      })
-    }
-  }
-}
-
-async function handleStatsRequest(cast: any, requesterUsername: string) {
-  console.log('📊 Generating user stats...')
-  
-  try {
-    const stats = await CastService.getUserStats(requesterUsername)
-    const recommendations = await CastIntelligence.getPersonalizedRecommendations(requesterUsername)
-    
-    let reply = `📊 Your CastKPR stats:\n• ${stats.totalCasts} casts saved`
-    
-    if (recommendations.topics.length > 0) {
-      reply += `\n• Top interests: ${recommendations.topics.slice(0, 3).join(', ')}`
+    if (fetchError || !cast) {
+      return NextResponse.json({ 
+        error: 'Cast not found or not owned by user' 
+      }, { status: 404 })
     }
     
-    if (recommendations.similar_users.length > 0) {
-      reply += `\n• Users with similar taste: ${recommendations.similar_users.slice(0, 2).join(', ')}`
-    }
+    let finalTags: string[] = []
     
-    if (stats.totalCasts > 0) {
-      reply += `\n\n💡 Keep saving quality content to improve my recommendations for you!`
+    if (autoTag) {
+      // Generate AI-powered tags
+      console.log('🤖 Generating AI-powered tags...')
+      const suggestedTags = await generateAITags(cast)
+      finalTags = suggestedTags
+    } else if (newTags) {
+      finalTags = newTags
     } else {
-      reply += `\n\n🚀 Start saving casts with '@cstkpr save this' to build your profile!`
+      return NextResponse.json({ 
+        error: 'Either newTags must be provided or autoTag must be true' 
+      }, { status: 400 })
     }
     
-    return NextResponse.json({ reply })
-  } catch (error) {
-    console.error('❌ Stats generation failed:', error)
-    return NextResponse.json({
-      reply: "📊 I can't access your stats right now. Make sure you've saved some casts first with '@cstkpr save this'!"
-    })
-  }
-}
-
-async function handleRecommendationRequest(cast: any, requesterUsername: string) {
-  console.log('🎯 Generating AI recommendations...')
-  
-  try {
-    // Use AI to provide personalized recommendations
-    const aiResponse = await AIResponseService.generateResponse(
-      'personalized content recommendations based on user behavior and community trends',
-      'recommendation',
-      undefined,
-      requesterUsername
-    )
+    // Combine with existing tags if not replacing
+    if (!replaceExisting && cast.tags) {
+      finalTags = [...new Set([...cast.tags, ...finalTags])]
+    }
     
-    return NextResponse.json({
-      reply: aiResponse
-    })
-  } catch (error) {
-    console.error('❌ AI recommendation failed:', error)
+    // Remove duplicates and clean tags
+    finalTags = [...new Set(finalTags)]
+      .map(tag => tag.toLowerCase().trim())
+      .filter(tag => tag.length > 0)
+      .slice(0, 20) // Limit to 20 tags max
     
-    // Fallback to data-driven recommendations
-    try {
-      const recommendations = await CastIntelligence.getPersonalizedRecommendations(requesterUsername)
-      const trending = await CastIntelligence.getTrendingTopics('day')
-      
-      let reply = "🎯 Based on your saves and current trends:\n\n"
-      
-      if (recommendations.recommended_hashtags.length > 0) {
-        reply += `🏷️ Try following: ${recommendations.recommended_hashtags.slice(0, 4).map(h => `#${h}`).join(', ')}\n\n`
-      }
-      
-      if (trending.length > 0) {
-        reply += `🔥 Hot right now: ${trending.slice(0, 3).map(t => `#${t.topic}`).join(', ')}\n\n`
-      }
-      
-      reply += "💡 Save more casts to get even better personalized recommendations!"
-      
-      return NextResponse.json({ reply })
-    } catch (fallbackError) {
-      return NextResponse.json({
-        reply: "🎯 I need more data to make good recommendations. Save some casts with '@cstkpr save this' to help me learn your preferences!"
+    // Update the cast
+    const { data: updatedCast, error: updateError } = await supabase
+      .from('saved_casts')
+      .update({ 
+        tags: finalTags,
+        updated_at: new Date().toISOString()
       })
+      .eq('id', castId)
+      .eq('saved_by_user_id', userId)
+      .select()
+      .single()
+    
+    if (updateError) {
+      console.error('❌ Error updating cast tags:', updateError)
+      return NextResponse.json({ 
+        error: 'Failed to update cast tags' 
+      }, { status: 500 })
     }
+    
+    console.log(`✅ Successfully retagged cast ${castId}`)
+    
+    return NextResponse.json({
+      success: true,
+      message: 'Cast successfully retagged',
+      cast: updatedCast,
+      addedTags: finalTags.filter(tag => !cast.tags?.includes(tag)),
+      totalTags: finalTags.length
+    })
+    
+  } catch (error) {
+    console.error('❌ Single retag error:', error)
+    return NextResponse.json({ 
+      error: 'Failed to retag cast',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
   }
 }
 
-async function handleAnalysisRequest(cast: any) {
-  console.log('📊 Generating cast analysis...')
-  
-  const targetText = cast.parent_text || cast.text
-  
-  if (!targetText || targetText.length < 10) {
-    return NextResponse.json({
-      reply: "📊 I need more content to analyze! Tag me on a cast with substance."
-    })
-  }
+async function handleBulkRetag(
+  castIds: string[], 
+  userId: string, 
+  newTags?: string[], 
+  autoTag: boolean = false, 
+  replaceExisting: boolean = false
+) {
+  console.log(`🏷️ Bulk retagging ${castIds.length} casts for user ${userId}`)
   
   try {
-    const analysis = await CastIntelligence.analyzeCastQuality(targetText)
+    const results = []
+    const errors = []
     
-    const qualityPercent = (analysis.quality_score * 100).toFixed(0)
-    const trendingPercent = (analysis.trending_score * 100).toFixed(0)
-    const saveWorthiness = (analysis.save_worthiness * 100).toFixed(0)
-    
-    let reply = `📊 Cast Analysis:\n\n`
-    reply += `🎯 Quality Score: ${qualityPercent}%\n`
-    reply += `🔥 Trending Alignment: ${trendingPercent}%\n`
-    reply += `💾 Save Worthiness: ${saveWorthiness}%\n`
-    
-    if (analysis.topics.length > 0) {
-      reply += `🏷️ Key Topics: ${analysis.topics.slice(0, 3).join(', ')}\n`
+    // Process casts in batches of 5 to avoid overwhelming the system
+    const batchSize = 5
+    for (let i = 0; i < castIds.length; i += batchSize) {
+      const batch = castIds.slice(i, i + batchSize)
+      
+      const batchPromises = batch.map(async (castId) => {
+        try {
+          const result = await handleSingleRetag(castId, userId, newTags, autoTag, replaceExisting)
+          const resultData = await result.json()
+          
+          if (result.status === 200) {
+            results.push({ castId, success: true, ...resultData })
+          } else {
+            errors.push({ castId, error: resultData.error })
+          }
+        } catch (error) {
+          errors.push({ 
+            castId, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+          })
+        }
+      })
+      
+      await Promise.all(batchPromises)
+      
+      // Small delay between batches
+      if (i + batchSize < castIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
     }
     
-    if (saveWorthiness >= '70') {
-      reply += `\n✨ Strong candidate for saving!`
-    } else if (saveWorthiness >= '50') {
-      reply += `\n🤔 Decent content, save if it matches your interests.`
-    } else {
-      reply += `\n💡 Unique content - value depends on personal relevance.`
-    }
+    console.log(`✅ Bulk retag completed: ${results.length} success, ${errors.length} errors`)
     
-    return NextResponse.json({ reply })
-  } catch (error) {
-    console.error('❌ Analysis failed:', error)
     return NextResponse.json({
-      reply: "📊 Analysis circuits temporarily offline. Try again in a moment!"
+      success: true,
+      message: `Bulk retag completed`,
+      summary: {
+        totalCasts: castIds.length,
+        successful: results.length,
+        failed: errors.length
+      },
+      results,
+      errors: errors.length > 0 ? errors : undefined
     })
+    
+  } catch (error) {
+    console.error('❌ Bulk retag error:', error)
+    return NextResponse.json({ 
+      error: 'Bulk retag operation failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
   }
 }
 
-async function handleHelpRequest(cast: any) {
-  const helpText = `🤖 CastKPR Bot Commands:
-
-💾 "@cstkpr save this" - Save any cast with quality analysis
-🤔 "@cstkpr opinion" - AI opinion based on community data  
-🌐 "@cstkpr deep opinion" - Enhanced analysis with web context
-📊 "@cstkpr analyze" - Detailed cast quality breakdown
-🔥 "@cstkpr trending" - AI explanation of what's hot
-📈 "@cstkpr stats" - Your personal save statistics
-🎯 "@cstkpr recommend" - AI-powered content suggestions
-❓ "@cstkpr help" - Show this help
-
-I combine community intelligence with AI to give you smart insights! 🧠✨`
-
-  return NextResponse.json({ reply: helpText })
+async function generateAITags(cast: SavedCast): Promise<string[]> {
+  console.log('🤖 Generating AI tags for cast:', cast.id)
+  
+  try {
+    // Use content parser first
+    const parsedData = ContentParser.parseContent(cast.cast_content)
+    const baseTags = [
+      ...(parsedData.hashtags || []),
+      ...(parsedData.topics || [])
+    ]
+    
+    // Generate AI-powered tags using the response service
+    const responseContext = {
+      castContent: cast.cast_content,
+      authorUsername: cast.username,
+      mentionedUser: cast.saved_by_user_id || 'user',
+      command: 'generate_tags'
+    }
+    
+    const aiResponse = await AIResponseService.generateResponse(responseContext)
+    
+    // Extract suggested tags from AI response
+    // This is a simple extraction - you could enhance this
+    const aiTags = extractTagsFromAIResponse(aiResponse.content)
+    
+    // Combine and deduplicate
+    const allTags = [...new Set([...baseTags, ...aiTags])]
+      .filter(tag => tag.length > 2 && tag.length < 30)
+      .slice(0, 15)
+    
+    console.log(`✅ Generated ${allTags.length} AI tags`)
+    return allTags
+    
+  } catch (error) {
+    console.error('❌ AI tag generation failed:', error)
+    
+    // Fallback to basic content parsing
+    const parsedData = ContentParser.parseContent(cast.cast_content)
+    return [
+      ...(parsedData.hashtags || []),
+      ...(parsedData.topics || []),
+      'ai-tagged'
+    ].slice(0, 10)
+  }
 }
 
-// Helper function to extract topics from text
-function extractTopicsFromText(text: string): string[] {
-  const topics = []
+async function getSuggestedTags(castId: string, userId: string) {
+  console.log(`🔍 Getting tag suggestions for cast ${castId}`)
   
-  // Extract hashtags
-  const hashtags = [...text.matchAll(/#(\w+)/g)].map(match => match[1])
-  topics.push(...hashtags)
+  try {
+    // Get the cast
+    const { data: cast, error } = await supabase
+      .from('saved_casts')
+      .select('*')
+      .eq('id', castId)
+      .eq('saved_by_user_id', userId)
+      .single()
+    
+    if (error || !cast) {
+      return NextResponse.json({ 
+        error: 'Cast not found' 
+      }, { status: 404 })
+    }
+    
+    // Generate AI suggestions
+    const aiTags = await generateAITags(cast)
+    
+    // Get popular tags from user's other casts
+    const userTags = await getPopularTagsInternal(userId)
+    
+    // Get trending tags from community
+    const trendingTags = await getTrendingTags()
+    
+    return NextResponse.json({
+      currentTags: cast.tags || [],
+      suggestions: {
+        ai: aiTags,
+        popular: userTags.slice(0, 10),
+        trending: trendingTags.slice(0, 8)
+      }
+    })
+    
+  } catch (error) {
+    console.error('❌ Error getting tag suggestions:', error)
+    return NextResponse.json({ 
+      error: 'Failed to get tag suggestions' 
+    }, { status: 500 })
+  }
+}
+
+async function getPopularTags(userId: string) {
+  console.log(`📊 Getting popular tags for user ${userId}`)
   
-  // Simple keyword extraction
-  const keywords = text.toLowerCase()
-    .replace(/[^\w\s]/g, '')
-    .split(' ')
-    .filter(word => word.length > 3)
-    .filter(word => !['this', 'that', 'with', 'from', 'they', 'have', 'will', 'been', 'were'].includes(word))
+  try {
+    const tags = await getPopularTagsInternal(userId)
+    
+    return NextResponse.json({
+      popularTags: tags.slice(0, 20),
+      totalUniqueTags: tags.length
+    })
+    
+  } catch (error) {
+    console.error('❌ Error getting popular tags:', error)
+    return NextResponse.json({ 
+      error: 'Failed to get popular tags' 
+    }, { status: 500 })
+  }
+}
+
+async function getAllUserTags(userId: string) {
+  console.log(`📋 Getting all tags for user ${userId}`)
   
-  topics.push(...keywords.slice(0, 3))
+  try {
+    const { data: casts, error } = await supabase
+      .from('saved_casts')
+      .select('tags')
+      .eq('saved_by_user_id', userId)
+    
+    if (error) {
+      return NextResponse.json({ 
+        error: 'Failed to fetch user tags' 
+      }, { status: 500 })
+    }
+    
+    const allTags = casts?.flatMap(cast => cast.tags || []) || []
+    const uniqueTags = [...new Set(allTags)].sort()
+    
+    // Count tag frequency
+    const tagCounts = allTags.reduce((acc: Record<string, number>, tag) => {
+      acc[tag] = (acc[tag] || 0) + 1
+      return acc
+    }, {})
+    
+    const tagStats = Object.entries(tagCounts)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count)
+    
+    return NextResponse.json({
+      allTags: uniqueTags,
+      tagStats,
+      totalCasts: casts?.length || 0,
+      totalUniqueTags: uniqueTags.length
+    })
+    
+  } catch (error) {
+    console.error('❌ Error getting all user tags:', error)
+    return NextResponse.json({ 
+      error: 'Failed to get user tags' 
+    }, { status: 500 })
+  }
+}
+
+// Helper functions
+async function getPopularTagsInternal(userId: string): Promise<string[]> {
+  const { data: casts } = await supabase
+    .from('saved_casts')
+    .select('tags')
+    .eq('saved_by_user_id', userId)
   
-  return [...new Set(topics)].slice(0, 5)
+  const allTags = casts?.flatMap(cast => cast.tags || []) || []
+  const tagCounts = allTags.reduce((acc: Record<string, number>, tag) => {
+    acc[tag] = (acc[tag] || 0) + 1
+    return acc
+  }, {})
+  
+  return Object.entries(tagCounts)
+    .sort(([,a], [,b]) => b - a)
+    .map(([tag]) => tag)
+}
+
+async function getTrendingTags(): Promise<string[]> {
+  // Get tags from recent casts across all users
+  const { data: recentCasts } = await supabase
+    .from('saved_casts')
+    .select('tags')
+    .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+    .limit(200)
+  
+  const allTags = recentCasts?.flatMap(cast => cast.tags || []) || []
+  const tagCounts = allTags.reduce((acc: Record<string, number>, tag) => {
+    acc[tag] = (acc[tag] || 0) + 1
+    return acc
+  }, {})
+  
+  return Object.entries(tagCounts)
+    .filter(([, count]) => count > 1) // Only tags used more than once
+    .sort(([,a], [,b]) => b - a)
+    .map(([tag]) => tag)
+    .slice(0, 10)
+}
+
+function extractTagsFromAIResponse(aiContent: string): string[] {
+  // Simple tag extraction from AI response
+  // You could enhance this with more sophisticated NLP
+  const words = aiContent.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 3 && word.length < 20)
+  
+  // Common keywords that make good tags
+  const tagKeywords = [
+    'crypto', 'nft', 'defi', 'web3', 'blockchain', 'ethereum', 'bitcoin',
+    'art', 'music', 'gaming', 'sports', 'politics', 'tech', 'ai', 'ml',
+    'startup', 'venture', 'investment', 'trading', 'market', 'finance',
+    'social', 'community', 'meme', 'culture', 'philosophy', 'science',
+    'development', 'programming', 'design', 'marketing', 'business'
+  ]
+  
+  return words
+    .filter(word => tagKeywords.includes(word))
+    .slice(0, 8)
+}
+
+export async function PUT(request: NextRequest) {
+  // Handle tag updates (alias for POST)
+  return POST(request)
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const castId = searchParams.get('castId')
+    const userId = searchParams.get('userId')
+    const tagToRemove = searchParams.get('tag')
+    
+    if (!castId || !userId || !tagToRemove) {
+      return NextResponse.json({ 
+        error: 'Cast ID, User ID, and tag are required' 
+      }, { status: 400 })
+    }
+    
+    // Get current cast
+    const { data: cast, error: fetchError } = await supabase
+      .from('saved_casts')
+      .select('tags')
+      .eq('id', castId)
+      .eq('saved_by_user_id', userId)
+      .single()
+    
+    if (fetchError || !cast) {
+      return NextResponse.json({ 
+        error: 'Cast not found' 
+      }, { status: 404 })
+    }
+    
+    // Remove the tag
+    const updatedTags = (cast.tags || []).filter(tag => tag !== tagToRemove)
+    
+    // Update the cast
+    const { error: updateError } = await supabase
+      .from('saved_casts')
+      .update({ 
+        tags: updatedTags,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', castId)
+      .eq('saved_by_user_id', userId)
+    
+    if (updateError) {
+      return NextResponse.json({ 
+        error: 'Failed to remove tag' 
+      }, { status: 500 })
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: 'Tag removed successfully',
+      removedTag: tagToRemove,
+      remainingTags: updatedTags
+    })
+    
+  } catch (error) {
+    console.error('❌ Delete tag error:', error)
+    return NextResponse.json({ 
+      error: 'Failed to delete tag' 
+    }, { status: 500 })
+  }
 }
