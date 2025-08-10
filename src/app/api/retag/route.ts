@@ -183,8 +183,8 @@ async function handleBulkRetag(
   console.log(`🏷️ Bulk retagging ${castIds.length} casts for user ${userId}`)
   
   try {
-    const results = []
-    const errors = []
+    const results: Array<{ castId: string; success: boolean; [key: string]: any }> = []
+    const errors: Array<{ castId: string; error: string }> = []
     
     // Process casts in batches of 5 to avoid overwhelming the system
     const batchSize = 5
@@ -266,7 +266,7 @@ async function generateAITags(cast: SavedCast): Promise<string[]> {
     const aiTags = extractTagsFromAIResponse(aiResponse.content)
     
     // Combine and deduplicate
-    const allTags = [...new Set([...baseTags, ...aiTags])]
+    const allTags: string[] = [...new Set([...baseTags, ...aiTags])]
       .filter(tag => tag.length > 2 && tag.length < 30)
       .slice(0, 15)
     
@@ -399,8 +399,8 @@ async function getPopularTagsInternal(userId: string): Promise<string[]> {
     .select('tags')
     .eq('saved_by_user_id', userId)
   
-  const allTags = casts?.flatMap(cast => cast.tags || []) || []
-  const tagCounts = allTags.reduce((acc: Record<string, number>, tag) => {
+  const allTags: string[] = casts?.flatMap(cast => cast.tags || []) || []
+  const tagCounts: Record<string, number> = allTags.reduce((acc: Record<string, number>, tag) => {
     acc[tag] = (acc[tag] || 0) + 1
     return acc
   }, {})
@@ -418,8 +418,8 @@ async function getTrendingTags(): Promise<string[]> {
     .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
     .limit(200)
   
-  const allTags = recentCasts?.flatMap(cast => cast.tags || []) || []
-  const tagCounts = allTags.reduce((acc: Record<string, number>, tag) => {
+  const allTags: string[] = recentCasts?.flatMap(cast => cast.tags || []) || []
+  const tagCounts: Record<string, number> = allTags.reduce((acc: Record<string, number>, tag) => {
     acc[tag] = (acc[tag] || 0) + 1
     return acc
   }, {})
@@ -434,13 +434,13 @@ async function getTrendingTags(): Promise<string[]> {
 function extractTagsFromAIResponse(aiContent: string): string[] {
   // Simple tag extraction from AI response
   // You could enhance this with more sophisticated NLP
-  const words = aiContent.toLowerCase()
+  const words: string[] = aiContent.toLowerCase()
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
     .filter(word => word.length > 3 && word.length < 20)
   
   // Common keywords that make good tags
-  const tagKeywords = [
+  const tagKeywords: string[] = [
     'crypto', 'nft', 'defi', 'web3', 'blockchain', 'ethereum', 'bitcoin',
     'art', 'music', 'gaming', 'sports', 'politics', 'tech', 'ai', 'ml',
     'startup', 'venture', 'investment', 'trading', 'market', 'finance',
