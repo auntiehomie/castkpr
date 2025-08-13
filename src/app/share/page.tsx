@@ -90,7 +90,7 @@ function ShareContent() {
         cast_hash: castHash,
         cast_content: castContent,
         cast_timestamp: new Date().toISOString(),
-        tags: ['shared-to-app'] as string[],
+        tags: ['shared-via-extension'] as string[],
         likes_count: 0,
         replies_count: 0,
         recasts_count: 0,
@@ -99,26 +99,26 @@ function ShareContent() {
         author_pfp_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${urlParams?.castFid || 'default'}`,
         author_display_name: authorDisplayName,
         saved_by_user_id: urlParams?.viewerFid || 'shared-user',
-        category: 'shared-cast',
-        notes: `📱 Shared to CastKPR on ${new Date().toLocaleDateString()}`,
+        category: 'shared',
+        notes: `📱 Saved via share extension on ${new Date().toLocaleDateString()}`,
         parsed_data: {
           urls: [`https://warpcast.com/~/conversations/${castHash}`],
           hashtags: [...castContent.matchAll(/#(\w+)/g)].map(match => match[1]),
           mentions: [...castContent.matchAll(/@(\w+)/g)].map(match => match[1]),
           word_count: castContent.split(' ').length,
           sentiment: 'neutral' as const,
-          topics: ['shared-cast']
+          topics: ['shared']
         }
       } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
 
-      console.log('💾 Saving cast:', castData.cast_hash)
+      console.log('💾 Saving cast to collection:', castData.cast_hash)
       await CastService.saveCast(castData)
       console.log('✅ Cast saved successfully!')
       setSaved(true)
     } catch (err) {
       console.error('❌ Error saving shared cast:', err)
       if (err instanceof Error && err.message.includes('already saved')) {
-        setError('This cast is already saved in your vault!')
+        setError('This cast is already in your collection!')
       } else {
         setError(err instanceof Error ? err.message : 'Failed to save cast')
       }
@@ -145,7 +145,7 @@ function ShareContent() {
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
         <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center">
           <div className="text-6xl mb-4">🤔</div>
-          <h1 className="text-2xl font-bold text-white mb-4">No Cast to Share</h1>
+          <h1 className="text-2xl font-bold text-white mb-4">No Cast to Save</h1>
           <p className="text-gray-300 mb-4">
             This page is for receiving shared casts. Share a cast to CastKPR to see it here!
           </p>
@@ -168,14 +168,14 @@ function ShareContent() {
           <div className="text-6xl mb-4">✅</div>
           <h1 className="text-2xl font-bold text-white mb-4">Cast Saved!</h1>
           <p className="text-gray-300 mb-6">
-            Your shared cast has been successfully saved to CastKPR vault!
+            Your cast has been saved to CastKPR! You can now organize it into vaults using tags and categories.
           </p>
           <div className="space-y-3">
             <button
               onClick={() => window.location.href = '/dashboard'}
               className="w-full bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
             >
-              📚 View My Vault
+              📚 View Saved Casts
             </button>
             <button
               onClick={() => window.location.href = '/'}
@@ -183,6 +183,14 @@ function ShareContent() {
             >
               🏠 Go Home
             </button>
+          </div>
+          
+          {/* Next Steps Hint */}
+          <div className="mt-6 p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+            <h3 className="text-purple-300 font-medium mb-2">💡 What's Next?</h3>
+            <p className="text-purple-200 text-sm">
+              Add tags to organize this cast into vaults, or use the AI bot to analyze and get insights about your saved content!
+            </p>
           </div>
         </div>
       </div>
@@ -195,9 +203,9 @@ function ShareContent() {
       <div className="max-w-lg mx-auto">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-white mb-2">
-            💾 Save to Cast<span className="text-purple-400">KPR</span>
+            💾 Save Cast to Cast<span className="text-purple-400">KPR</span>
           </h1>
-          <p className="text-gray-300">Add this cast to your vault</p>
+          <p className="text-gray-300">Add this cast to your collection</p>
         </div>
 
         {/* Cast Preview */}
@@ -235,7 +243,7 @@ function ShareContent() {
               </>
             ) : (
               <>
-                💾 Save to Vault
+                💾 Save Cast
               </>
             )}
           </button>
@@ -247,11 +255,14 @@ function ShareContent() {
           </button>
         </div>
         
-        {/* Footer info */}
-        <div className="mt-4 text-center">
-          <p className="text-xs text-gray-500">
-            🤖 CastKPR will fetch the actual cast content and organize it automatically
-          </p>
+        {/* Data Flow Explanation */}
+        <div className="mt-6 bg-white/5 rounded-lg p-4">
+          <h4 className="text-white font-medium mb-2 text-sm">🔄 How CastKPR Works</h4>
+          <div className="text-xs text-gray-400 space-y-1">
+            <p>1. 📱 <strong>Share Extension:</strong> Save any cast instantly</p>
+            <p>2. 🏷️ <strong>Tags & Organization:</strong> Add tags to create vaults</p>
+            <p>3. 🤖 <strong>AI Analysis:</strong> Get insights from your collection</p>
+          </div>
         </div>
       </div>
     </div>
