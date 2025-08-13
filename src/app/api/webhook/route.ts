@@ -119,17 +119,49 @@ function getRandomResponse(responseArray: string[]): string {
 
 // Helper function to send a reply cast
 async function sendReply(parentHash: string, text: string): Promise<void> {
-  // For now, we'll just log the reply
-  // In a full implementation, you'd use Neynar or Farcaster API to post
-  console.log(`🤖 Would reply to ${parentHash}: ${text}`)
-  
-  // TODO: Implement actual cast reply using Neynar API
-  // const replyData = {
-  //   text: text,
-  //   parent: parentHash,
-  //   signer_uuid: process.env.SIGNER_UUID
-  // }
-  // await neynarClient.publishCast(replyData)
+  try {
+    console.log(`🤖 Attempting to reply to ${parentHash}: ${text}`)
+    
+    const neynarApiKey = process.env.NEYNAR_API_KEY
+    const signerUuid = process.env.NEYNAR_SIGNER_UUID
+    
+    if (!neynarApiKey || !signerUuid) {
+      console.error('❌ Missing Neynar API key or signer UUID')
+      console.log('🤖 Would reply to', parentHash, ':', text)
+      return
+    }
+    
+    const replyData = {
+      text: text,
+      parent: parentHash,
+      signer_uuid: signerUuid
+    }
+    
+    console.log('📤 Sending reply via Neynar API...')
+    
+    const response = await fetch('https://api.neynar.com/v2/farcaster/cast', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api_key': neynarApiKey,
+      },
+      body: JSON.stringify(replyData)
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      console.log('✅ Reply sent successfully:', result.cast?.hash)
+    } else {
+      const errorText = await response.text()
+      console.error('❌ Failed to send reply:', response.status, errorText)
+      console.log('🤖 Would have replied:', text)
+    }
+    
+  } catch (error) {
+    console.error('💥 Error sending reply:', error)
+    console.log('🤖 Would have replied to', parentHash, ':', text)
+  }
 }
 
 export async function POST(request: NextRequest) {
