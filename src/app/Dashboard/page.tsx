@@ -1,9 +1,58 @@
 // src/app/dashboard/page.tsx
-import SavedCasts from '@/components/SavedCasts'
-import IntelligenceDashboard from '@/components/IntelligenceDashboard'
+// Progressive loading version to isolate which component is causing 404
+
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
 
 export default function Dashboard() {
+  const [testStep, setTestStep] = useState(0)
+  const [errors, setErrors] = useState<string[]>([])
+
+  const runTest = async (step: number) => {
+    setTestStep(step)
+    setErrors([])
+
+    try {
+      switch (step) {
+        case 1:
+          // Test SavedCasts import
+          const { default: SavedCasts } = await import('@/components/SavedCasts')
+          console.log('✅ SavedCasts imported successfully')
+          break
+          
+        case 2:
+          // Test IntelligenceDashboard import
+          const { default: IntelligenceDashboard } = await import('@/components/IntelligenceDashboard')
+          console.log('✅ IntelligenceDashboard imported successfully')
+          break
+          
+        case 3:
+          // Test Supabase
+          const { supabase } = await import('@/lib/supabase')
+          const { data, error } = await supabase.from('saved_casts').select('*').limit(1)
+          if (error) throw new Error(`Supabase: ${error.message}`)
+          console.log('✅ Supabase connection successful')
+          break
+          
+        case 4:
+          // Test Intelligence library
+          const { CastIntelligence } = await import('@/lib/intelligence')
+          await CastIntelligence.getTrendingTopics('week')
+          console.log('✅ Intelligence library working')
+          break
+          
+        default:
+          break
+      }
+    } catch (error) {
+      const errorMsg = `Step ${step} failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      console.error(errorMsg)
+      setErrors(prev => [...prev, errorMsg])
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
       <div className="container mx-auto px-4 py-8">
@@ -11,10 +60,10 @@ export default function Dashboard() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">
-              Cast<span className="text-purple-400">KPR</span> Dashboard
+              🔧 Cast<span className="text-purple-400">KPR</span> Debug Dashboard
             </h1>
             <p className="text-gray-300">
-              Your saved casts and personalized insights
+              Testing components to find the 404 cause
             </p>
           </div>
           
@@ -26,96 +75,122 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Two-column layout */}
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Left column - Saved Casts (2/3 width) */}
-          <div className="lg:col-span-2">
-            <SavedCasts userId="demo-user" />
+        {/* Test Results */}
+        <div className="grid gap-6 mb-8">
+          {/* Basic Page Load */}
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-2xl">✅</span>
+              <h3 className="text-white font-semibold">Dashboard Page Loads</h3>
+            </div>
+            <p className="text-gray-300 text-sm">
+              The dashboard route is working! The 404 is caused by a component or import.
+            </p>
           </div>
-          
-          {/* Right column - Intelligence Dashboard (1/3 width) */}
-          <div className="lg:col-span-1">
-            <IntelligenceDashboard userId="demo-user" />
+
+          {/* Component Tests */}
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+            <h3 className="text-white font-semibold mb-4">Component Tests</h3>
             
-            {/* Quick Actions */}
-            <div className="mt-6 bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
-              <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
+            <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <button
+                onClick={() => runTest(1)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg transition-colors"
+              >
+                🧪 Test SavedCasts Import
+              </button>
               
-              <div className="space-y-3">
-                <Link 
-                  href="/save"
-                  className="block bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg transition-colors text-center"
-                >
-                  💾 Save a Cast
-                </Link>
-                
-                <div className="bg-white/10 rounded-lg p-3">
-                  <h4 className="text-white text-sm font-medium mb-2">🤖 Bot Commands</h4>
-                  <div className="space-y-1 text-xs text-gray-300">
-                    <div><code className="bg-black/30 px-1 rounded">@cstkpr save this</code></div>
-                    <div><code className="bg-black/30 px-1 rounded">@cstkpr opinion</code></div>
-                    <div><code className="bg-black/30 px-1 rounded">@cstkpr trending</code></div>
-                  </div>
-                </div>
+              <button
+                onClick={() => runTest(2)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg transition-colors"
+              >
+                🧪 Test IntelligenceDashboard Import
+              </button>
+              
+              <button
+                onClick={() => runTest(3)}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg transition-colors"
+              >
+                🧪 Test Supabase Connection
+              </button>
+              
+              <button
+                onClick={() => runTest(4)}
+                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg transition-colors"
+              >
+                🧪 Test Intelligence Library
+              </button>
+            </div>
+
+            {/* Current Test Status */}
+            {testStep > 0 && (
+              <div className="bg-white/5 rounded-lg p-4 mb-4">
+                <p className="text-white">
+                  🔍 Testing step {testStep}... Check browser console for details.
+                </p>
               </div>
+            )}
+
+            {/* Errors */}
+            {errors.length > 0 && (
+              <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4">
+                <h4 className="text-red-300 font-semibold mb-2">❌ Errors Found:</h4>
+                {errors.map((error, index) => (
+                  <pre key={index} className="text-red-200 text-sm mb-2 overflow-auto">
+                    {error}
+                  </pre>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Progressive Component Loading */}
+        <div className="bg-white/5 backdrop-blur-lg rounded-xl p-8 border border-white/10">
+          <h2 className="text-2xl font-bold text-white mb-6">
+            🎯 Progressive Component Test
+          </h2>
+          
+          <div className="space-y-4">
+            <div className="bg-white/10 rounded-lg p-4">
+              <h3 className="text-white font-medium mb-2">Step 1: Test SavedCasts Component</h3>
+              <p className="text-gray-300 text-sm">
+                This component handles displaying saved casts from the database.
+              </p>
             </div>
             
-            {/* Learning Status */}
-            <div className="mt-6 bg-gradient-to-r from-green-500/20 to-blue-500/20 rounded-xl p-4 border border-green-500/30">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">🧠</span>
-                <h4 className="text-white font-medium">AI Learning Status</h4>
-              </div>
-              <p className="text-sm text-gray-300 mb-2">
-                CastKPR is actively learning from your saves and the community's behavior.
+            <div className="bg-white/10 rounded-lg p-4">
+              <h3 className="text-white font-medium mb-2">Step 2: Test IntelligenceDashboard Component</h3>
+              <p className="text-gray-300 text-sm">
+                This component shows AI insights and depends on the intelligence library.
               </p>
-              <div className="bg-white/10 rounded-full h-2 mb-2">
-                <div className="bg-green-400 rounded-full h-2 w-3/4"></div>
-              </div>
-              <p className="text-xs text-gray-400">
-                Learning confidence: 75% • Based on community saves
+            </div>
+            
+            <div className="bg-white/10 rounded-lg p-4">
+              <h3 className="text-white font-medium mb-2">Step 3: Test Database Connection</h3>
+              <p className="text-gray-300 text-sm">
+                Verifies Supabase connection and saved_casts table access.
+              </p>
+            </div>
+            
+            <div className="bg-white/10 rounded-lg p-4">
+              <h3 className="text-white font-medium mb-2">Step 4: Test Intelligence Library</h3>
+              <p className="text-gray-300 text-sm">
+                Tests the AI analysis functions and trending topics calculation.
               </p>
             </div>
           </div>
         </div>
-        
-        {/* Bottom section - Community Insights */}
-        <div className="mt-8 bg-white/5 backdrop-blur-lg rounded-xl p-8 border border-white/10">
-          <h2 className="text-2xl font-bold text-white mb-6 text-center">
-            🌟 How CastKPR Gets Smarter
-          </h2>
-          
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="text-4xl mb-3">📚</div>
-              <h3 className="text-white font-semibold mb-2">Pattern Recognition</h3>
-              <p className="text-gray-300 text-sm">
-                Every save teaches me what quality content looks like across different topics and authors
-              </p>
-            </div>
-            
-            <div className="text-center">
-              <div className="text-4xl mb-3">🔍</div>
-              <h3 className="text-white font-semibold mb-2">Trend Analysis</h3>
-              <p className="text-gray-300 text-sm">
-                I track emerging topics and identify content that's gaining traction before it goes viral
-              </p>
-            </div>
-            
-            <div className="text-center">
-              <div className="text-4xl mb-3">🎯</div>
-              <h3 className="text-white font-semibold mb-2">Personalization</h3>
-              <p className="text-gray-300 text-sm">
-                Your saves help me understand your interests and recommend similar high-quality content
-              </p>
-            </div>
-          </div>
-          
-          <div className="mt-6 text-center">
-            <p className="text-gray-400 text-sm">
-              The more the community uses CastKPR, the smarter and more helpful I become for everyone! 🚀
-            </p>
-          </div>
+
+        {/* Instructions */}
+        <div className="mt-8 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6">
+          <h3 className="text-yellow-300 font-semibold mb-2">🔍 Instructions</h3>
+          <ol className="text-yellow-200 text-sm space-y-1">
+            <li>1. Click each test button above</li>
+            <li>2. Check browser console (F12) for detailed errors</li>
+            <li>3. The failing test will show which component is causing the 404</li>
+            <li>4. Once we identify the failing component, we can fix it specifically</li>
+          </ol>
         </div>
       </div>
     </div>
