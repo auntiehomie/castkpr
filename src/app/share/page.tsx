@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { sdk } from '@farcaster/miniapp-sdk'
 import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
@@ -11,74 +12,164 @@ interface SharedCastData {
   viewerFid?: string
 }
 
+interface EnrichedCastData {
+  hash: string
+  text: string
+  author: {
+    fid: number
+    username?: string
+    displayName?: string
+    pfpUrl?: string
+  }
+  timestamp?: number
+  embeds?: string[]
+  mentions?: Array<{ username?: string; fid?: number }>
+  channelKey?: string
+}
+
 function ShareContent() {
   const searchParams = useSearchParams()
-  const [sharedCast, setSharedCast] = useState<SharedCastData | null>(null)
+  const [urlParams, setUrlParams] = useState<SharedCastData | null>(null)
+  const [enrichedCast, setEnrichedCast] = useState<EnrichedCastData | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get cast data from URL parameters
-    const castHash = searchParams?.get('castHash')
-    const castFid = searchParams?.get('castFid')
-    const viewerFid = searchParams?.get('viewerFid')
+    const initializeShare = async () => {
+      try {
+        console.log('🎯 Share page initializing...')
+        
+        // 1. Get URL parameters (available immediately)
+        const castHash = searchParams?.get('castHash')
+        const castFid = searchParams?.get('castFid')
+        const viewerFid = searchParams?.get('viewerFid')
 
-    if (castHash) {
-      setSharedCast({
-        castHash,
-        castFid: castFid || undefined,
-        viewerFid: viewerFid || undefined
-      })
+        console.log('📨 URL Parameters:', { castHash, castFid, viewerFid })
+
+        if (castHash) {
+          setUrlParams({ castHash, castFid: castFid || undefined, viewerFid: viewerFid || undefined })
+        }
+
+        // 2. Initialize Mini App SDK
+        await sdk.actions.ready()
+        console.log('✅ SDK ready')
+
+        // 3. Check for enriched cast data from share extension
+        if (sdk.context.location?.type === 'cast_share') {
+          const sharedCast = sdk.context.location.cast
+          console.log('✨ Got enriched cast data from SDK:', sharedCast)
+          
+          setEnrichedCast({
+            hash: sharedCast.hash,
+            text: sharedCast.text,
+            author: sharedCast.author,
+            timestamp: sharedCast.timestamp,
+            embeds: sharedCast.embeds,
+            mentions: sharedCast.mentions,
+            channelKey: sharedCast.channelKey
+          })
+        } else {
+          console.log('⚠️ No SDK cast data, using URL parameters only')
+          
+          // Fallback: if we have URL params but no SDK data, try to fetch from API
+          if (castHash) {
+            console.log('🌐 Attempting to fetch cast data from Neynar...')
+            try {
+              const response = await fetch(`/api/fetch-cast?hash=${castHash}`)
+              if (response.ok) {
+                const castData = await response.json()
+                setEnrichedCast(castData)
+                console.log('✅ Fetched cast data from API')
+              } else {
+                console.log('⚠️ API fetch failed, using basic data')
+              }
+            } catch (apiError) {
+              console.log('⚠️ API call failed:', apiError)
+            }
+          }
+        }
+
+      } catch (err) {
+        console.error('❌ Error initializing share:', err)
+        setError('Failed to load shared cast')
+      } finally {
+        setLoading(false)
+      }
     }
+    
+    initializeShare()
   }, [searchParams])
 
   const handleSaveCast = async () => {
-    if (!sharedCast?.castHash) return
+    const castHash = enrichedCast?.hash || urlParams?.castHash
+    if (!castHash) return
 
     setSaving(true)
     setError(null)
 
     try {
-      // Create cast data for saving
+      // Use enriched data if available, fallback to URL params
       const castData = {
-        username: `user-${sharedCast.castFid || 'unknown'}`,
-        fid: parseInt(sharedCast.castFid || '0'),
-        cast_hash: sharedCast.castHash,
-        cast_content: `🔗 Cast shared to CastKPR - Hash: ${sharedCast.castHash}`,
-        cast_timestamp: new Date().toISOString(),
+        username: enrichedCast?.author.username || `user-${urlParams?.castFid || 'unknown'}`,
+        fid: enrichedCast?.author.fid || parseInt(urlParams?.castFid || '0'),
+        cast_hash: castHash,
+        cast_content: enrichedCast?.text || `🔗 Cast shared to CastKPR - Hash: ${castHash}`,
+        cast_timestamp: enrichedCast?.timestamp 
+          ? new Date(enrichedCast.timestamp).toISOString() 
+          : new Date().toISOString(),
         tags: ['shared-to-app'] as string[],
         likes_count: 0,
         replies_count: 0,
         recasts_count: 0,
         
-        cast_url: `https://warpcast.com/~/conversations/${sharedCast.castHash}`,
-        author_pfp_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${sharedCast.castFid || 'default'}`,
-        author_display_name: `User ${sharedCast.castFid || 'Unknown'}`,
-        saved_by_user_id: sharedCast.viewerFid || 'shared-user',
+        cast_url: `https://warpcast.com/~/conversations/${castHash}`,
+        author_pfp_url: enrichedCast?.author.pfpUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${urlParams?.castFid || 'default'}`,
+        author_display_name: enrichedCast?.author.displayName || enrichedCast?.author.username || `User ${urlParams?.castFid || 'Unknown'}`,
+        saved_by_user_id: urlParams?.viewerFid || 'shared-user',
         category: 'shared-cast',
         notes: `📱 Shared to CastKPR on ${new Date().toLocaleDateString()}`,
         parsed_data: {
-          urls: [`https://warpcast.com/~/conversations/${sharedCast.castHash}`],
-          hashtags: ['cstkpr', 'shared'],
-          mentions: [],
-          word_count: 0,
+          urls: enrichedCast?.embeds || [`https://warpcast.com/~/conversations/${castHash}`],
+          hashtags: enrichedCast ? [...enrichedCast.text.matchAll(/#(\w+)/g)].map(match => match[1]) : ['cstkpr', 'shared'],
+          mentions: enrichedCast?.mentions?.map(m => m.username).filter(Boolean) || [],
+          word_count: enrichedCast?.text ? enrichedCast.text.split(' ').length : 0,
           sentiment: 'neutral' as const,
-          topics: ['shared-cast']
+          topics: enrichedCast?.channelKey ? [enrichedCast.channelKey] : ['shared-cast']
         }
       } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
 
+      console.log('💾 Saving cast:', castData.cast_hash)
       await CastService.saveCast(castData)
+      console.log('✅ Cast saved successfully!')
       setSaved(true)
     } catch (err) {
-      console.error('Error saving shared cast:', err)
-      setError(err instanceof Error ? err.message : 'Failed to save cast')
+      console.error('❌ Error saving shared cast:', err)
+      if (err instanceof Error && err.message.includes('already saved')) {
+        setError('This cast is already saved in your vault!')
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to save cast')
+      }
     } finally {
       setSaving(false)
     }
   }
 
-  if (!sharedCast) {
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400 mx-auto mb-4"></div>
+          <p className="text-white">Loading shared cast...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // No cast data
+  if (!urlParams?.castHash && !enrichedCast) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
         <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center">
@@ -92,6 +183,7 @@ function ShareContent() {
     )
   }
 
+  // Success state
   if (saved) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
@@ -120,23 +212,69 @@ function ShareContent() {
     )
   }
 
+  // Main share interface
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-      <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center max-w-md">
-        <div className="text-6xl mb-4">📱</div>
-        <h1 className="text-2xl font-bold text-white mb-4">Save Shared Cast</h1>
-        <p className="text-gray-300 mb-6">
-          A cast has been shared to CastKPR. Would you like to save it to your collection?
-        </p>
-        
-        {/* Cast Info */}
-        <div className="bg-white/5 rounded-lg p-4 mb-6 text-left">
-          <h3 className="font-semibold text-white mb-2">Cast Details:</h3>
-          <div className="text-sm text-gray-300 space-y-1">
-            <p><strong>Hash:</strong> {sharedCast.castHash?.slice(0, 16)}...</p>
-            {sharedCast.castFid && <p><strong>Author FID:</strong> {sharedCast.castFid}</p>}
-            {sharedCast.viewerFid && <p><strong>Shared by FID:</strong> {sharedCast.viewerFid}</p>}
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+      <div className="max-w-lg mx-auto">
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold text-white mb-2">
+            💾 Save to Cast<span className="text-purple-400">KPR</span>
+          </h1>
+          <p className="text-gray-300">Add this cast to your vault</p>
+        </div>
+
+        {/* Cast Preview */}
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 mb-6">
+          {enrichedCast ? (
+            // Rich cast preview with actual content
+            <>
+              <div className="flex items-start space-x-3 mb-4">
+                {enrichedCast.author.pfpUrl ? (
+                  <img 
+                    src={enrichedCast.author.pfpUrl} 
+                    alt={enrichedCast.author.username}
+                    className="w-12 h-12 rounded-full"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center">
+                    <span className="text-white font-semibold">
+                      {enrichedCast.author.username?.charAt(0).toUpperCase() || '?'}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <h3 className="font-semibold text-white">
+                    {enrichedCast.author.displayName || `@${enrichedCast.author.username}`}
+                  </h3>
+                  <p className="text-sm text-gray-400">@{enrichedCast.author.username}</p>
+                  {enrichedCast.channelKey && (
+                    <p className="text-xs text-purple-300">/{enrichedCast.channelKey}</p>
+                  )}
+                </div>
+              </div>
+              
+              <p className="text-gray-100 leading-relaxed mb-4">
+                {enrichedCast.text}
+              </p>
+              
+              {enrichedCast.embeds && enrichedCast.embeds.length > 0 && (
+                <div className="text-sm text-blue-300">
+                  🔗 {enrichedCast.embeds.length} embed{enrichedCast.embeds.length !== 1 ? 's' : ''}
+                </div>
+              )}
+            </>
+          ) : (
+            // Basic preview with just hash info
+            <div className="text-center">
+              <div className="text-4xl mb-3">📝</div>
+              <h3 className="font-semibold text-white mb-2">Cast Details</h3>
+              <div className="text-sm text-gray-300 space-y-1">
+                <p><strong>Hash:</strong> {urlParams?.castHash?.slice(0, 16)}...</p>
+                {urlParams?.castFid && <p><strong>Author FID:</strong> {urlParams.castFid}</p>}
+                {urlParams?.viewerFid && <p><strong>Shared by FID:</strong> {urlParams.viewerFid}</p>}
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (
