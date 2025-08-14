@@ -1,419 +1,363 @@
-// src/lib/intelligence.ts
-import { CastService, supabase } from './supabase'
 import type { SavedCast } from './supabase'
 
-export interface CastInsight {
-  quality_score: number
-  trending_score: number
-  topics: string[]
-  sentiment: 'positive' | 'negative' | 'neutral'
-  save_worthiness: number
-  similar_casts: string[]
+export interface IntelligenceData {
+  totalCasts: number
+  topAuthors: { username: string; count: number; displayName?: string }[]
+  topHashtags: { hashtag: string; count: number }[]
+  topMentions: { mention: string; count: number }[]
+  topDomains: { domain: string; count: number }[]
+  engagementStats: {
+    totalLikes: number
+    totalReplies: number
+    totalRecasts: number
+    avgLikes: number
+    avgReplies: number
+    avgRecasts: number
+    highestEngagement: {
+      cast: SavedCast
+      totalEngagement: number
+    } | null
+  }
+  savingTrends: { date: string; count: number }[]
+  wordCloudData: { word: string; count: number }[]
+  categoryDistribution: { category: string; count: number }[]
+  timePatterns: {
+    hourly: { hour: number; count: number }[]
+    daily: { day: string; count: number }[]
+    monthly: { month: string; count: number }[]
+  }
+  contentAnalysis: {
+    avgWordCount: number
+    totalWords: number
+    urlCount: number
+    mentionCount: number
+    hashtagCount: number
+    longestCast: SavedCast | null
+    shortestCast: SavedCast | null
+  }
 }
 
-export interface TrendingTopic {
-  topic: string
-  save_count: number
-  engagement_avg: number
-  recent_growth: number
-  sample_casts?: string[]
-}
+export class IntelligenceService {
+  /**
+   * Process raw cast data into intelligence insights
+   */
+  static processIntelligenceData(casts: SavedCast[]): IntelligenceData {
+    const totalCasts = casts.length
 
-export class CastIntelligence {
-  
-  // Analyze what makes a cast "save-worthy" based on existing data
-  static async analyzeCastQuality(castContent: string, engagement?: {
-    likes: number
-    replies: number
-    recasts: number
-  }): Promise<CastInsight> {
+    return {
+      totalCasts,
+      topAuthors: this.analyzeTopAuthors(casts),
+      topHashtags: this.analyzeTopHashtags(casts),
+      topMentions: this.analyzeTopMentions(casts),
+      topDomains: this.analyzeTopDomains(casts),
+      engagementStats: this.analyzeEngagement(casts),
+      savingTrends: this.analyzeSavingTrends(casts),
+      wordCloudData: this.analyzeWordFrequency(casts),
+      categoryDistribution: this.analyzeCategoryDistribution(casts),
+      timePatterns: this.analyzeTimePatterns(casts),
+      contentAnalysis: this.analyzeContent(casts)
+    }
+  }
+
+  /**
+   * Analyze top authors by frequency
+   */
+  private static analyzeTopAuthors(casts: SavedCast[]): { username: string; count: number; displayName?: string }[] {
+    const authorCounts: Record<string, { count: number; displayName?: string }> = {}
     
-    try {
-      // Get similar saved casts for comparison
-      const similarCasts = await this.findSimilarSavedCasts(castContent)
-      
-      // Calculate quality score based on patterns in saved casts
-      const qualityScore = await this.calculateQualityScore(castContent, engagement, similarCasts)
-      
-      // Extract topics and sentiment
-      const topics = this.extractTopics(castContent)
-      const sentiment = this.analyzeSentiment(castContent)
-      
-      // Calculate trending score
-      const trendingScore = await this.calculateTrendingScore(topics)
-      
-      return {
-        quality_score: qualityScore,
-        trending_score: trendingScore,
-        topics,
-        sentiment,
-        save_worthiness: (qualityScore * 0.7) + (trendingScore * 0.3),
-        similar_casts: similarCasts.map(c => c.cast_hash)
-      }
-    } catch (error) {
-      console.error('Error analyzing cast quality:', error)
-      return {
-        quality_score: 0.5,
-        trending_score: 0,
-        topics: [],
-        sentiment: 'neutral',
-        save_worthiness: 0.5,
-        similar_casts: []
-      }
-    }
-  }
-
-  // Find trending topics based on recently saved casts
-  static async getTrendingTopics(timeframe: 'day' | 'week' | 'month' = 'week'): Promise<TrendingTopic[]> {
-    try {
-      const timeframeDays = timeframe === 'day' ? 1 : timeframe === 'week' ? 7 : 30
-      const since = new Date(Date.now() - timeframeDays * 24 * 60 * 60 * 1000).toISOString()
-      
-      const { data: recentCasts, error } = await supabase
-        .from('saved_casts')
-        .select('*')
-        .gte('created_at', since)
-        .limit(1000) // Add reasonable limit
-      
-      if (error) {
-        console.error('Error fetching recent casts:', error)
-        return []
-      }
-      
-      if (!recentCasts || recentCasts.length === 0) {
-        console.log('No recent casts found')
-        return []
-      }
-      
-      // Analyze hashtags and topics
-      const topicCounts = new Map<string, {
-        count: number
-        totalEngagement: number
-        casts: string[]
-      }>()
-      
-      recentCasts.forEach(cast => {
-        const hashtags = cast.parsed_data?.hashtags || []
-        const topics = cast.parsed_data?.topics || []
-        const allTopics = [...hashtags, ...topics]
-        
-        // Safe engagement calculation with null checking
-        const engagement = (cast.likes_count || 0) + (cast.replies_count || 0) + (cast.recasts_count || 0)
-        
-        allTopics.forEach(topic => {
-          if (topic && typeof topic === 'string' && topic.length > 1) {
-            const cleanTopic = topic.toLowerCase().trim()
-            const current = topicCounts.get(cleanTopic) || { count: 0, totalEngagement: 0, casts: [] }
-            topicCounts.set(cleanTopic, {
-              count: current.count + 1,
-              totalEngagement: current.totalEngagement + engagement,
-              casts: [...current.casts, cast.cast_hash].slice(0, 3) // Keep only first 3
-            })
-          }
-        })
-      })
-      
-      // Convert to trending topics and sort by save count
-      return Array.from(topicCounts.entries())
-        .filter(([topic, data]) => data.count >= 2) // Must appear at least twice
-        .map(([topic, data]) => ({
-          topic,
-          save_count: data.count,
-          engagement_avg: data.count > 0 ? data.totalEngagement / data.count : 0,
-          recent_growth: data.count, // Could calculate growth vs previous period
-          sample_casts: data.casts
-        }))
-        .sort((a, b) => b.save_count - a.save_count)
-        .slice(0, 20)
-        
-    } catch (error) {
-      console.error('Error getting trending topics:', error)
-      return []
-    }
-  }
-
-  // Generate cstkpr's opinion on a cast
-  static async generateOpinion(castContent: string, author?: string): Promise<string> {
-    try {
-      const insight = await this.analyzeCastQuality(castContent)
-      const trendingTopics = await this.getTrendingTopics()
-      
-      // Check if cast topics are trending
-      const castTopics = insight.topics
-      const trendingTopicNames = trendingTopics.map(t => t.topic)
-      const isOnTrend = castTopics.some(topic => trendingTopicNames.includes(topic))
-      
-      // Generate opinion based on analysis
-      if (insight.save_worthiness > 0.8) {
-        return this.generatePositiveOpinion(insight, isOnTrend)
-      } else if (insight.save_worthiness > 0.5) {
-        return this.generateNeutralOpinion(insight, isOnTrend)
-      } else {
-        return this.generateSuggestion(insight)
-      }
-    } catch (error) {
-      console.error('Error generating opinion:', error)
-      return "🤖 I'm having trouble analyzing this cast right now, but feel free to save it if it interests you!"
-    }
-  }
-
-  // Get recommendations based on user's saved casts
-  static async getPersonalizedRecommendations(userId: string): Promise<{
-    topics: string[]
-    similar_users: string[]
-    recommended_hashtags: string[]
-  }> {
-    try {
-      const userCasts = await CastService.getUserCasts(userId, 100)
-      
-      if (userCasts.length === 0) {
-        return {
-          topics: [],
-          similar_users: [],
-          recommended_hashtags: []
+    casts.forEach(cast => {
+      if (!authorCounts[cast.username]) {
+        authorCounts[cast.username] = { 
+          count: 0, 
+          displayName: cast.author_display_name 
         }
       }
-      
-      // Analyze user preferences
-      const userTopics = new Map<string, number>()
-      const userHashtags = new Map<string, number>()
-      
-      userCasts.forEach(cast => {
-        const hashtags = cast.parsed_data?.hashtags || []
-        const topics = cast.parsed_data?.topics || []
-        
-        hashtags.forEach(tag => {
-          if (tag && typeof tag === 'string') {
-            userHashtags.set(tag, (userHashtags.get(tag) || 0) + 1)
+      authorCounts[cast.username].count++
+    })
+
+    return Object.entries(authorCounts)
+      .sort(([,a], [,b]) => b.count - a.count)
+      .slice(0, 10)
+      .map(([username, data]) => ({ 
+        username, 
+        count: data.count,
+        displayName: data.displayName 
+      }))
+  }
+
+  /**
+   * Analyze top hashtags
+   */
+  private static analyzeTopHashtags(casts: SavedCast[]): { hashtag: string; count: number }[] {
+    const hashtagCounts: Record<string, number> = {}
+    
+    casts.forEach(cast => {
+      if (cast.parsed_data?.hashtags) {
+        cast.parsed_data.hashtags.forEach(hashtag => {
+          hashtagCounts[hashtag] = (hashtagCounts[hashtag] || 0) + 1
+        })
+      }
+    })
+
+    return Object.entries(hashtagCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 15)
+      .map(([hashtag, count]) => ({ hashtag, count }))
+  }
+
+  /**
+   * Analyze top mentions
+   */
+  private static analyzeTopMentions(casts: SavedCast[]): { mention: string; count: number }[] {
+    const mentionCounts: Record<string, number> = {}
+    
+    casts.forEach(cast => {
+      if (cast.parsed_data?.mentions) {
+        cast.parsed_data.mentions.forEach(mention => {
+          mentionCounts[mention] = (mentionCounts[mention] || 0) + 1
+        })
+      }
+    })
+
+    return Object.entries(mentionCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([mention, count]) => ({ mention, count }))
+  }
+
+  /**
+   * Analyze top domains from URLs
+   */
+  private static analyzeTopDomains(casts: SavedCast[]): { domain: string; count: number }[] {
+    const domainCounts: Record<string, number> = {}
+    
+    casts.forEach(cast => {
+      if (cast.parsed_data?.urls) {
+        cast.parsed_data.urls.forEach(url => {
+          try {
+            const domain = new URL(url).hostname
+            domainCounts[domain] = (domainCounts[domain] || 0) + 1
+          } catch {
+            // Invalid URL, skip
           }
         })
-        
-        topics.forEach(topic => {
-          if (topic && typeof topic === 'string') {
-            userTopics.set(topic, (userTopics.get(topic) || 0) + 1)
-          }
-        })
-      })
-      
-      // Find users with similar interests
-      const { data: allUsers, error } = await supabase
-        .from('saved_casts')
-        .select('saved_by_user_id, parsed_data')
-        .neq('saved_by_user_id', userId)
-        .limit(500) // Reasonable limit
-      
-      if (error) {
-        console.error('Error fetching similar users:', error)
       }
-      
-      // Calculate similarity scores (simplified)
-      const similarUsers = this.findSimilarUsers(userTopics, allUsers || [])
-      
-      return {
-        topics: Array.from(userTopics.keys()).slice(0, 5),
-        similar_users: similarUsers.slice(0, 3),
-        recommended_hashtags: Array.from(userHashtags.keys()).slice(0, 10)
+    })
+
+    return Object.entries(domainCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([domain, count]) => ({ domain, count }))
+  }
+
+  /**
+   * Analyze engagement statistics
+   */
+  private static analyzeEngagement(casts: SavedCast[]): IntelligenceData['engagementStats'] {
+    const totalLikes = casts.reduce((sum, cast) => sum + cast.likes_count, 0)
+    const totalReplies = casts.reduce((sum, cast) => sum + cast.replies_count, 0)
+    const totalRecasts = casts.reduce((sum, cast) => sum + cast.recasts_count, 0)
+    
+    // Find highest engagement cast
+    let highestEngagement: { cast: SavedCast; totalEngagement: number } | null = null
+    casts.forEach(cast => {
+      const engagement = cast.likes_count + cast.replies_count + cast.recasts_count
+      if (!highestEngagement || engagement > highestEngagement.totalEngagement) {
+        highestEngagement = { cast, totalEngagement: engagement }
       }
-      
-    } catch (error) {
-      console.error('Error getting personalized recommendations:', error)
-      return {
-        topics: [],
-        similar_users: [],
-        recommended_hashtags: []
-      }
+    })
+
+    return {
+      totalLikes,
+      totalReplies,
+      totalRecasts,
+      avgLikes: casts.length > 0 ? Math.round(totalLikes / casts.length) : 0,
+      avgReplies: casts.length > 0 ? Math.round(totalReplies / casts.length) : 0,
+      avgRecasts: casts.length > 0 ? Math.round(totalRecasts / casts.length) : 0,
+      highestEngagement
     }
   }
 
-  // Private helper methods
-  private static async findSimilarSavedCasts(content: string): Promise<SavedCast[]> {
-    try {
-      // Use simple text similarity for now - could use embeddings later
-      const keywords = this.extractKeywords(content)
-      
-      if (keywords.length === 0) return []
-      
-      // Use ilike for case-insensitive search instead of textSearch
-      const { data, error } = await supabase
-        .from('saved_casts')
-        .select('*')
-        .ilike('cast_content', `%${keywords[0]}%`)
-        .limit(5)
-      
-      if (error) {
-        console.error('Error finding similar casts:', error)
-        return []
-      }
-      
-      return data || []
-    } catch (error) {
-      console.error('Error in findSimilarSavedCasts:', error)
-      return []
-    }
+  /**
+   * Analyze saving trends over time
+   */
+  private static analyzeSavingTrends(casts: SavedCast[]): { date: string; count: number }[] {
+    const dateCounts: Record<string, number> = {}
+    
+    casts.forEach(cast => {
+      const date = new Date(cast.created_at).toISOString().split('T')[0]
+      dateCounts[date] = (dateCounts[date] || 0) + 1
+    })
+
+    return Object.entries(dateCounts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-30) // Last 30 days
+      .map(([date, count]) => ({ date, count }))
   }
 
-  private static async calculateQualityScore(
-    content: string, 
-    engagement?: { likes: number; replies: number; recasts: number },
-    similarCasts: SavedCast[] = []
-  ): Promise<number> {
-    try {
-      let score = 0.5 // Base score
-      
-      // Length factor (not too short, not too long)
-      const wordCount = content.split(' ').length
-      if (wordCount > 10 && wordCount < 100) score += 0.1
-      
-      // URL factor (links often indicate value)
-      if (content.includes('http')) score += 0.1
-      
-      // Engagement factor
-      if (engagement) {
-        const totalEngagement = engagement.likes + engagement.replies + engagement.recasts
-        if (totalEngagement > 10) score += 0.2
-        if (totalEngagement > 50) score += 0.1
-      }
-      
-      // Similar casts factor (if similar content was saved before, it's likely good)
-      if (similarCasts.length > 0) {
-        const avgEngagement = similarCasts.reduce((sum, cast) => 
-          sum + (cast.likes_count || 0) + (cast.replies_count || 0) + (cast.recasts_count || 0), 0
-        ) / similarCasts.length
-        
-        if (avgEngagement > 20) score += 0.2
-      }
-      
-      return Math.min(score, 1.0)
-    } catch (error) {
-      console.error('Error calculating quality score:', error)
-      return 0.5
-    }
-  }
-
-  private static async calculateTrendingScore(topics: string[]): Promise<number> {
-    try {
-      if (topics.length === 0) return 0
-      
-      const trendingTopics = await this.getTrendingTopics()
-      const trendingTopicNames = trendingTopics.map(t => t.topic.toLowerCase())
-      
-      const matchingTopics = topics.filter(topic => 
-        trendingTopicNames.includes(topic.toLowerCase())
-      )
-      
-      return matchingTopics.length / Math.max(topics.length, 1)
-    } catch (error) {
-      console.error('Error calculating trending score:', error)
-      return 0
-    }
-  }
-
-  private static extractTopics(content: string): string[] {
-    try {
-      // Extract hashtags
-      const hashtags = [...content.matchAll(/#(\w+)/g)].map(match => match[1])
-      
-      // Extract potential topics (simplified keyword extraction)
-      const keywords = this.extractKeywords(content)
-      
-      return [...hashtags, ...keywords].slice(0, 5)
-    } catch (error) {
-      console.error('Error extracting topics:', error)
-      return []
-    }
-  }
-
-  private static extractKeywords(content: string): string[] {
-    try {
-      // Simple keyword extraction - could use NLP library
-      const words = content.toLowerCase()
+  /**
+   * Analyze word frequency for word cloud
+   */
+  private static analyzeWordFrequency(casts: SavedCast[]): { word: string; count: number }[] {
+    const wordCounts: Record<string, number> = {}
+    const commonWords = new Set([
+      'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+      'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+      'will', 'would', 'could', 'should', 'can', 'may', 'might', 'must',
+      'this', 'that', 'these', 'those', 'it', 'its', 'they', 'them', 'their', 'we', 'us', 'our',
+      'you', 'your', 'i', 'me', 'my', 'he', 'him', 'his', 'she', 'her', 'hers'
+    ])
+    
+    casts.forEach(cast => {
+      const words = cast.cast_content
+        .toLowerCase()
         .replace(/[^\w\s]/g, '')
-        .split(' ')
-        .filter(word => word.length > 3)
-        .filter(word => !['this', 'that', 'with', 'from', 'they', 'have', 'will'].includes(word))
+        .split(/\s+/)
+        .filter(word => word.length > 3 && !commonWords.has(word))
       
-      return [...new Set(words)].slice(0, 3)
-    } catch (error) {
-      console.error('Error extracting keywords:', error)
-      return []
-    }
-  }
-
-  private static analyzeSentiment(content: string): 'positive' | 'negative' | 'neutral' {
-    try {
-      // Simple sentiment analysis - could use ML model
-      const positiveWords = ['great', 'awesome', 'love', 'amazing', 'good', 'best', 'happy']
-      const negativeWords = ['bad', 'hate', 'terrible', 'awful', 'worst', 'sad', 'angry']
-      
-      const lowerContent = content.toLowerCase()
-      const positiveCount = positiveWords.filter(word => lowerContent.includes(word)).length
-      const negativeCount = negativeWords.filter(word => lowerContent.includes(word)).length
-      
-      if (positiveCount > negativeCount) return 'positive'
-      if (negativeCount > positiveCount) return 'negative'
-      return 'neutral'
-    } catch (error) {
-      console.error('Error analyzing sentiment:', error)
-      return 'neutral'
-    }
-  }
-
-  private static generatePositiveOpinion(insight: CastInsight, isOnTrend: boolean): string {
-    const opinions = [
-      `🔥 This looks like quality content! I see ${insight.topics.length} relevant topics and it matches patterns from highly-saved casts.`,
-      `💎 Strong save candidate! The content quality scores high based on what the community typically saves.`,
-      `⭐ This has all the markers of content worth preserving - good topics, quality writing.`
-    ]
-    
-    let opinion = opinions[Math.floor(Math.random() * opinions.length)]
-    
-    if (isOnTrend) {
-      opinion += ` Plus it touches on trending topics right now!`
-    }
-    
-    return opinion
-  }
-
-  private static generateNeutralOpinion(insight: CastInsight, isOnTrend: boolean): string {
-    return `🤔 This could be worth saving depending on your interests. It covers topics like ${insight.topics.slice(0, 2).join(', ')}. Quality score is decent but not exceptional.`
-  }
-
-  private static generateSuggestion(insight: CastInsight): string {
-    return `💡 While this cast doesn't match typical "highly saved" patterns, it might still be valuable if it's relevant to your specific interests. Consider what makes it meaningful to you!`
-  }
-
-  private static findSimilarUsers(userTopics: Map<string, number>, allUserData: any[]): string[] {
-    try {
-      // Simplified similarity calculation
-      const userSimilarity = new Map<string, number>()
-      
-      allUserData.forEach(userData => {
-        if (!userData.saved_by_user_id || !userData.parsed_data) return
-        
-        const otherTopics = userData.parsed_data?.topics || []
-        const otherHashtags = userData.parsed_data?.hashtags || []
-        const otherAllTopics = [...otherTopics, ...otherHashtags]
-        
-        let similarity = 0
-        otherAllTopics.forEach(topic => {
-          if (topic && userTopics.has(topic)) {
-            similarity += 1
-          }
-        })
-        
-        if (similarity > 0) {
-          const currentSim = userSimilarity.get(userData.saved_by_user_id) || 0
-          userSimilarity.set(userData.saved_by_user_id, currentSim + similarity)
-        }
+      words.forEach(word => {
+        wordCounts[word] = (wordCounts[word] || 0) + 1
       })
+    })
+
+    return Object.entries(wordCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 50)
+      .map(([word, count]) => ({ word, count }))
+  }
+
+  /**
+   * Analyze category distribution
+   */
+  private static analyzeCategoryDistribution(casts: SavedCast[]): { category: string; count: number }[] {
+    const categoryCounts: Record<string, number> = {}
+    
+    casts.forEach(cast => {
+      const category = cast.category || 'uncategorized'
+      categoryCounts[category] = (categoryCounts[category] || 0) + 1
+    })
+
+    return Object.entries(categoryCounts)
+      .sort(([,a], [,b]) => b - a)
+      .map(([category, count]) => ({ category, count }))
+  }
+
+  /**
+   * Analyze time patterns
+   */
+  private static analyzeTimePatterns(casts: SavedCast[]): IntelligenceData['timePatterns'] {
+    const hourlyCounts: Record<number, number> = {}
+    const dailyCounts: Record<string, number> = {}
+    const monthlyCounts: Record<string, number> = {}
+
+    casts.forEach(cast => {
+      const date = new Date(cast.cast_timestamp)
       
-      return Array.from(userSimilarity.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([userId]) => userId)
-        .slice(0, 5)
-    } catch (error) {
-      console.error('Error finding similar users:', error)
-      return []
+      // Hourly pattern
+      const hour = date.getHours()
+      hourlyCounts[hour] = (hourlyCounts[hour] || 0) + 1
+      
+      // Daily pattern
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' })
+      dailyCounts[dayName] = (dailyCounts[dayName] || 0) + 1
+      
+      // Monthly pattern
+      const monthName = date.toLocaleDateString('en-US', { month: 'long' })
+      monthlyCounts[monthName] = (monthlyCounts[monthName] || 0) + 1
+    })
+
+    return {
+      hourly: Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        count: hourlyCounts[hour] || 0
+      })),
+      daily: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        .map(day => ({ day, count: dailyCounts[day] || 0 })),
+      monthly: ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December']
+        .map(month => ({ month, count: monthlyCounts[month] || 0 }))
     }
+  }
+
+  /**
+   * Analyze content characteristics
+   */
+  private static analyzeContent(casts: SavedCast[]): IntelligenceData['contentAnalysis'] {
+    let totalWords = 0
+    let urlCount = 0
+    let mentionCount = 0
+    let hashtagCount = 0
+    let longestCast: SavedCast | null = null
+    let shortestCast: SavedCast | null = null
+
+    casts.forEach(cast => {
+      const wordCount = cast.parsed_data?.word_count || cast.cast_content.split(/\s+/).length
+      totalWords += wordCount
+
+      // Track longest and shortest casts
+      if (!longestCast || wordCount > (longestCast.parsed_data?.word_count || 0)) {
+        longestCast = cast
+      }
+      if (!shortestCast || wordCount < (shortestCast.parsed_data?.word_count || Infinity)) {
+        shortestCast = cast
+      }
+
+      // Count URLs, mentions, hashtags
+      if (cast.parsed_data?.urls) urlCount += cast.parsed_data.urls.length
+      if (cast.parsed_data?.mentions) mentionCount += cast.parsed_data.mentions.length
+      if (cast.parsed_data?.hashtags) hashtagCount += cast.parsed_data.hashtags.length
+    })
+
+    return {
+      avgWordCount: casts.length > 0 ? Math.round(totalWords / casts.length) : 0,
+      totalWords,
+      urlCount,
+      mentionCount,
+      hashtagCount,
+      longestCast,
+      shortestCast
+    }
+  }
+
+  /**
+   * Generate insights and recommendations
+   */
+  static generateInsights(data: IntelligenceData): string[] {
+    const insights: string[] = []
+
+    // Engagement insights
+    if (data.engagementStats.avgLikes > 10) {
+      insights.push("🔥 You're saving highly engaging content! Your average cast gets " + data.engagementStats.avgLikes + " likes.")
+    }
+
+    // Author diversity insights
+    if (data.topAuthors.length > 0) {
+      const topAuthor = data.topAuthors[0]
+      const percentage = Math.round((topAuthor.count / data.totalCasts) * 100)
+      if (percentage > 50) {
+        insights.push(`📊 ${percentage}% of your saved casts are from @${topAuthor.username}. Consider diversifying your sources!`)
+      } else {
+        insights.push(`👥 You follow diverse voices! Your top author @${topAuthor.username} represents only ${percentage}% of your saves.`)
+      }
+    }
+
+    // Content insights
+    if (data.contentAnalysis.avgWordCount > 100) {
+      insights.push("📖 You prefer long-form content with an average of " + data.contentAnalysis.avgWordCount + " words per cast.")
+    } else if (data.contentAnalysis.avgWordCount < 50) {
+      insights.push("⚡ You like concise content! Your saved casts average just " + data.contentAnalysis.avgWordCount + " words.")
+    }
+
+    // Hashtag insights
+    if (data.topHashtags.length > 0) {
+      insights.push(`🏷️ Your most saved topic is #${data.topHashtags[0].hashtag} with ${data.topHashtags[0].count} occurrences.`)
+    }
+
+    // URL insights
+    if (data.contentAnalysis.urlCount > data.totalCasts * 0.5) {
+      insights.push("🔗 You're a link collector! Over half your saved casts contain URLs.")
+    }
+
+    return insights
   }
 }
