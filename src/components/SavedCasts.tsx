@@ -71,8 +71,9 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
           // Wait for context to be available
           await new Promise(resolve => setTimeout(resolve, 1000))
           
-          if (sdk.context?.user) {
-            const user = sdk.context.user
+          const context = await sdk.context
+          if (context?.user) {
+            const user = context.user
             const detectedUserId = user.username || `fid-${user.fid}` || 'anonymous'
             console.log('🔍 Detected current user:', detectedUserId, user)
             setCurrentUserId(detectedUserId)
@@ -221,100 +222,8 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
       const savedCasts = await CastService.getUserCasts(currentUserId, 100)
       console.log('📦 Fetched', savedCasts.length, 'casts')
       
-      // Debug first few casts
-      if (savedCasts.length > 0) {
-        console.log('📝 Sample cast structure:', {
-          id: savedCasts[0].id,
-          username: savedCasts[0].username,
-          content_length: savedCasts[0].cast_content?.length,
-          has_parsed_data: !!savedCasts[0].parsed_data,
-          parsed_data_keys: savedCasts[0].parsed_data ? Object.keys(savedCasts[0].parsed_data) : []
-        })
-      }
-      
       setAllCasts(savedCasts)
-      
-      // Apply current filters
-      let filteredCasts = savedCasts
-      
-      // Apply tag filters
-      if (selectedTags.length > 0) {
-        filteredCasts = filteredCasts.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            const castTags = new Set([
-              ...(Array.isArray(cast.tags) ? cast.tags : []),
-              ...(Array.isArray(parsedData?.hashtags) ? parsedData.hashtags : []),
-              ...(Array.isArray(parsedData?.ai_tags) ? parsedData.ai_tags : []),
-              ...(Array.isArray(parsedData?.topics) ? parsedData.topics : [])
-            ])
-            
-            return selectedTags.every(selectedTag => castTags.has(selectedTag))
-          } catch (filterError) {
-            console.warn('⚠️ Error applying tag filter to cast:', cast.id, filterError)
-            return false
-          }
-        })
-      }
-
-      // Apply enhanced analysis filters
-      if (qualityFilter) {
-        filteredCasts = filteredCasts.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            const quality = parsedData?.quality_score || 0
-            switch (qualityFilter) {
-              case 'excellent': return quality >= 80
-              case 'good': return quality >= 60 && quality < 80
-              case 'fair': return quality >= 40 && quality < 60
-              case 'poor': return quality < 40
-              default: return true
-            }
-          } catch (filterError) {
-            console.warn('⚠️ Error applying quality filter to cast:', cast.id, filterError)
-            return qualityFilter === 'poor' // Default poor quality for errored casts
-          }
-        })
-      }
-
-      if (sentimentFilter) {
-        filteredCasts = filteredCasts.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            return parsedData?.sentiment === sentimentFilter
-          } catch (filterError) {
-            console.warn('⚠️ Error applying sentiment filter to cast:', cast.id, filterError)
-            return sentimentFilter === 'neutral' // Default neutral for errored casts
-          }
-        })
-      }
-
-      if (contentTypeFilter) {
-        filteredCasts = filteredCasts.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            return parsedData?.content_type === contentTypeFilter
-          } catch (filterError) {
-            console.warn('⚠️ Error applying content type filter to cast:', cast.id, filterError)
-            return false
-          }
-        })
-      }
-
-      if (engagementFilter) {
-        filteredCasts = filteredCasts.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            return parsedData?.engagement_potential === engagementFilter
-          } catch (filterError) {
-            console.warn('⚠️ Error applying engagement filter to cast:', cast.id, filterError)
-            return false
-          }
-        })
-      }
-      
-      setCasts(filteredCasts)
-      console.log('✅ Applied filters, showing', filteredCasts.length, 'casts')
+      setCasts(savedCasts)
       
     } catch (err) {
       console.error('❌ Error fetching saved casts:', err)
@@ -322,7 +231,7 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
     } finally {
       setLoading(false)
     }
-  }, [currentUserId, selectedTags, qualityFilter, sentimentFilter, contentTypeFilter, engagementFilter])
+  }, [currentUserId])
 
   const searchCasts = useCallback(async (query: string): Promise<void> => {
     if (!query.trim()) {
@@ -340,82 +249,8 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
       const searchResults = await CastService.searchCasts(currentUserId, query)
       console.log('📊 Search returned', searchResults.length, 'results')
       
-      // Apply all current filters to search results
-      let filteredResults = searchResults
-      
-      // Apply tag filters
-      if (selectedTags.length > 0) {
-        filteredResults = filteredResults.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            const castTags = new Set([
-              ...(Array.isArray(cast.tags) ? cast.tags : []),
-              ...(Array.isArray(parsedData?.hashtags) ? parsedData.hashtags : []),
-              ...(Array.isArray(parsedData?.ai_tags) ? parsedData.ai_tags : []),
-              ...(Array.isArray(parsedData?.topics) ? parsedData.topics : [])
-            ])
-            
-            return selectedTags.every(selectedTag => castTags.has(selectedTag))
-          } catch (filterError) {
-            return false
-          }
-        })
-      }
-
-      // Apply enhanced analysis filters to search results
-      if (qualityFilter) {
-        filteredResults = filteredResults.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            const quality = parsedData?.quality_score || 0
-            switch (qualityFilter) {
-              case 'excellent': return quality >= 80
-              case 'good': return quality >= 60 && quality < 80
-              case 'fair': return quality >= 40 && quality < 60
-              case 'poor': return quality < 40
-              default: return true
-            }
-          } catch (filterError) {
-            return qualityFilter === 'poor'
-          }
-        })
-      }
-
-      if (sentimentFilter) {
-        filteredResults = filteredResults.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            return parsedData?.sentiment === sentimentFilter
-          } catch (filterError) {
-            return sentimentFilter === 'neutral'
-          }
-        })
-      }
-
-      if (contentTypeFilter) {
-        filteredResults = filteredResults.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            return parsedData?.content_type === contentTypeFilter
-          } catch (filterError) {
-            return false
-          }
-        })
-      }
-
-      if (engagementFilter) {
-        filteredResults = filteredResults.filter(cast => {
-          try {
-            const parsedData = cast.parsed_data as EnhancedParsedData
-            return parsedData?.engagement_potential === engagementFilter
-          } catch (filterError) {
-            return false
-          }
-        })
-      }
-      
-      setCasts(filteredResults)
-      console.log('✅ Search filtered to', filteredResults.length, 'results')
+      setCasts(searchResults)
+      console.log('✅ Search completed')
       
     } catch (err) {
       console.error('❌ Error searching casts:', err)
@@ -423,28 +258,7 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
     } finally {
       setIsSearching(false)
     }
-  }, [currentUserId, selectedTags, qualityFilter, sentimentFilter, contentTypeFilter, engagementFilter, fetchCasts])
-
-  const handleTagToggle = (tag: string) => {
-    setSelectedTags(prev => {
-      if (prev.includes(tag)) {
-        return prev.filter(t => t !== tag)
-      } else {
-        return [...prev, tag]
-      }
-    })
-  }
-
-  const clearAllFilters = () => {
-    setSelectedTags([])
-    setSearchQuery('')
-    setQualityFilter('')
-    setSentimentFilter('')
-    setContentTypeFilter('')
-    setEngagementFilter('')
-  }
-
-  const hasActiveFilters = selectedTags.length > 0 || qualityFilter || sentimentFilter || contentTypeFilter || engagementFilter
+  }, [currentUserId, fetchCasts])
 
   const handleDelete = async (castId: string): Promise<void> => {
     if (!currentUserId) return
@@ -461,20 +275,6 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
     }
   }
 
-  const handleCastUpdate = (updatedCast: SavedCast): void => {
-    console.log('🔄 Updating cast:', updatedCast.id)
-    setCasts(prevCasts => 
-      prevCasts.map(cast => 
-        cast.id === updatedCast.id ? updatedCast : cast
-      )
-    )
-    setAllCasts(prevCasts => 
-      prevCasts.map(cast => 
-        cast.id === updatedCast.id ? updatedCast : cast
-      )
-    )
-  }
-
   useEffect(() => {
     if (currentUserId) {
       fetchCasts()
@@ -488,28 +288,6 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
 
     return () => clearTimeout(delayedSearch)
   }, [searchQuery, searchCasts])
-
-  const getTagStyle = (type: string) => {
-    switch (type) {
-      case 'manual': return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'ai': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-      case 'hashtag': return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-      case 'system': return 'bg-gray-500/20 text-gray-300 border-gray-500/30'
-      case 'analysis': return 'bg-pink-500/20 text-pink-300 border-pink-500/30'
-      default: return 'bg-gray-500/20 text-gray-300 border-gray-500/30'
-    }
-  }
-
-  const getTagIcon = (type: string) => {
-    switch (type) {
-      case 'manual': return '🏷️'
-      case 'ai': return '🧠'
-      case 'hashtag': return '#'
-      case 'system': return '🤖'
-      case 'analysis': return '🔍'
-      default: return '🏷️'
-    }
-  }
 
   if (loading) {
     return (
@@ -605,14 +383,6 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
               <div className="text-xs text-gray-400">High Quality</div>
             </div>
           </div>
-          {enhancedStats.enhanced === 0 && enhancedStats.total > 0 && (
-            <div className="mt-4 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
-              <p className="text-sm text-blue-300">
-                💡 Use the enhanced webhook to start getting AI analysis on new saves! 
-                Old casts can be enhanced by re-analyzing them.
-              </p>
-            </div>
-          )}
         </div>
       )}
 
@@ -621,243 +391,17 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">Saved Casts</h2>
-          <div className="flex items-center gap-3">
-            {enhancedStats.enhanced > 0 && (
-              <button
-                onClick={() => setShowAnalysisFilters(!showAnalysisFilters)}
-                className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
-                  showAnalysisFilters 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-white/10 text-gray-300 hover:bg-white/20'
-                }`}
-              >
-                🧠 Analysis Filters
-              </button>
-            )}
-            <button
-              onClick={() => setShowTagPanel(!showTagPanel)}
-              className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
-                showTagPanel 
-                  ? 'bg-purple-600 text-white' 
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
-              }`}
-            >
-              🏷️ Tag Filters ({tagStats.length})
-            </button>
-            <div className="text-sm text-gray-400">
-              {casts.length} cast{casts.length !== 1 ? 's' : ''} 
-              {allCasts.length !== casts.length && ` of ${allCasts.length}`}
-            </div>
+          <div className="text-sm text-gray-400">
+            {casts.length} cast{casts.length !== 1 ? 's' : ''}
           </div>
         </div>
-
-        {/* Enhanced Analysis Filter Panel */}
-        {showAnalysisFilters && enhancedStats.enhanced > 0 && (
-          <div className="mb-6 p-4 bg-blue-500/5 rounded-lg border border-blue-500/20">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">🧠 Analysis Filters</h3>
-              <button
-                onClick={() => setShowAnalysisFilters(false)}
-                className="text-xs text-gray-400 hover:text-white transition-colors"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* Quality Filter */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">Quality Score</label>
-                <select
-                  value={qualityFilter}
-                  onChange={(e) => setQualityFilter(e.target.value)}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm"
-                >
-                  <option value="">All Qualities</option>
-                  <option value="excellent">Excellent (80+)</option>
-                  <option value="good">Good (60-79)</option>
-                  <option value="fair">Fair (40-59)</option>
-                  <option value="poor">Poor (&lt;40)</option>
-                </select>
-              </div>
-
-              {/* Sentiment Filter */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">Sentiment</label>
-                <select
-                  value={sentimentFilter}
-                  onChange={(e) => setSentimentFilter(e.target.value)}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm"
-                >
-                  <option value="">All Sentiments</option>
-                  <option value="positive">😊 Positive</option>
-                  <option value="neutral">😐 Neutral</option>
-                  <option value="negative">😞 Negative</option>
-                </select>
-              </div>
-
-              {/* Content Type Filter */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">Content Type</label>
-                <select
-                  value={contentTypeFilter}
-                  onChange={(e) => setContentTypeFilter(e.target.value)}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm"
-                >
-                  <option value="">All Types</option>
-                  <option value="discussion">💬 Discussion</option>
-                  <option value="announcement">📢 Announcement</option>
-                  <option value="question">❓ Question</option>
-                  <option value="meme">😂 Meme</option>
-                  <option value="news">📰 News</option>
-                  <option value="opinion">💭 Opinion</option>
-                  <option value="technical">⚙️ Technical</option>
-                </select>
-              </div>
-
-              {/* Engagement Filter */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">Engagement</label>
-                <select
-                  value={engagementFilter}
-                  onChange={(e) => setEngagementFilter(e.target.value)}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm"
-                >
-                  <option value="">All Levels</option>
-                  <option value="high">🚀 High</option>
-                  <option value="medium">📈 Medium</option>
-                  <option value="low">📊 Low</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tag Filter Panel */}
-        {showTagPanel && (
-          <div className="mb-6 p-4 bg-white/5 rounded-lg border border-white/10">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">🏷️ Filter by Tags</h3>
-              <div className="flex gap-2">
-                {selectedTags.length > 0 && (
-                  <button
-                    onClick={() => setSelectedTags([])}
-                    className="text-xs bg-red-500/20 text-red-300 px-3 py-1 rounded border border-red-500/30 hover:bg-red-500/30 transition-colors"
-                  >
-                    Clear Tags ({selectedTags.length})
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowTagPanel(false)}
-                  className="text-xs text-gray-400 hover:text-white transition-colors"
-                >
-                  ✕ Close
-                </button>
-              </div>
-            </div>
-
-            {/* Tag Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2 max-h-64 overflow-y-auto">
-              {tagStats.map((tagInfo) => (
-                <button
-                  key={tagInfo.tag}
-                  onClick={() => handleTagToggle(tagInfo.tag)}
-                  className={`text-left p-2 rounded-lg border transition-all text-xs ${
-                    selectedTags.includes(tagInfo.tag)
-                      ? `${getTagStyle(tagInfo.type)} ring-2 ring-purple-500/50`
-                      : `${getTagStyle(tagInfo.type)} hover:scale-105`
-                  }`}
-                  title={`${tagInfo.type} tag - ${tagInfo.count} cast${tagInfo.count !== 1 ? 's' : ''}`}
-                >
-                  <div className="flex items-center gap-1 mb-1">
-                    <span>{getTagIcon(tagInfo.type)}</span>
-                    <span className="font-medium truncate">{tagInfo.tag}</span>
-                  </div>
-                  <div className="text-xs opacity-70">
-                    {tagInfo.count} cast{tagInfo.count !== 1 ? 's' : ''}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {tagStats.length === 0 && (
-              <p className="text-gray-400 text-center py-8">
-                No tags found in your saved casts yet. Start adding manual tags or save enhanced casts!
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Active Filters */}
-        {hasActiveFilters && (
-          <div className="mb-4 flex flex-wrap gap-2 items-center">
-            <span className="text-sm text-gray-400">Active filters:</span>
-            
-            {/* Tag Filters */}
-            {selectedTags.map(tag => (
-              <button
-                key={tag}
-                onClick={() => handleTagToggle(tag)}
-                className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full text-xs flex items-center gap-1 border border-purple-500/30"
-              >
-                {tag}
-                <span className="hover:text-red-300">×</span>
-              </button>
-            ))}
-            
-            {/* Analysis Filters */}
-            {qualityFilter && (
-              <button
-                onClick={() => setQualityFilter('')}
-                className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full text-xs flex items-center gap-1 border border-blue-500/30"
-              >
-                Quality: {qualityFilter}
-                <span className="hover:text-red-300">×</span>
-              </button>
-            )}
-            {sentimentFilter && (
-              <button
-                onClick={() => setSentimentFilter('')}
-                className="bg-green-500/20 text-green-300 px-2 py-1 rounded-full text-xs flex items-center gap-1 border border-green-500/30"
-              >
-                Sentiment: {sentimentFilter}
-                <span className="hover:text-red-300">×</span>
-              </button>
-            )}
-            {contentTypeFilter && (
-              <button
-                onClick={() => setContentTypeFilter('')}
-                className="bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full text-xs flex items-center gap-1 border border-yellow-500/30"
-              >
-                Type: {contentTypeFilter}
-                <span className="hover:text-red-300">×</span>
-              </button>
-            )}
-            {engagementFilter && (
-              <button
-                onClick={() => setEngagementFilter('')}
-                className="bg-pink-500/20 text-pink-300 px-2 py-1 rounded-full text-xs flex items-center gap-1 border border-pink-500/30"
-              >
-                Engagement: {engagementFilter}
-                <span className="hover:text-red-300">×</span>
-              </button>
-            )}
-            
-            <button
-              onClick={clearAllFilters}
-              className="bg-red-500/20 text-red-300 px-2 py-1 rounded-full text-xs border border-red-500/30"
-            >
-              Clear All
-            </button>
-          </div>
-        )}
 
         {/* Search */}
         <div className="mb-6">
           <div className="relative">
             <input
               type="text"
-              placeholder="Search saved casts, notes, tags..."
+              placeholder="Search saved casts..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -868,9 +412,6 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
               </div>
             )}
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            💡 Tip: Search content, authors, tags, and notes. Use enhanced filters for AI analysis data!
-          </p>
         </div>
 
         {/* Casts */}
@@ -878,57 +419,53 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
           <div className="text-center py-12">
             <div className="text-6xl mb-4">📝</div>
             <h3 className="text-xl font-semibold text-white mb-2">
-              {searchQuery || hasActiveFilters ? 'No matching casts found' : 'No saved casts yet'}
+              {searchQuery ? 'No matching casts found' : 'No saved casts yet'}
             </h3>
             <p className="text-gray-400 mb-6">
-              {searchQuery || hasActiveFilters
-                ? 'Try different search terms or clear your filters'
+              {searchQuery 
+                ? 'Try a different search term'
                 : 'Start saving casts by replying "@cstkpr save this" to any cast on Farcaster'
               }
             </p>
             
-            {(searchQuery || hasActiveFilters) ? (
+            {searchQuery ? (
               <button
-                onClick={clearAllFilters}
+                onClick={() => setSearchQuery('')}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
                 type="button"
               >
-                Clear All Filters
+                Clear Search
               </button>
             ) : (
               <div className="bg-white/5 rounded-lg p-4 max-w-md mx-auto">
-                <h4 className="font-semibold text-white mb-2">🤖 Enhanced Commands:</h4>
+                <h4 className="font-semibold text-white mb-2">How to save casts:</h4>
                 <ol className="text-sm text-gray-300 text-left space-y-1">
-                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr save this</code> - Save with AI analysis</li>
-                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr analyze</code> - Deep analysis</li>
-                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr opinion</code> - Get AI opinion</li>
-                  <li>• <code className="bg-black/30 px-1 rounded">@cstkpr trending</code> - See what's hot</li>
+                  <li>1. Find an interesting cast on Farcaster</li>
+                  <li>2. Reply with &quot;@cstkpr save this&quot;</li>
+                  <li>3. Your cast will appear here automatically!</li>
                 </ol>
               </div>
             )}
           </div>
         ) : (
           <div className="space-y-4">
-            {casts.map((cast: SavedCast) => {
-              // Debug log for each cast being rendered
-              console.log(`🎯 Rendering cast ${cast.id}:`, {
-                content_preview: cast.cast_content?.substring(0, 30) + '...',
-                username: cast.username,
-                has_enhanced_data: !!(cast.parsed_data as EnhancedParsedData)?.quality_score
-              })
-              
-              return (
+            {casts.map((cast: SavedCast) => (
+              <div key={cast.id} className="relative group">
                 <CastCard 
-                  key={cast.id}
                   cast={cast} 
                   compact={false}
-                  userId={currentUserId || undefined}
-                  onUpdate={handleCastUpdate}
-                  onDelete={handleDelete}
-                  showAnalytics={true} // Show enhanced analytics in main saved casts view
                 />
-              )
-            })}
+                {/* Delete button */}
+                <button
+                  onClick={() => handleDelete(cast.id)}
+                  className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm"
+                  title="Delete saved cast"
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -936,11 +473,14 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
         {casts.length > 0 && (
           <div className="mt-6 pt-4 border-t border-white/10 text-center">
             <p className="text-sm text-gray-400">
-              {searchQuery || hasActiveFilters
-                ? `Found ${casts.length} matching cast${casts.length !== 1 ? 's' : ''} of ${allCasts.length} total`
+              {searchQuery 
+                ? `Found ${casts.length} matching cast${casts.length !== 1 ? 's' : ''}`
                 : `Showing all ${casts.length} saved cast${casts.length !== 1 ? 's' : ''}`
               }
             </p>
-            {enhancedStats.enhanced > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                🧠 {enhancedStats.enhanced} cast{enhancedStats.enhanced !== 1
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
