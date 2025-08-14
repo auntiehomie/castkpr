@@ -20,30 +20,51 @@ export default function RecentCasts({ userId, onViewAllClick }: RecentCastsProps
   useEffect(() => {
     const getCurrentUser = async () => {
       try {
-        // Check if we're in a Mini App environment
-        if (typeof window !== 'undefined' && window.parent !== window) {
-          // Try to import the Mini App SDK
+        // Check if we're in a browser environment
+        if (typeof window === 'undefined') {
+          setCurrentUserId('demo-user')
+          return
+        }
+
+        // Try to import and use the Mini App SDK
+        try {
           const { sdk } = await import('@farcaster/miniapp-sdk')
           
-          // Wait for context to be available
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          // First check if we're in a Mini App environment
+          const isInMiniApp = await sdk.isInMiniApp()
+          console.log('🔍 Is in Mini App:', isInMiniApp)
           
-          if (sdk.context?.user) {
-            const user = sdk.context.user
-            const detectedUserId = user.username || `fid-${user.fid}` || 'anonymous'
-            console.log('🔍 Detected current user:', detectedUserId, user)
-            setCurrentUserId(detectedUserId)
+          if (isInMiniApp) {
+            // We're in a Mini App, try to get the context
+            try {
+              const context = await sdk.context
+              console.log('📱 Got context:', context)
+              
+              if (context?.user) {
+                const user = context.user
+                const detectedUserId = user.username || `fid-${user.fid}` || 'anonymous'
+                console.log('🔍 Detected current user:', detectedUserId, user)
+                setCurrentUserId(detectedUserId)
+                return
+              } else {
+                console.log('⚠️ No user in context')
+                setCurrentUserId('demo-user')
+              }
+            } catch (contextError) {
+              console.error('❌ Error getting context:', contextError)
+              setCurrentUserId('demo-user')
+            }
           } else {
-            console.log('⚠️ No user context found, using fallback')
-            setCurrentUserId('demo-user') // Fallback for development
+            console.log('🌐 Not in Mini App environment, using demo user')
+            setCurrentUserId('demo-user')
           }
-        } else {
-          console.log('🌐 Not in Mini App, using demo user')
-          setCurrentUserId('demo-user') // Fallback for web development
+        } catch (sdkError) {
+          console.log('📱 Mini App SDK not available:', sdkError)
+          setCurrentUserId('demo-user')
         }
       } catch (error) {
-        console.error('❌ Error getting current user:', error)
-        setCurrentUserId('demo-user') // Fallback on error
+        console.error('❌ Error in getCurrentUser:', error)
+        setCurrentUserId('demo-user')
       }
     }
 
