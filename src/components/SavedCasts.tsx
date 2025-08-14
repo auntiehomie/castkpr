@@ -41,7 +41,7 @@ interface EnhancedParsedData {
   analysis_version?: string
 }
 
-export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
+export default function SavedCasts({ userId }: SavedCastsProps) {
   const [casts, setCasts] = useState<SavedCast[]>([])
   const [allCasts, setAllCasts] = useState<SavedCast[]>([]) // Store unfiltered casts
   const [loading, setLoading] = useState<boolean>(true)
@@ -50,6 +50,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   const [isSearching, setIsSearching] = useState(false)
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [showTagPanel, setShowTagPanel] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   
   // Enhanced analysis filters
   const [qualityFilter, setQualityFilter] = useState<string>('')
@@ -57,6 +58,44 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   const [contentTypeFilter, setContentTypeFilter] = useState<string>('')
   const [engagementFilter, setEngagementFilter] = useState<string>('')
   const [showAnalysisFilters, setShowAnalysisFilters] = useState(false)
+
+  // Get current user from Farcaster Mini App context
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        // Check if we're in a Mini App environment
+        if (typeof window !== 'undefined' && window.parent !== window) {
+          // Try to import the Mini App SDK
+          const { sdk } = await import('@farcaster/miniapp-sdk')
+          
+          // Wait for context to be available
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          if (sdk.context?.user) {
+            const user = sdk.context.user
+            const detectedUserId = user.username || `fid-${user.fid}` || 'anonymous'
+            console.log('🔍 Detected current user:', detectedUserId, user)
+            setCurrentUserId(detectedUserId)
+          } else {
+            console.log('⚠️ No user context found, using fallback')
+            setCurrentUserId('demo-user') // Fallback for development
+          }
+        } else {
+          console.log('🌐 Not in Mini App, using demo user')
+          setCurrentUserId('demo-user') // Fallback for web development
+        }
+      } catch (error) {
+        console.error('❌ Error getting current user:', error)
+        setCurrentUserId('demo-user') // Fallback on error
+      }
+    }
+
+    if (!userId) {
+      getCurrentUser()
+    } else {
+      setCurrentUserId(userId)
+    }
+  }, [userId])
 
   // Calculate enhanced statistics with better error handling
   const enhancedStats = useMemo(() => {
@@ -172,12 +211,14 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   }, [allCasts])
 
   const fetchCasts = useCallback(async (): Promise<void> => {
+    if (!currentUserId) return
+
     try {
       setLoading(true)
       setError(null)
       
-      console.log('🔍 Fetching casts for user:', userId)
-      const savedCasts = await CastService.getUserCasts(userId, 100)
+      console.log('🔍 Fetching casts for user:', currentUserId)
+      const savedCasts = await CastService.getUserCasts(currentUserId, 100)
       console.log('📦 Fetched', savedCasts.length, 'casts')
       
       // Debug first few casts
@@ -281,7 +322,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
     } finally {
       setLoading(false)
     }
-  }, [userId, selectedTags, qualityFilter, sentimentFilter, contentTypeFilter, engagementFilter])
+  }, [currentUserId, selectedTags, qualityFilter, sentimentFilter, contentTypeFilter, engagementFilter])
 
   const searchCasts = useCallback(async (query: string): Promise<void> => {
     if (!query.trim()) {
@@ -289,12 +330,14 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
       return
     }
 
+    if (!currentUserId) return
+
     try {
       setIsSearching(true)
       setError(null)
       
       console.log('🔍 Searching casts with query:', query)
-      const searchResults = await CastService.searchCasts(userId, query)
+      const searchResults = await CastService.searchCasts(currentUserId, query)
       console.log('📊 Search returned', searchResults.length, 'results')
       
       // Apply all current filters to search results
@@ -380,7 +423,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
     } finally {
       setIsSearching(false)
     }
-  }, [userId, selectedTags, qualityFilter, sentimentFilter, contentTypeFilter, engagementFilter, fetchCasts])
+  }, [currentUserId, selectedTags, qualityFilter, sentimentFilter, contentTypeFilter, engagementFilter, fetchCasts])
 
   const handleTagToggle = (tag: string) => {
     setSelectedTags(prev => {
@@ -404,9 +447,11 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   const hasActiveFilters = selectedTags.length > 0 || qualityFilter || sentimentFilter || contentTypeFilter || engagementFilter
 
   const handleDelete = async (castId: string): Promise<void> => {
+    if (!currentUserId) return
+
     try {
       console.log('🗑️ Deleting cast:', castId)
-      await CastService.deleteCast(castId, userId)
+      await CastService.deleteCast(castId, currentUserId)
       setCasts(casts.filter(cast => cast.id !== castId))
       setAllCasts(allCasts.filter(cast => cast.id !== castId))
       console.log('✅ Cast deleted successfully')
@@ -431,8 +476,10 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
   }
 
   useEffect(() => {
-    fetchCasts()
-  }, [fetchCasts])
+    if (currentUserId) {
+      fetchCasts()
+    }
+  }, [fetchCasts, currentUserId])
 
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -514,6 +561,15 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
 
   return (
     <div className="space-y-6">
+      {/* Current User Debug Info (remove in production) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-500/10 backdrop-blur-lg rounded-xl p-4 border border-yellow-500/20">
+          <p className="text-yellow-300 text-sm">
+            🔍 Debug: Current user = {currentUserId || 'Loading...'}
+          </p>
+        </div>
+      )}
+
       {/* Enhanced Stats Overview */}
       {enhancedStats.total > 0 && (
         <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20">
@@ -866,7 +922,7 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
                   key={cast.id}
                   cast={cast} 
                   compact={false}
-                  userId={userId}
+                  userId={currentUserId || undefined}
                   onUpdate={handleCastUpdate}
                   onDelete={handleDelete}
                   showAnalytics={true} // Show enhanced analytics in main saved casts view
@@ -887,12 +943,4 @@ export default function SavedCasts({ userId = 'demo-user' }: SavedCastsProps) {
             </p>
             {enhancedStats.enhanced > 0 && (
               <p className="text-xs text-gray-500 mt-1">
-                🧠 {enhancedStats.enhanced} cast{enhancedStats.enhanced !== 1 ? 's' : ''} enhanced with AI analysis
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
+                🧠 {enhancedStats.enhanced} cast{enhancedStats.enhanced !== 1

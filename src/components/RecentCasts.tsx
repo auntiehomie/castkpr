@@ -10,18 +10,60 @@ interface RecentCastsProps {
   onViewAllClick?: () => void
 }
 
-export default function RecentCasts({ userId = 'demo-user', onViewAllClick }: RecentCastsProps) {
+export default function RecentCasts({ userId, onViewAllClick }: RecentCastsProps) {
   const [casts, setCasts] = useState<SavedCast[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+
+  // Get current user from Farcaster Mini App context
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        // Check if we're in a Mini App environment
+        if (typeof window !== 'undefined' && window.parent !== window) {
+          // Try to import the Mini App SDK
+          const { sdk } = await import('@farcaster/miniapp-sdk')
+          
+          // Wait for context to be available
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          if (sdk.context?.user) {
+            const user = sdk.context.user
+            const detectedUserId = user.username || `fid-${user.fid}` || 'anonymous'
+            console.log('🔍 Detected current user:', detectedUserId, user)
+            setCurrentUserId(detectedUserId)
+          } else {
+            console.log('⚠️ No user context found, using fallback')
+            setCurrentUserId('demo-user') // Fallback for development
+          }
+        } else {
+          console.log('🌐 Not in Mini App, using demo user')
+          setCurrentUserId('demo-user') // Fallback for web development
+        }
+      } catch (error) {
+        console.error('❌ Error getting current user:', error)
+        setCurrentUserId('demo-user') // Fallback on error
+      }
+    }
+
+    if (!userId) {
+      getCurrentUser()
+    } else {
+      setCurrentUserId(userId)
+    }
+  }, [userId])
 
   const fetchRecentCasts = useCallback(async (): Promise<void> => {
+    if (!currentUserId) return
+
     try {
       setLoading(true)
       setError(null)
       
+      console.log('📥 Fetching recent casts for user:', currentUserId)
       // Fetch 3 most recent casts
-      const recentCasts = await CastService.getUserCasts(userId, 3)
+      const recentCasts = await CastService.getUserCasts(currentUserId, 3)
       setCasts(recentCasts)
     } catch (err) {
       console.error('Error fetching recent casts:', err)
@@ -29,11 +71,13 @@ export default function RecentCasts({ userId = 'demo-user', onViewAllClick }: Re
     } finally {
       setLoading(false)
     }
-  }, [userId])
+  }, [currentUserId])
 
   useEffect(() => {
-    fetchRecentCasts()
-  }, [fetchRecentCasts])
+    if (currentUserId) {
+      fetchRecentCasts()
+    }
+  }, [fetchRecentCasts, currentUserId])
 
   if (loading) {
     return (
@@ -98,6 +142,13 @@ export default function RecentCasts({ userId = 'demo-user', onViewAllClick }: Re
           </button>
         )}
       </div>
+
+      {/* Current User Debug Info (remove in production) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-4 p-2 bg-yellow-500/10 rounded text-xs text-yellow-300">
+          Debug: Current user = {currentUserId || 'Loading...'}
+        </div>
+      )}
 
       {/* Casts */}
       {casts.length === 0 ? (
