@@ -1,10 +1,4 @@
 // src/lib/ai-vault-organizer.ts
-import OpenAI from 'openai'
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
 export class AIVaultOrganizer {
   // Main function to organize casts into vaults using AI
   static async organizeWithAI(context: {
@@ -24,97 +18,24 @@ export class AIVaultOrganizer {
     }>
   }> {
     try {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are CastKPR's AI assistant that helps organize Farcaster casts into vaults (collections).
-
-Available actions:
-- add_to_vault: Add a cast to an existing vault
-- create_vault: Create a new vault with a name and description
-- tag_cast: Add a tag to a cast
-- remove_tag: Remove a tag from a cast
-
-When users ask you to organize casts, analyze their content and suggest logical groupings.
-Be helpful and explain your reasoning. Always provide a conversational response.
-
-Current vaults: ${context.userVaults.map(v => `"${v.name}" (${v.description || 'no description'})`).join(', ')}
-
-Example responses should include both conversation and actions.`
-          },
-          {
-            role: 'user',
-            content: `Please help organize my saved casts based on this request: "${context.userMessage}"
-
-Here are my ${context.userCasts.length} saved casts:
-
-${context.userCasts.map(cast => 
-  `Cast ID: ${cast.id}
-Author: @${cast.author}
-Content: ${cast.content}
-Current Tags: ${cast.tags.join(', ') || 'none'}
-Category: ${cast.category || 'general'}`
-).join('\n\n')}`
-          }
-        ],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'organize_casts',
-              description: 'Organize casts into vaults with specific actions',
-              parameters: {
-                type: 'object',
-                properties: {
-                  response: {
-                    type: 'string',
-                    description: 'Conversational response explaining what you are doing'
-                  },
-                  actions: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        type: {
-                          type: 'string',
-                          enum: ['add_to_vault', 'create_vault', 'tag_cast', 'remove_tag']
-                        },
-                        castId: { type: 'string', description: 'Cast ID for cast-specific actions' },
-                        vaultId: { type: 'string', description: 'Existing vault ID' },
-                        vaultName: { type: 'string', description: 'Name for new vault' },
-                        description: { type: 'string', description: 'Description for new vault' },
-                        value: { type: 'string', description: 'Tag value for tagging actions' }
-                      },
-                      required: ['type']
-                    }
-                  },
-                  confidence: {
-                    type: 'number',
-                    description: 'Confidence in the organization strategy (0-100)'
-                  }
-                },
-                required: ['response', 'actions', 'confidence']
-              }
-            }
-          }
-        ],
-        tool_choice: { type: 'function', function: { name: 'organize_casts' } }
+      // Call our API route instead of OpenAI directly
+      const response = await fetch('/api/ai-organize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(context)
       })
 
-      const toolCall = response.choices[0].message.tool_calls?.[0]
-      if (toolCall?.function.arguments) {
-        const result = JSON.parse(toolCall.function.arguments)
-        return {
-          response: result.response,
-          confidence: result.confidence / 100, // Convert to 0-1 scale
-          actions: result.actions
-        }
+      if (response.ok) {
+        const result = await response.json()
+        return result
+      } else {
+        console.error('API call failed:', response.status)
       }
 
     } catch (error) {
-      console.error('Error in AI vault organization:', error)
+      console.error('Error calling AI organize API:', error)
     }
 
     // Fallback to rule-based organization
