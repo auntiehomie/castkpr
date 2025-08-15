@@ -48,15 +48,18 @@ function ShareContent() {
         // Call SDK ready first
         await sdk.actions.ready()
         
+        // Await sdk.context to get the actual context object
+        const context = await sdk.context
+
         // Check if this is a Mini App share extension
-        if (sdk.context.location?.type === 'cast_share') {
+        if (context.location?.type === 'cast_share') {
           console.log('📱 Mini App share extension detected')
-          const cast = sdk.context.location.cast
+          const cast = context.location.cast
           setIsFromSDK(true)
           setCastData({
             castHash: cast.hash,
             castFid: cast.author.fid.toString(),
-            viewerFid: sdk.context.user?.fid?.toString(),
+            viewerFid: context.user?.fid?.toString(),
             castContent: cast.text,
             authorDisplayName: cast.author.displayName,
             authorUsername: cast.author.username,
@@ -108,7 +111,7 @@ function ShareContent() {
         },
         body: JSON.stringify({
           castData: cast,
-          userId: sdk.context.user?.fid?.toString() || 'demo-user'
+          userId: cast?.author?.fid?.toString() || 'demo-user'
         })
       })
 
