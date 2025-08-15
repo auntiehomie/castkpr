@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AIResponseService } from '@/lib/ai-responses'
-import { CastService, UserAIProfileService, AIContextService } from '@/lib/supabase'
-import type { UserAIProfile } from '@/lib/supabase'
+import { AIResponseService } from '../lib/ai-responses'
+import { AIVaultOrganizer } from '@/lib/ai-vault-organizer'
+import { CastService, UserAIProfileService, AIContextService, CollectionService } from '@/lib/supabase'
+import type { UserAIProfile, SavedCast, Collection } from '@/lib/supabase'
 
 interface AIChatPanelProps {
   userId: string
@@ -17,6 +18,13 @@ interface ChatMessage {
   timestamp: Date
   confidence?: number
   usedContexts?: string[]
+  actions?: Array<{
+    type: 'add_to_vault' | 'create_vault' | 'tag_cast' | 'remove_tag'
+    castId?: string
+    vaultId?: string
+    vaultName?: string
+    value?: string
+  }>
 }
 
 export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) {
@@ -24,16 +32,21 @@ export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) 
   const [inputMessage, setInputMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [userProfile, setUserProfile] = useState<UserAIProfile | null>(null)
+  const [userCasts, setUserCasts] = useState<SavedCast[]>([])
+  const [userVaults, setUserVaults] = useState<Collection[]>([])
   const [stats, setStats] = useState<{
     totalCasts: number
     topTopics: string[]
     engagementLevel: number
+    totalVaults: number
   } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadUserProfile()
     loadUserStats()
+    loadUserCasts()
+    loadUserVaults()
     addWelcomeMessage()
   }, [userId])
 
@@ -54,10 +67,29 @@ export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) 
     }
   }
 
+  const loadUserCasts = async () => {
+    try {
+      const casts = await CastService.getUserCasts(userId, 100)
+      setUserCasts(casts)
+    } catch (error) {
+      console.error('Failed to load user casts:', error)
+    }
+  }
+
+  const loadUserVaults = async () => {
+    try {
+      const vaults = await CollectionService.getUserCollections(userId)
+      setUserVaults(vaults)
+    } catch (error) {
+      console.error('Failed to load user vaults:', error)
+    }
+  }
+
   const loadUserStats = async () => {
     try {
       const userStats = await CastService.getUserStats(userId)
       const userCasts = await CastService.getUserCasts(userId, 100)
+      const userVaults = await CollectionService.getUserCollections(userId)
       
       // Calculate top topics
       const allTopics = userCasts.flatMap(cast => cast.parsed_data?.topics || [])
@@ -73,6 +105,7 @@ export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) 
 
       setStats({
         totalCasts: userStats.totalCasts,
+        totalVaults: userVaults.length,
         topTopics,
         engagementLevel: userProfile?.engagement_level || 0
       })
@@ -85,18 +118,127 @@ export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) 
     const welcomeMessage: ChatMessage = {
       id: 'welcome',
       type: 'ai',
-      content: `👋 Hi! I'm your CastKPR AI assistant. I can help you with:
+      content: `🤖 I'm here to help with saving and organizing casts!
 
-🔍 **Analyzing your saved casts**
-📊 **Understanding trends in your collection**
-🎯 **Getting personalized recommendations**
-💡 **Insights about content patterns**
-🤖 **General questions about your cast library**
+Try: "@cstkpr help" for commands or "@cstkpr save this" to save any cast.
 
-What would you like to explore today?`,
-      timestamp: new Date()
+I can help you:
+🗂️ **Organize casts into vaults** - "organize my casts by topic"
+📊 **Analyze your collection** - "what are my most popular topics?"
+🎯 **Smart recommendations** - "suggest vaults for my casts"
+🏷️ **Auto-tag content** - "tag my crypto casts"
+🔍 **Find specific content** - "find casts about AI"
+
+What would you like me to help with?`,
+      timestamp: new Date(),
+      confidence: 70
     }
     setMessages([welcomeMessage])
+  }
+
+  // Enhanced AI response function that can handle vault operations
+  const handleVaultOrganization = async (userMessage: string): Promise<ChatMessage> => {
+    try {
+      // Create context about user's casts and vaults
+      const context = {
+        userCasts: userCasts.map(cast => ({
+          id: cast.id,
+          content: cast.cast_content,
+          author: cast.username,
+          tags: cast.tags || [],
+          category: cast.category
+        })),
+        userVaults: userVaults.map(vault => ({
+          id: vault.id,
+          name: vault.name,
+          description: vault.description
+        })),
+        userMessage
+      }
+
+      // Call enhanced AI service
+      const aiResponse = await AIVaultOrganizer.organizeWithAI(context)
+      
+      // Execute any actions the AI suggested
+      if (aiResponse.actions && aiResponse.actions.length > 0) {
+        for (const action of aiResponse.actions) {
+          await executeAIAction(action)
+        }
+        
+        // Refresh data after actions
+        await Promise.all([
+          loadUserCasts(),
+          loadUserVaults(),
+          loadUserStats()
+        ])
+        
+        if (onCastUpdate) onCastUpdate()
+      }
+
+      return {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: aiResponse.response,
+        timestamp: new Date(),
+        confidence: aiResponse.confidence,
+        actions: aiResponse.actions
+      }
+
+    } catch (error) {
+      console.error('Error in vault organization:', error)
+      return {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: "I had trouble organizing your casts. Please try again!",
+        timestamp: new Date()
+      }
+    }
+  }
+
+  // Execute AI-suggested actions
+  const executeAIAction = async (action: any) => {
+    try {
+      switch (action.type) {
+        case 'add_to_vault':
+          if (action.castId && action.vaultId) {
+            await CollectionService.addCastToCollection(action.castId, action.vaultId)
+          }
+          break
+          
+        case 'create_vault':
+          if (action.vaultName) {
+            await CollectionService.createCollection(
+              action.vaultName,
+              action.description || '',
+              userId,
+              false
+            )
+          }
+          break
+          
+        case 'tag_cast':
+          if (action.castId && action.value) {
+            const cast = userCasts.find(c => c.id === action.castId)
+            if (cast) {
+              const newTags = [...(cast.tags || []), action.value]
+              await CastService.updateCast(action.castId, userId, { tags: newTags })
+            }
+          }
+          break
+          
+        case 'remove_tag':
+          if (action.castId && action.value) {
+            const cast = userCasts.find(c => c.id === action.castId)
+            if (cast) {
+              const newTags = (cast.tags || []).filter(tag => tag !== action.value)
+              await CastService.updateCast(action.castId, userId, { tags: newTags })
+            }
+          }
+          break
+      }
+    } catch (error) {
+      console.error('Error executing AI action:', error)
+    }
   }
 
   const handleSendMessage = async () => {
@@ -114,24 +256,39 @@ What would you like to explore today?`,
     setIsLoading(true)
 
     try {
-      // Generate AI response based on the user's message
-      const responseContext = {
-        castContent: inputMessage.trim(),
-        authorUsername: 'system',
-        mentionedUser: userId,
-        command: determineCommand(inputMessage),
-        userProfile: userProfile || undefined
-      }
+      // Check if this is a vault organization request
+      const lowerMessage = inputMessage.toLowerCase()
+      const isVaultRequest = lowerMessage.includes('organize') || 
+                            lowerMessage.includes('vault') ||
+                            lowerMessage.includes('categorize') ||
+                            lowerMessage.includes('sort') ||
+                            lowerMessage.includes('group')
 
-      const aiResponse = await AIResponseService.generateResponse(responseContext)
+      let aiMessage: ChatMessage
 
-      const aiMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai',
-        content: aiResponse.content,
-        timestamp: new Date(),
-        confidence: aiResponse.confidence,
-        usedContexts: aiResponse.usedContexts
+      if (isVaultRequest) {
+        // Use enhanced vault organization
+        aiMessage = await handleVaultOrganization(inputMessage.trim())
+      } else {
+        // Use original AI response system
+        const responseContext = {
+          castContent: inputMessage.trim(),
+          authorUsername: 'system',
+          mentionedUser: userId,
+          command: determineCommand(inputMessage),
+          userProfile: userProfile || undefined
+        }
+
+        const aiResponse = await AIResponseService.generateResponse(responseContext)
+
+        aiMessage = {
+          id: (Date.now() + 1).toString(),
+          type: 'ai',
+          content: aiResponse.content,
+          timestamp: new Date(),
+          confidence: aiResponse.confidence,
+          usedContexts: aiResponse.usedContexts
+        }
       }
 
       setMessages(prev => [...prev, aiMessage])
@@ -142,11 +299,6 @@ What would you like to explore today?`,
         inputMessage,
         determineCommand(inputMessage)
       )
-
-      // Refresh cast data if needed
-      if (onCastUpdate && inputMessage.toLowerCase().includes('save')) {
-        onCastUpdate()
-      }
 
     } catch (error) {
       console.error('Failed to get AI response:', error)
@@ -174,6 +326,7 @@ What would you like to explore today?`,
   const determineCommand = (message: string): string => {
     const lowerMessage = message.toLowerCase()
     
+    if (lowerMessage.includes('organize') || lowerMessage.includes('vault')) return 'organize'
     if (lowerMessage.includes('analyze') || lowerMessage.includes('analysis')) return 'analysis'
     if (lowerMessage.includes('trend') || lowerMessage.includes('trending')) return 'trending'
     if (lowerMessage.includes('recommend') || lowerMessage.includes('suggest')) return 'recommendation'
@@ -186,10 +339,11 @@ What would you like to explore today?`,
 
   const handleQuickAction = async (action: string) => {
     const actionMessages: Record<string, string> = {
-      'stats': 'Show me my CastKPR statistics and insights',
+      'organize': 'Can you organize my casts into vaults based on their topics?',
+      'stats': 'Show me my CastKPR statistics and vault organization',
       'trending': 'What are the trending topics in my saved casts?',
-      'recommendations': 'Give me personalized content recommendations',
-      'analysis': 'Analyze my cast collection and show patterns',
+      'recommendations': 'Suggest how I should organize my casts into vaults',
+      'analysis': 'Analyze my cast collection and suggest vault categories',
       'help': 'What can you help me with?'
     }
 
@@ -213,7 +367,7 @@ What would you like to explore today?`,
           </h2>
           {stats && (
             <div className="text-sm text-gray-400">
-              {stats.totalCasts} casts • Level {Math.floor(stats.engagementLevel * 10)}
+              {stats.totalCasts} casts • {stats.totalVaults} vaults • Level {Math.floor(stats.engagementLevel * 10)}
             </div>
           )}
         </div>
@@ -230,6 +384,7 @@ What would you like to explore today?`,
       <div className="p-3 border-b border-white/10">
         <div className="flex flex-wrap gap-2">
           {[
+            { key: 'organize', label: '🗂️ Organize', color: 'bg-yellow-500/20 text-yellow-300' },
             { key: 'stats', label: '📊 Stats', color: 'bg-blue-500/20 text-blue-300' },
             { key: 'trending', label: '🔥 Trends', color: 'bg-red-500/20 text-red-300' },
             { key: 'recommendations', label: '🎯 Recs', color: 'bg-green-500/20 text-green-300' },
@@ -263,6 +418,18 @@ What would you like to explore today?`,
             >
               <div className="whitespace-pre-wrap">{message.content}</div>
               
+              {/* Show actions taken */}
+              {message.actions && message.actions.length > 0 && (
+                <div className="mt-2 p-2 bg-green-500/20 rounded text-xs">
+                  <div className="font-medium text-green-300 mb-1">Actions taken:</div>
+                  {message.actions.map((action, idx) => (
+                    <div key={idx} className="text-green-200">
+                      • {action.type.replace('_', ' ')}: {action.vaultName || action.value || 'completed'}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               {message.type === 'ai' && message.confidence && (
                 <div className="mt-2 text-xs opacity-60">
                   Confidence: {(message.confidence * 100).toFixed(0)}%
@@ -286,7 +453,7 @@ What would you like to explore today?`,
             <div className="bg-white/10 border border-white/20 p-3 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
-                <span className="text-gray-300">Thinking...</span>
+                <span className="text-gray-300">Organizing your casts...</span>
               </div>
             </div>
           </div>
@@ -302,7 +469,7 @@ What would you like to explore today?`,
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask me anything about your casts..."
+            placeholder="Ask me to organize your casts into vaults..."
             className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
             rows={1}
             disabled={isLoading}
@@ -317,7 +484,7 @@ What would you like to explore today?`,
         </div>
         
         <div className="text-xs text-gray-400 mt-2 text-center">
-          Press Enter to send • Shift+Enter for new line
+          Try: "organize my casts by topic" or "create a crypto vault"
         </div>
       </div>
     </div>
