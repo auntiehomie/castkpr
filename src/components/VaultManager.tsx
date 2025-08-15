@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { CollectionService, CastService } from '@/lib/supabase'
+import { CollectionService, CastService, supabase } from '@/lib/supabase'
 import type { Collection, SavedCast } from '@/lib/supabase'
 import CastCard from './CastCard'
 
@@ -27,6 +27,39 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   const [newVaultDescription, setNewVaultDescription] = useState('')
   const [newVaultPublic, setNewVaultPublic] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Debug function to check database setup
+  const debugDatabaseSetup = useCallback(async () => {
+    console.log('🔍 Debugging database setup...')
+    console.log('👤 Current userId:', userId)
+    
+    // Check collections table structure
+    try {
+      const { data, error } = await supabase
+        .from('collections')
+        .select('*')
+        .limit(0) // Get structure without data
+      
+      console.log('📋 Collections table accessible:', !error)
+      if (error) console.error('❌ Collections error:', error)
+    } catch (e) {
+      console.error('❌ Collections table error:', e)
+    }
+
+    // Check if we can read from saved_casts (to verify user exists)
+    try {
+      const { data, error } = await supabase
+        .from('saved_casts')
+        .select('*')
+        .eq('saved_by_user_id', userId)
+        .limit(1)
+      
+      console.log('👤 User has saved casts:', data?.length || 0)
+      if (error) console.error('❌ Saved casts error:', error)
+    } catch (e) {
+      console.error('❌ Saved casts error:', e)
+    }
+  }, [userId])
 
   const fetchVaults = useCallback(async () => {
     try {
@@ -82,20 +115,68 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   }, [userId])
 
   useEffect(() => {
+    console.log('🔍 VaultManager initialized with userId:', userId)
+    debugDatabaseSetup()
     fetchVaults()
     fetchAllCasts()
-  }, [fetchVaults, fetchAllCasts])
+  }, [userId, debugDatabaseSetup, fetchVaults, fetchAllCasts])
 
+  // Enhanced handleCreateVault with debugging
   const handleCreateVault = async () => {
-    if (!newVaultName.trim()) return
+    if (!newVaultName.trim()) {
+      setError('Vault name is required')
+      return
+    }
 
     try {
-      const newVault = await CollectionService.createCollection(
-        newVaultName.trim(),
-        newVaultDescription.trim(),
+      // Log all the data we're about to send
+      console.log('🚀 Creating vault with data:', {
+        name: newVaultName.trim(),
+        description: newVaultDescription.trim(),
         userId,
-        newVaultPublic
-      )
+        isPublic: newVaultPublic
+      })
+
+      // Test database connection first
+      console.log('🔍 Testing Supabase connection...')
+      const { data: testData, error: testError } = await supabase
+        .from('collections')
+        .select('*')
+        .limit(1)
+      
+      if (testError) {
+        console.error('❌ Connection test failed:', testError)
+        setError(`Connection failed: ${testError.message}`)
+        return
+      }
+      console.log('✅ Connection test passed')
+
+      // Try the actual insert with detailed logging
+      console.log('💾 Attempting to insert collection...')
+      const { data: newVault, error: insertError } = await supabase
+        .from('collections')
+        .insert({
+          name: newVaultName.trim(),
+          description: newVaultDescription.trim() || null,
+          created_by: userId,
+          is_public: newVaultPublic
+        })
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('❌ Insert failed:', insertError)
+        console.error('❌ Insert error details:', {
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint,
+          code: insertError.code
+        })
+        setError(`Insert failed: ${insertError.message} (Code: ${insertError.code})`)
+        return
+      }
+
+      console.log('✅ Vault created successfully:', newVault)
 
       // Add to state with initial data
       const vaultWithData: VaultWithCasts = {
@@ -109,9 +190,19 @@ export default function VaultManager({ userId }: VaultManagerProps) {
       setNewVaultDescription('')
       setNewVaultPublic(false)
       setShowCreateForm(false)
+      setError(null) // Clear any previous errors
+
     } catch (error) {
-      console.error('Error creating vault:', error)
-      setError('Failed to create vault')
+      console.error('💥 Unexpected error creating vault:', error)
+      
+      const errorMessage = error instanceof Error 
+        ? `${error.name}: ${error.message}` 
+        : 'Unknown error occurred'
+      
+      setError(`Failed to create vault: ${errorMessage}`)
+      
+      // Clear error after 5 seconds
+      setTimeout(() => setError(null), 5000)
     }
   }
 
@@ -180,7 +271,10 @@ export default function VaultManager({ userId }: VaultManagerProps) {
           <h3 className="text-xl font-semibold text-white mb-2">Something went wrong</h3>
           <p className="text-gray-400 mb-4">{error}</p>
           <button 
-            onClick={fetchVaults}
+            onClick={() => {
+              setError(null)
+              fetchVaults()
+            }}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
           >
             Try Again
@@ -408,6 +502,7 @@ export default function VaultManager({ userId }: VaultManagerProps) {
                 setNewVaultName('')
                 setNewVaultDescription('')
                 setNewVaultPublic(false)
+                setError(null) // Clear any errors when canceling
               }}
               className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
             >
