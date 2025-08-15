@@ -21,7 +21,7 @@ export default function Home() {
           <h2 className="text-xl font-bold text-yellow-300 mb-4 text-center">🧪 Test Your Fixes</h2>
           <div className="grid md:grid-cols-3 gap-4">
             <Link 
-              href="/dashboard"
+              href="/Dashboard"
               className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-semibold transition-colors text-center block"
             >
               ✅ Test Dashboard<br />
@@ -78,7 +78,7 @@ export default function Home() {
         {/* CTA Buttons */}
         <div className="text-center space-x-4 mb-16">
           <Link 
-            href="/dashboard"
+            href="/Dashboard"
             className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
           >
             View Dashboard
