@@ -66,7 +66,7 @@ Category: ${cast.category || 'general'}`
                     properties: {
                       type: {
                         type: 'string',
-                        enum: ['add_to_vault', 'create_vault', 'tag_cast', 'remove_tag']
+                        enum: ['add_to_vault', 'create_vault', 'tag_cast', 'remove_tag', 'add_to_new_vault']
                       },
                       castId: { type: 'string', description: 'Cast ID for cast-specific actions' },
                       vaultId: { type: 'string', description: 'Existing vault ID' },

@@ -161,9 +161,7 @@ What would you like me to help with?`,
       
       // Execute any actions the AI suggested
       if (aiResponse.actions && aiResponse.actions.length > 0) {
-        for (const action of aiResponse.actions) {
-          await executeAIAction(action)
-        }
+        await executeAIActions(aiResponse.actions)
         
         // Refresh data after actions
         await Promise.all([
@@ -195,49 +193,90 @@ What would you like me to help with?`,
     }
   }
 
-  // Execute AI-suggested actions
-  const executeAIAction = async (action: any) => {
+  // Execute AI-suggested actions with proper sequencing
+  const executeAIActions = async (actions: any[]) => {
+    const createdVaults: Record<string, string> = {} // Map vault names to IDs
+    
     try {
-      switch (action.type) {
-        case 'add_to_vault':
-          if (action.castId && action.vaultId) {
-            await CollectionService.addCastToCollection(action.castId, action.vaultId)
-          }
-          break
-          
-        case 'create_vault':
-          if (action.vaultName) {
-            await CollectionService.createCollection(
-              action.vaultName,
-              action.description || '',
-              userId,
-              false
-            )
-          }
-          break
-          
-        case 'tag_cast':
-          if (action.castId && action.value) {
-            const cast = userCasts.find(c => c.id === action.castId)
-            if (cast) {
-              const newTags = [...(cast.tags || []), action.value]
-              await CastService.updateCast(action.castId, userId, { tags: newTags })
+      // First pass: Create all vaults
+      for (const action of actions) {
+        if (action.type === 'create_vault' && action.vaultName) {
+          console.log('Creating vault:', action.vaultName)
+          const newVault = await CollectionService.createCollection(
+            action.vaultName,
+            action.description || '',
+            userId,
+            false
+          )
+          createdVaults[action.vaultName] = newVault.id
+          console.log('Vault created with ID:', newVault.id)
+        }
+      }
+      
+      // Second pass: Execute all other actions
+      for (const action of actions) {
+        switch (action.type) {
+          case 'add_to_vault':
+            if (action.castId && action.vaultId) {
+              console.log('Adding cast to existing vault:', action.castId, action.vaultId)
+              await CollectionService.addCastToCollection(action.castId, action.vaultId)
             }
-          }
-          break
+            break
+            
+          case 'add_to_new_vault':
+            // Handle adding casts to newly created vaults
+            if (action.castId && action.vaultName && createdVaults[action.vaultName]) {
+              console.log('Adding cast to new vault:', action.castId, createdVaults[action.vaultName])
+              await CollectionService.addCastToCollection(action.castId, createdVaults[action.vaultName])
+            }
+            break
+            
+          case 'tag_cast':
+            if (action.castId && action.value) {
+              const cast = userCasts.find(c => c.id === action.castId)
+              if (cast) {
+                const newTags = [...(cast.tags || []), action.value]
+                await CastService.updateCast(action.castId, userId, { tags: newTags })
+              }
+            }
+            break
+            
+          case 'remove_tag':
+            if (action.castId && action.value) {
+              const cast = userCasts.find(c => c.id === action.castId)
+              if (cast) {
+                const newTags = (cast.tags || []).filter(tag => tag !== action.value)
+                await CastService.updateCast(action.castId, userId, { tags: newTags })
+              }
+            }
+            break
+        }
+      }
+      
+      // Third pass: Handle casts that need to go into newly created vaults
+      // This is for the fallback organization that uses tags
+      for (const action of actions) {
+        if (action.type === 'tag_cast' && action.value?.startsWith('vault-')) {
+          const topicName = action.value.replace('vault-', '')
+          const vaultName = `${topicName.charAt(0).toUpperCase() + topicName.slice(1)} Collection`
           
-        case 'remove_tag':
-          if (action.castId && action.value) {
+          if (createdVaults[vaultName] && action.castId) {
+            console.log('Moving tagged cast to vault:', action.castId, createdVaults[vaultName])
+            await CollectionService.addCastToCollection(action.castId, createdVaults[vaultName])
+            
+            // Remove the temporary tag
             const cast = userCasts.find(c => c.id === action.castId)
             if (cast) {
               const newTags = (cast.tags || []).filter(tag => tag !== action.value)
               await CastService.updateCast(action.castId, userId, { tags: newTags })
             }
           }
-          break
+        }
       }
+      
     } catch (error) {
-      console.error('Error executing AI action:', error)
+      console.error('Error executing AI actions:', error)
+      throw error
     }
   }
 
