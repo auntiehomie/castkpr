@@ -45,18 +45,12 @@ export default function Home() {
         </div>
 
         {/* CTA Buttons */}
-        <div className="text-center space-x-4 mb-16">
+        <div className="text-center mb-16">
           <Link 
             href="/Dashboard"
             className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
           >
             View Dashboard
-          </Link>
-          <Link 
-            href="/share?castHash=0xexample123&castFid=456"
-            className="bg-transparent border-2 border-purple-400 text-purple-400 hover:bg-purple-400 hover:text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
-          >
-            Test Save Feature
           </Link>
         </div>
 
