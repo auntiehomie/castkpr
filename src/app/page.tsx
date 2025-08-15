@@ -16,38 +16,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Quick Test Section (temporary) */}
-        <div className="mb-16 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6">
-          <h2 className="text-xl font-bold text-yellow-300 mb-4 text-center">🧪 Test Your Fixes</h2>
-          <div className="grid md:grid-cols-3 gap-4">
-            <Link 
-              href="/Dashboard"
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-semibold transition-colors text-center block"
-            >
-              ✅ Test Dashboard<br />
-              <span className="text-sm opacity-80">(Should not 404)</span>
-            </Link>
-            
-            <Link 
-              href="/share?castHash=0x123456789abcdef&castFid=123&viewerFid=456"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-semibold transition-colors text-center block"
-            >
-              📱 Test Share Extension<br />
-              <span className="text-sm opacity-80">(Should save cast)</span>
-            </Link>
-            
-            <Link 
-              href="/test"
-              className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg font-semibold transition-colors text-center block"
-            >
-              🔧 Debug Tools<br />
-              <span className="text-sm opacity-80">(Database inspection)</span>
-            </Link>
-          </div>
-          <p className="text-yellow-200 text-sm text-center mt-3">
-            💡 Remove this section once everything is working properly
-          </p>
-        </div>
+
 
         {/* Features Grid */}
         <div className="grid md:grid-cols-3 gap-8 mb-16">
