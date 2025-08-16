@@ -61,6 +61,13 @@ export interface Collection {
   updated_at: string
 }
 
+// Vault is an alias for Collection - they're the same entity in the database
+// But we extend it with additional properties for AI functionality
+export interface Vault extends Collection {
+  cast_count?: number
+  auto_add_rules?: string[]
+}
+
 export interface CastCollection {
   cast_id: string
   collection_id: string
@@ -1391,5 +1398,124 @@ export class ContentParser {
       .sort(([, a], [, b]) => b - a)
       .slice(0, maxPhrases)
       .map(([word]) => word)
+  }
+}
+
+// VaultService is an alias/wrapper for CollectionService
+// In this app, "Vaults" and "Collections" are the same concept
+export class VaultService {
+  // Get user's vaults (collections) with cast counts
+  static async getUserVaults(userId: string): Promise<Vault[]> {
+    const collections = await CollectionService.getUserCollections(userId)
+    
+    // Add cast counts to each vault
+    const vaultsWithCounts = await Promise.all(
+      collections.map(async (collection) => {
+        try {
+          const casts = await CollectionService.getCollectionCasts(collection.id)
+          return {
+            ...collection,
+            cast_count: casts.length,
+            auto_add_rules: [] // Collections don't have auto-add rules yet, so we default to empty array
+          } as Vault
+        } catch (error) {
+          console.error(`Error getting cast count for vault ${collection.id}:`, error)
+          return {
+            ...collection,
+            cast_count: 0,
+            auto_add_rules: []
+          } as Vault
+        }
+      })
+    )
+    
+    return vaultsWithCounts
+  }
+
+  // Create a new vault (collection)
+  static async createVault(name: string, description: string, rules: string | string[], userId: string, isPublic: boolean = false): Promise<Vault> {
+    // For now, we ignore the rules parameter since collections don't support auto-add rules yet
+    // In the future, this could be stored in a separate field or table
+    const collection = await CollectionService.createCollection(name, description, userId, isPublic)
+    
+    return {
+      ...collection,
+      cast_count: 0,
+      auto_add_rules: Array.isArray(rules) ? rules : []
+    } as Vault
+  }
+
+  // Add cast to vault (collection)
+  static async addCastToVault(castId: string, vaultId: string): Promise<void> {
+    return await CollectionService.addCastToCollection(castId, vaultId)
+  }
+
+  // Get casts in a vault (collection)
+  static async getVaultCasts(vaultId: string): Promise<SavedCast[]> {
+    return await CollectionService.getCollectionCasts(vaultId)
+  }
+
+  // Check if a cast is in a vault (collection)
+  static async isCastInVault(castId: string, vaultId: string): Promise<boolean> {
+    return await CollectionService.isCastInCollection(castId, vaultId)
+  }
+
+  // Get all vaults that contain a specific cast
+  static async getVaultsForCast(castId: string): Promise<Vault[]> {
+    const collections = await CollectionService.getCollectionsForCast(castId)
+    // Convert collections to vaults with default properties
+    return collections.map(collection => ({
+      ...collection,
+      cast_count: 0, // We don't calculate this here for performance
+      auto_add_rules: []
+    }) as Vault)
+  }
+
+  // Remove a cast from a vault (collection)
+  static async removeCastFromVault(castId: string, vaultId: string): Promise<void> {
+    return await CollectionService.removeCastFromCollection(castId, vaultId)
+  }
+
+  // Delete a vault (collection)
+  static async deleteVault(vaultId: string, userId: string): Promise<void> {
+    return await CollectionService.deleteCollection(vaultId, userId)
+  }
+
+  // Update vault details
+  static async updateVault(
+    vaultId: string, 
+    userId: string, 
+    updates: { name?: string; description?: string; is_public?: boolean }
+  ): Promise<Vault> {
+    const updatedCollection = await CollectionService.updateCollection(vaultId, userId, updates)
+    // Get current cast count
+    const casts = await CollectionService.getCollectionCasts(vaultId)
+    
+    return {
+      ...updatedCollection,
+      cast_count: casts.length,
+      auto_add_rules: []
+    } as Vault
+  }
+
+  // Get public vaults (collections)
+  static async getPublicVaults(limit: number = 50): Promise<Vault[]> {
+    const collections = await CollectionService.getPublicCollections(limit)
+    // Convert to vaults with default properties (don't calculate cast counts for performance)
+    return collections.map(collection => ({
+      ...collection,
+      cast_count: 0,
+      auto_add_rules: []
+    }) as Vault)
+  }
+
+  // Get vault with statistics
+  static async getVaultWithStats(vaultId: string): Promise<Vault & { castCount: number }> {
+    const collectionWithStats = await CollectionService.getCollectionWithStats(vaultId)
+    return {
+      ...collectionWithStats,
+      cast_count: collectionWithStats.castCount,
+      auto_add_rules: []
+    } as Vault & { castCount: number }
   }
 }
