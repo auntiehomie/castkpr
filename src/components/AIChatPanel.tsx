@@ -129,9 +129,9 @@ I can help you with:
 💡 **"suggest new vaults"** - Get organization recommendations
 
 **Quick Actions:**
-• Type "organize" to auto-organize all casts
-• Type "stats" to see your collection insights
-• Type "help" for all available commands
+- Type "organize" to auto-organize all casts
+- Type "stats" to see your collection insights
+- Type "help" for all available commands
 
 What would you like me to help with?`,
       timestamp: new Date(),
@@ -212,40 +212,81 @@ What would you like me to help with?`,
     }
   }
 
-  // Execute AI-suggested actions with proper sequencing
+  // Execute AI-suggested actions with improved duplicate checking and error handling
   const executeAIActions = async (actions: any[]) => {
     const createdVaults: Record<string, string> = {} // Map vault names to IDs
+    let successCount = 0
+    let skipCount = 0
+    let errorCount = 0
     
     try {
       console.log('🔄 Executing', actions.length, 'actions...')
       
-      // First pass: Create all vaults
+      // First pass: Create all vaults or find existing ones
       for (const action of actions) {
         if (action.type === 'create_vault' && action.vaultName) {
-          console.log('🆕 Creating vault:', action.vaultName)
+          console.log('🆕 Processing vault:', action.vaultName)
           try {
-            const newVault = await CollectionService.createCollection(
-              action.vaultName,
-              action.description || `Auto-created vault for ${action.vaultName}`,
-              userId,
-              false
+            // Check if vault already exists
+            const existingVaults = await CollectionService.getUserCollections(userId)
+            const existing = existingVaults.find(v => 
+              v.name.toLowerCase() === action.vaultName.toLowerCase()
             )
-            createdVaults[action.vaultName] = newVault.id
-            console.log('✅ Vault created:', action.vaultName, 'ID:', newVault.id)
+            
+            if (existing) {
+              console.log('✅ Vault already exists:', action.vaultName)
+              createdVaults[action.vaultName] = existing.id
+            } else {
+              const newVault = await CollectionService.createCollection(
+                action.vaultName,
+                action.description || `Auto-created vault for ${action.vaultName}`,
+                userId,
+                false
+              )
+              createdVaults[action.vaultName] = newVault.id
+              console.log('✅ Vault created:', action.vaultName, 'ID:', newVault.id)
+              successCount++
+            }
           } catch (error) {
-            console.error('❌ Failed to create vault:', action.vaultName, error)
+            console.error('❌ Failed to create/find vault:', action.vaultName, error)
+            errorCount++
           }
         }
       }
       
-      // Second pass: Execute all other actions
+      // Second pass: Add casts to vaults with duplicate checking
       for (const action of actions) {
         try {
           switch (action.type) {
             case 'add_to_vault':
-              if (action.castId && action.vaultId) {
-                console.log('📂 Adding cast to existing vault:', action.castId, '→', action.vaultId)
-                await CollectionService.addCastToCollection(action.castId, action.vaultId)
+              if (action.castId) {
+                // Determine vault ID
+                let vaultId = action.vaultId
+                
+                // If no vaultId but has vaultName, find it
+                if (!vaultId && action.vaultName) {
+                  vaultId = createdVaults[action.vaultName] || 
+                    userVaults.find(v => v.name.toLowerCase() === action.vaultName.toLowerCase())?.id
+                }
+                
+                if (vaultId) {
+                  console.log('📂 Adding cast to vault:', action.castId, '→', vaultId)
+                  
+                  // Check if cast is already in vault
+                  const isInVault = await CollectionService.isCastInCollection(action.castId, vaultId)
+                  
+                  if (!isInVault) {
+                    await CollectionService.addCastToCollection(action.castId, vaultId)
+                    console.log('✅ Cast added to vault')
+                    successCount++
+                  } else {
+                    console.log('⚠️ Cast already in vault, skipping')
+                    skipCount++
+                  }
+                } else {
+                  console.log('❌ Vault not found for action:', action.vaultName || action.vaultId)
+                  errorCount++
+                }
               }
               break
               
@@ -253,7 +294,20 @@ What would you like me to help with?`,
               // Handle adding casts to newly created vaults
               if (action.castId && action.vaultName && createdVaults[action.vaultName]) {
                 console.log('📂 Adding cast to new vault:', action.castId, '→', action.vaultName)
-                await CollectionService.addCastToCollection(action.castId, createdVaults[action.vaultName])
+                
+                const vaultId = createdVaults[action.vaultName]
+                
+                // Check if cast is already in vault
+                const isInVault = await CollectionService.isCastInCollection(action.castId, vaultId)
+                
+                if (!isInVault) {
+                  await CollectionService.addCastToCollection(action.castId, vaultId)
+                  console.log('✅ Cast added to new vault')
+                  successCount++
+                } else {
+                  console.log('⚠️ Cast already in vault, skipping')
+                  skipCount++
+                }
               }
               break
               
@@ -262,8 +316,16 @@ What would you like me to help with?`,
                 console.log('🏷️ Tagging cast:', action.castId, 'with:', action.value)
                 const cast = userCasts.find(c => c.id === action.castId)
                 if (cast) {
-                  const newTags = [...new Set([...(cast.tags || []), action.value])]
-                  await CastService.updateCast(action.castId, userId, { tags: newTags })
+                  const currentTags = cast.tags || []
+                  if (!currentTags.includes(action.value)) {
+                    const newTags = [...new Set([...currentTags, action.value])]
+                    await CastService.updateCast(action.castId, userId, { tags: newTags })
+                    console.log('✅ Tag added to cast')
+                    successCount++
+                  } else {
+                    console.log('⚠️ Tag already exists, skipping')
+                    skipCount++
+                  }
                 }
               }
               break
@@ -272,15 +334,18 @@ What would you like me to help with?`,
               if (action.castId && action.value) {
                 console.log('🗑️ Removing tag:', action.value, 'from cast:', action.castId)
                 const cast = userCasts.find(c => c.id === action.castId)
-                if (cast) {
+                if (cast && cast.tags?.includes(action.value)) {
                   const newTags = (cast.tags || []).filter(tag => tag !== action.value)
                   await CastService.updateCast(action.castId, userId, { tags: newTags })
+                  console.log('✅ Tag removed from cast')
+                  successCount++
                 }
               }
               break
           }
         } catch (actionError) {
           console.error('❌ Error executing action:', action.type, actionError)
+          errorCount++
         }
       }
       
@@ -293,22 +358,40 @@ What would you like me to help with?`,
           if (createdVaults[vaultName] && action.castId) {
             console.log('🔄 Moving tagged cast to vault:', action.castId, '→', vaultName)
             try {
-              await CollectionService.addCastToCollection(action.castId, createdVaults[vaultName])
+              const isInVault = await CollectionService.isCastInCollection(
+                action.castId, 
+                createdVaults[vaultName]
+              )
               
-              // Remove the temporary tag
-              const cast = userCasts.find(c => c.id === action.castId)
-              if (cast) {
-                const newTags = (cast.tags || []).filter(tag => tag !== action.value)
-                await CastService.updateCast(action.castId, userId, { tags: newTags })
+              if (!isInVault) {
+                await CollectionService.addCastToCollection(action.castId, createdVaults[vaultName])
+                
+                // Remove the temporary tag
+                const cast = userCasts.find(c => c.id === action.castId)
+                if (cast) {
+                  const newTags = (cast.tags || []).filter(tag => tag !== action.value)
+                  await CastService.updateCast(action.castId, userId, { tags: newTags })
+                }
+                console.log('✅ Cast moved to vault')
+                successCount++
+              } else {
+                console.log('⚠️ Cast already in vault, skipping')
+                skipCount++
               }
             } catch (error) {
               console.error('❌ Error moving tagged cast:', error)
+              errorCount++
             }
           }
         }
       }
       
-      console.log('✅ All actions executed successfully')
+      console.log('✅ Actions completed:', {
+        success: successCount,
+        skipped: skipCount,
+        errors: errorCount,
+        total: actions.length
+      })
       
     } catch (error) {
       console.error('❌ Error executing AI actions:', error)
