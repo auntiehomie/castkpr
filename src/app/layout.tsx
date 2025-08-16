@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import MiniAppProvider from "@/components/MiniAppProvider";
-import ShareExtensionHandler from "@/components/ShareExtensionHandler";
+// Remove this import: import ShareExtensionHandler from "@/components/ShareExtensionHandler";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -75,7 +75,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <MiniAppProvider>
-          <ShareExtensionHandler />
+          {/* Remove ShareExtensionHandler from here */}
           {children}
         </MiniAppProvider>
       </body>
