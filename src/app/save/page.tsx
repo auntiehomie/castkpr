@@ -49,7 +49,7 @@ export default function Save() {
             </div>
 
             <a 
-              href="/dashboard"
+              href="/Dashboard"
               className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors inline-block"
             >
               View Your Dashboard →

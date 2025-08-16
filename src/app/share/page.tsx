@@ -108,7 +108,7 @@ export default function SharePage() {
 
   const handleViewDashboard = () => {
     console.log('🔄 Navigating to dashboard...')
-    router.push('/dashboard')
+    router.push('/Dashboard') // ✅ FIXED: Changed from /dashboard to /Dashboard
   }
 
   if (processing) {
