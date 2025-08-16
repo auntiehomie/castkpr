@@ -76,8 +76,7 @@ export default function VaultManager({ userId }: VaultManagerProps) {
             const castCount = collectionCasts.length
             const recentCasts = collectionCasts
               .slice(0, 3)
-              .map(cc => cc.saved_casts)
-              .flat()
+              .map(cc => cc)
               .filter(Boolean)
             
             return {
@@ -212,8 +211,7 @@ export default function VaultManager({ userId }: VaultManagerProps) {
     try {
       const collectionCasts = await CollectionService.getCollectionCasts(vault.id)
       const casts = collectionCasts
-        .map(cc => cc.saved_casts)
-        .flat()
+        .map(cc => cc)
         .filter(Boolean)
       
       setVaultCasts(casts)

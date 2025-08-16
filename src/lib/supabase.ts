@@ -306,10 +306,12 @@ export class CastService {
   }
 }
 
-// Helper functions for collections
+// Helper functions for collections - FULLY UPDATED
 export class CollectionService {
   // Create a new collection
   static async createCollection(name: string, description: string, userId: string, isPublic: boolean = false): Promise<Collection> {
+    console.log('📁 Creating collection:', { name, userId, isPublic })
+    
     const { data, error } = await supabase
       .from('collections')
       .insert({
@@ -326,11 +328,14 @@ export class CollectionService {
       throw error
     }
 
+    console.log('✅ Collection created:', data.id)
     return data
   }
 
   // Get user's collections
   static async getUserCollections(userId: string): Promise<Collection[]> {
+    console.log('📚 Fetching collections for user:', userId)
+    
     const { data, error } = await supabase
       .from('collections')
       .select('*')
@@ -342,49 +347,237 @@ export class CollectionService {
       throw error
     }
 
+    console.log('📦 Found', data?.length || 0, 'collections')
     return data || []
   }
 
-  // Add cast to collection
+  // Add cast to collection with improved error handling
   static async addCastToCollection(castId: string, collectionId: string): Promise<void> {
+    console.log('🔗 Adding cast to collection:', { castId, collectionId })
+    
+    // First check if the cast already exists in this collection
+    const { data: existing, error: checkError } = await supabase
+      .from('cast_collections')
+      .select('cast_id')
+      .eq('cast_id', castId)
+      .eq('collection_id', collectionId)
+      .maybeSingle() // Use maybeSingle to avoid error when no rows found
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error checking existing cast in collection:', checkError)
+      throw new Error(`Failed to check collection: ${checkError.message}`)
+    }
+
+    if (existing) {
+      console.log('⚠️ Cast already exists in this collection')
+      throw new Error('This cast is already in the vault')
+    }
+
+    // Add the cast to the collection
     const { error } = await supabase
       .from('cast_collections')
       .insert({
         cast_id: castId,
-        collection_id: collectionId
+        collection_id: collectionId,
+        added_at: new Date().toISOString()
       })
 
     if (error) {
       console.error('Error adding cast to collection:', error)
-      throw error
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      })
+      
+      // Provide more specific error messages
+      if (error.code === '42883') {
+        throw new Error('Database schema mismatch - please contact support')
+      } else if (error.code === '23503') {
+        throw new Error('Invalid cast or collection ID')
+      } else if (error.code === '23505') {
+        throw new Error('This cast is already in the vault')
+      } else {
+        throw new Error(`Failed to add cast: ${error.message}`)
+      }
     }
+
+    console.log('✅ Cast successfully added to collection')
   }
 
-  // Get casts in a collection
-  static async getCollectionCasts(collectionId: string): Promise<Array<{
-    cast_id: string;
-    added_at: string;
-    saved_casts: SavedCast[];
-  }>> {
+  // Get casts in a collection - updated to handle the join properly
+  static async getCollectionCasts(collectionId: string): Promise<SavedCast[]> {
+    console.log('📚 Fetching casts for collection:', collectionId)
+    
     const { data, error } = await supabase
       .from('cast_collections')
       .select(`
         cast_id,
         added_at,
-        saved_casts (*)
+        saved_casts!inner(*)
       `)
       .eq('collection_id', collectionId)
+      .order('added_at', { ascending: false })
 
     if (error) {
       console.error('Error fetching collection casts:', error)
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details
+      })
       throw error
     }
 
-    return (data || []) as Array<{
-      cast_id: string;
-      added_at: string;
-      saved_casts: SavedCast[];
-    }>
+    console.log('📦 Found', data?.length || 0, 'casts in collection')
+
+    // Extract the saved_casts from the joined data
+    // TypeScript type assertion to handle the joined data structure
+    const casts = (data || []).map((item: any) => item.saved_casts).filter(Boolean) as SavedCast[]
+    
+    return casts
+  }
+
+  // Helper method to remove a cast from a collection
+  static async removeCastFromCollection(castId: string, collectionId: string): Promise<void> {
+    console.log('🗑️ Removing cast from collection:', { castId, collectionId })
+    
+    const { error } = await supabase
+      .from('cast_collections')
+      .delete()
+      .eq('cast_id', castId)
+      .eq('collection_id', collectionId)
+
+    if (error) {
+      console.error('Error removing cast from collection:', error)
+      throw new Error(`Failed to remove cast: ${error.message}`)
+    }
+
+    console.log('✅ Cast removed from collection')
+  }
+
+  // Check if a cast is in a collection
+  static async isCastInCollection(castId: string, collectionId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('cast_collections')
+      .select('cast_id')
+      .eq('cast_id', castId)
+      .eq('collection_id', collectionId)
+      .maybeSingle()
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error checking cast in collection:', error)
+      return false
+    }
+
+    return !!data
+  }
+
+  // Get all collections that contain a specific cast
+  static async getCollectionsForCast(castId: string): Promise<Collection[]> {
+    const { data, error } = await supabase
+      .from('cast_collections')
+      .select(`
+        collection_id,
+        collections!inner(*)
+      `)
+      .eq('cast_id', castId)
+
+    if (error) {
+      console.error('Error fetching collections for cast:', error)
+      throw error
+    }
+
+    return (data || []).map((item: any) => item.collections).filter(Boolean) as Collection[]
+  }
+
+  // Delete a collection and all its associations
+  static async deleteCollection(collectionId: string, userId: string): Promise<void> {
+    // The cascade delete should handle cast_collections automatically
+    const { error } = await supabase
+      .from('collections')
+      .delete()
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+
+    if (error) {
+      console.error('Error deleting collection:', error)
+      throw new Error(`Failed to delete collection: ${error.message}`)
+    }
+
+    console.log('✅ Collection deleted:', collectionId)
+  }
+
+  // Update collection details
+  static async updateCollection(
+    collectionId: string, 
+    userId: string, 
+    updates: { name?: string; description?: string; is_public?: boolean }
+  ): Promise<Collection> {
+    const { data, error } = await supabase
+      .from('collections')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', collectionId)
+      .eq('created_by', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating collection:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get public collections
+  static async getPublicCollections(limit: number = 50): Promise<Collection[]> {
+    const { data, error } = await supabase
+      .from('collections')
+      .select('*')
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching public collections:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Get collection with cast count
+  static async getCollectionWithStats(collectionId: string): Promise<Collection & { castCount: number }> {
+    const { data: collection, error: collectionError } = await supabase
+      .from('collections')
+      .select('*')
+      .eq('id', collectionId)
+      .single()
+
+    if (collectionError) {
+      console.error('Error fetching collection:', collectionError)
+      throw collectionError
+    }
+
+    const { count, error: countError } = await supabase
+      .from('cast_collections')
+      .select('*', { count: 'exact', head: true })
+      .eq('collection_id', collectionId)
+
+    if (countError) {
+      console.error('Error counting casts:', countError)
+      throw countError
+    }
+
+    return {
+      ...collection,
+      castCount: count || 0
+    }
   }
 }
 
@@ -907,9 +1100,9 @@ export class UserAIProfileService {
       // Calculate similarity based on shared interests
       const similarUsers = data
         .map(profile => {
-         const sharedInterests = profile.interests.filter((interest: string) => 
-  userProfile.interests.includes(interest)
-)
+          const sharedInterests = profile.interests.filter((interest: string) => 
+            userProfile.interests.includes(interest)
+          )
           const similarity = sharedInterests.length / Math.max(userProfile.interests.length, profile.interests.length)
           
           return {
