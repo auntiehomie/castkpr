@@ -100,17 +100,23 @@ export interface AILearning {
 
 // Helper functions for database operations
 export class CastService {
-  // Save a new cast
+  // Save a new cast with improved error handling
   static async saveCast(castData: Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>): Promise<SavedCast> {
     console.log('💾 Attempting to save cast:', castData.cast_hash)
+    console.log('👤 For user:', castData.saved_by_user_id)
     
-    // Check if cast already exists for this user
-    const { data: existing } = await supabase
+    // Check if cast already exists for this user using maybeSingle to avoid errors
+    const { data: existing, error: checkError } = await supabase
       .from('saved_casts')
       .select('id')
       .eq('cast_hash', castData.cast_hash)
       .eq('saved_by_user_id', castData.saved_by_user_id)
-      .single()
+      .maybeSingle() // Use maybeSingle instead of single to avoid error if not found
+
+    if (checkError) {
+      console.error('❌ Error checking for existing cast:', checkError)
+      throw checkError
+    }
 
     if (existing) {
       console.log('⚠️ Cast already exists for this user')
@@ -126,6 +132,18 @@ export class CastService {
 
     if (error) {
       console.error('❌ Error saving cast to database:', error)
+      
+      // Check if it's a duplicate key error and provide more specific message
+      if (error.code === '23505') {
+        if (error.message.includes('saved_casts_cast_hash_user_unique')) {
+          console.log('💡 Duplicate detected via unique constraint')
+          throw new Error('Cast already saved by this user')
+        } else if (error.message.includes('saved_casts_cast_hash_key')) {
+          console.log('💡 Global duplicate detected - database schema needs updating')
+          throw new Error('Cast already saved by this user')
+        }
+      }
+      
       throw error
     }
 
@@ -135,6 +153,8 @@ export class CastService {
 
   // Get all saved casts for a user with enhanced signature
   static async getUserCasts(userId: string | 'all', limit: number = 50): Promise<SavedCast[]> {
+    console.log('🔍 Fetching casts for user:', userId, 'limit:', limit)
+    
     let query = supabase
       .from('saved_casts')
       .select('*')
@@ -153,6 +173,7 @@ export class CastService {
       throw error
     }
 
+    console.log('📦 Fetched', data?.length || 0, 'casts')
     return data || []
   }
 
@@ -172,8 +193,10 @@ export class CastService {
     return data || []
   }
 
-  // Search casts
+  // Search casts with improved error handling
   static async searchCasts(userId: string, query: string): Promise<SavedCast[]> {
+    console.log('🔍 Searching casts for user:', userId, 'query:', query)
+    
     const { data, error } = await supabase
       .from('saved_casts')
       .select('*')
@@ -186,6 +209,7 @@ export class CastService {
       throw error
     }
 
+    console.log('📊 Search returned', data?.length || 0, 'results')
     return data || []
   }
 
@@ -262,6 +286,23 @@ export class CastService {
     }
 
     return data || []
+  }
+
+  // Check if cast exists for user (helper method)
+  static async castExistsForUser(castHash: string, userId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('saved_casts')
+      .select('id')
+      .eq('cast_hash', castHash)
+      .eq('saved_by_user_id', userId)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error checking if cast exists:', error)
+      return false
+    }
+
+    return !!data
   }
 }
 
@@ -385,9 +426,9 @@ export class UserService {
       .from('users')
       .select('*')
       .eq('fid', fid)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+    if (error) {
       console.error('Error fetching user by FID:', error)
       throw error
     }
@@ -401,9 +442,9 @@ export class UserService {
       .from('users')
       .select('*')
       .eq('username', username)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+    if (error) {
       console.error('Error fetching user by username:', error)
       throw error
     }
@@ -517,7 +558,7 @@ export class UserService {
       .from('users')
       .select('created_at, last_login')
       .eq('id', userId)
-      .single()
+      .maybeSingle()
 
     return {
       totalCasts: castCount || 0,
@@ -556,9 +597,9 @@ export class AIContextService {
       .from('ai_contexts')
       .select('*')
       .eq('topic', topic)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+    if (error) {
       console.error('Error fetching AI context:', error)
       throw error
     }
@@ -674,7 +715,7 @@ export class AIContextService {
         .from('ai_contexts')
         .select('confidence_score')
         .eq('id', contextId)
-        .single()
+        .maybeSingle()
 
       if (fetchError || !context) {
         console.error('Error fetching context for confidence update:', fetchError)
@@ -781,9 +822,9 @@ export class UserAIProfileService {
       .from('user_ai_profiles')
       .select('*')
       .eq('user_id', userId)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+    if (error) {
       console.error('Error fetching user AI profile:', error)
       throw error
     }
@@ -955,9 +996,9 @@ export class AILearningService {
         .from('ai_learning')
         .select('*')
         .eq('learning_type', learningType)
-        .single()
+        .maybeSingle()
 
-      if (fetchError && fetchError.code !== 'PGRST116') {
+      if (fetchError) {
         console.error('Error fetching learning entry:', fetchError)
         return
       }
