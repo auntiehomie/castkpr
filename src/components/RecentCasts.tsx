@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { CastService } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 import CastCard from './CastCard'
@@ -154,13 +155,23 @@ export default function RecentCasts({ userId, onViewAllClick }: RecentCastsProps
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white">Recent Casts</h2>
         
-        {casts.length > 0 && onViewAllClick && (
-          <button
-            onClick={onViewAllClick}
-            className="text-purple-400 hover:text-purple-300 transition-colors text-sm font-medium"
-          >
-            View All →
-          </button>
+        {casts.length > 0 && (
+          // Use callback if provided, otherwise use direct link
+          onViewAllClick ? (
+            <button
+              onClick={onViewAllClick}
+              className="text-purple-400 hover:text-purple-300 transition-colors text-sm font-medium"
+            >
+              View All →
+            </button>
+          ) : (
+            <Link 
+              href="/Dashboard"
+              className="text-purple-400 hover:text-purple-300 transition-colors text-sm font-medium"
+            >
+              View All →
+            </Link>
+          )
         )}
       </div>
 
@@ -208,13 +219,21 @@ export default function RecentCasts({ userId, onViewAllClick }: RecentCastsProps
           <p className="text-sm text-gray-400">
             Showing {casts.length} of your most recent saved casts
           </p>
-          {onViewAllClick && (
+          {/* Use callback if provided, otherwise use direct link */}
+          {onViewAllClick ? (
             <button
               onClick={onViewAllClick}
               className="mt-2 text-purple-400 hover:text-purple-300 transition-colors text-sm underline"
             >
               View all saved casts
             </button>
+          ) : (
+            <Link
+              href="/Dashboard"
+              className="mt-2 text-purple-400 hover:text-purple-300 transition-colors text-sm underline inline-block"
+            >
+              View all saved casts
+            </Link>
           )}
         </div>
       )}
