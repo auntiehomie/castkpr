@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AIResponseService } from '../lib/ai-responses'
+import { AIResponseService } from '@/lib/ai-responses'
 import { AIVaultOrganizer } from '@/lib/ai-vault-organizer'
-import { CastService, UserAIProfileService, AIContextService, CollectionService } from '@/lib/supabase'
+import { CastService, UserAIProfileService, CollectionService } from '@/lib/supabase'
 import type { UserAIProfile, SavedCast, Collection } from '@/lib/supabase'
 
 interface AIChatPanelProps {
@@ -19,10 +19,11 @@ interface ChatMessage {
   confidence?: number
   usedContexts?: string[]
   actions?: Array<{
-    type: 'add_to_vault' | 'create_vault' | 'tag_cast' | 'remove_tag'
+    type: 'add_to_vault' | 'create_vault' | 'tag_cast' | 'remove_tag' | 'add_to_new_vault'
     castId?: string
     vaultId?: string
     vaultName?: string
+    description?: string
     value?: string
   }>
 }
@@ -118,28 +119,33 @@ export default function AIChatPanel({ userId, onCastUpdate }: AIChatPanelProps) 
     const welcomeMessage: ChatMessage = {
       id: 'welcome',
       type: 'ai',
-      content: `🤖 I'm here to help with saving and organizing casts!
+      content: `🤖 **AI Cast Organizer Ready!**
 
-Try: "@cstkpr help" for commands or "@cstkpr save this" to save any cast.
+I can help you with:
+🗂️ **"organize my casts by topic"** - Auto-organize into themed vaults
+🪙 **"organize my crypto casts"** - Group crypto/DeFi content
+📊 **"show my stats"** - Collection analytics & insights
+🔍 **"find casts about [topic]"** - Search your saved content
+💡 **"suggest new vaults"** - Get organization recommendations
 
-I can help you:
-🗂️ **Organize casts into vaults** - "organize my casts by topic"
-📊 **Analyze your collection** - "what are my most popular topics?"
-🎯 **Smart recommendations** - "suggest vaults for my casts"
-🏷️ **Auto-tag content** - "tag my crypto casts"
-🔍 **Find specific content** - "find casts about AI"
+**Quick Actions:**
+• Type "organize" to auto-organize all casts
+• Type "stats" to see your collection insights
+• Type "help" for all available commands
 
 What would you like me to help with?`,
       timestamp: new Date(),
-      confidence: 70
+      confidence: 100
     }
     setMessages([welcomeMessage])
   }
 
-  // Enhanced AI response function that can handle vault operations
+  // Enhanced AI vault organization using existing services
   const handleVaultOrganization = async (userMessage: string): Promise<ChatMessage> => {
     try {
-      // Create context about user's casts and vaults
+      console.log('🤖 Starting vault organization...')
+      
+      // Create context for AI vault organizer
       const context = {
         userCasts: userCasts.map(cast => ({
           id: cast.id,
@@ -156,11 +162,22 @@ What would you like me to help with?`,
         userMessage
       }
 
-      // Call enhanced AI service
+      console.log('📊 Context prepared:', {
+        casts: context.userCasts.length,
+        vaults: context.userVaults.length
+      })
+
+      // Call your existing AI vault organizer
       const aiResponse = await AIVaultOrganizer.organizeWithAI(context)
       
+      console.log('🧠 AI Response received:', {
+        confidence: aiResponse.confidence,
+        actionsCount: aiResponse.actions?.length || 0
+      })
+
       // Execute any actions the AI suggested
       if (aiResponse.actions && aiResponse.actions.length > 0) {
+        console.log('⚡ Executing AI actions...')
         await executeAIActions(aiResponse.actions)
         
         // Refresh data after actions
@@ -171,6 +188,7 @@ What would you like me to help with?`,
         ])
         
         if (onCastUpdate) onCastUpdate()
+        console.log('✅ Actions executed and data refreshed')
       }
 
       return {
@@ -183,12 +201,13 @@ What would you like me to help with?`,
       }
 
     } catch (error) {
-      console.error('Error in vault organization:', error)
+      console.error('❌ Error in vault organization:', error)
       return {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: "I had trouble organizing your casts. Please try again!",
-        timestamp: new Date()
+        content: "I had trouble organizing your casts. The good news is I can still help! Try a specific command like 'organize crypto casts' or 'create new vaults'.",
+        timestamp: new Date(),
+        confidence: 50
       }
     }
   }
@@ -198,84 +217,101 @@ What would you like me to help with?`,
     const createdVaults: Record<string, string> = {} // Map vault names to IDs
     
     try {
+      console.log('🔄 Executing', actions.length, 'actions...')
+      
       // First pass: Create all vaults
       for (const action of actions) {
         if (action.type === 'create_vault' && action.vaultName) {
-          console.log('Creating vault:', action.vaultName)
-          const newVault = await CollectionService.createCollection(
-            action.vaultName,
-            action.description || '',
-            userId,
-            false
-          )
-          createdVaults[action.vaultName] = newVault.id
-          console.log('Vault created with ID:', newVault.id)
+          console.log('🆕 Creating vault:', action.vaultName)
+          try {
+            const newVault = await CollectionService.createCollection(
+              action.vaultName,
+              action.description || `Auto-created vault for ${action.vaultName}`,
+              userId,
+              false
+            )
+            createdVaults[action.vaultName] = newVault.id
+            console.log('✅ Vault created:', action.vaultName, 'ID:', newVault.id)
+          } catch (error) {
+            console.error('❌ Failed to create vault:', action.vaultName, error)
+          }
         }
       }
       
       // Second pass: Execute all other actions
       for (const action of actions) {
-        switch (action.type) {
-          case 'add_to_vault':
-            if (action.castId && action.vaultId) {
-              console.log('Adding cast to existing vault:', action.castId, action.vaultId)
-              await CollectionService.addCastToCollection(action.castId, action.vaultId)
-            }
-            break
-            
-          case 'add_to_new_vault':
-            // Handle adding casts to newly created vaults
-            if (action.castId && action.vaultName && createdVaults[action.vaultName]) {
-              console.log('Adding cast to new vault:', action.castId, createdVaults[action.vaultName])
-              await CollectionService.addCastToCollection(action.castId, createdVaults[action.vaultName])
-            }
-            break
-            
-          case 'tag_cast':
-            if (action.castId && action.value) {
-              const cast = userCasts.find(c => c.id === action.castId)
-              if (cast) {
-                const newTags = [...(cast.tags || []), action.value]
-                await CastService.updateCast(action.castId, userId, { tags: newTags })
+        try {
+          switch (action.type) {
+            case 'add_to_vault':
+              if (action.castId && action.vaultId) {
+                console.log('📂 Adding cast to existing vault:', action.castId, '→', action.vaultId)
+                await CollectionService.addCastToCollection(action.castId, action.vaultId)
               }
-            }
-            break
-            
-          case 'remove_tag':
-            if (action.castId && action.value) {
-              const cast = userCasts.find(c => c.id === action.castId)
-              if (cast) {
-                const newTags = (cast.tags || []).filter(tag => tag !== action.value)
-                await CastService.updateCast(action.castId, userId, { tags: newTags })
+              break
+              
+            case 'add_to_new_vault':
+              // Handle adding casts to newly created vaults
+              if (action.castId && action.vaultName && createdVaults[action.vaultName]) {
+                console.log('📂 Adding cast to new vault:', action.castId, '→', action.vaultName)
+                await CollectionService.addCastToCollection(action.castId, createdVaults[action.vaultName])
               }
-            }
-            break
+              break
+              
+            case 'tag_cast':
+              if (action.castId && action.value) {
+                console.log('🏷️ Tagging cast:', action.castId, 'with:', action.value)
+                const cast = userCasts.find(c => c.id === action.castId)
+                if (cast) {
+                  const newTags = [...new Set([...(cast.tags || []), action.value])]
+                  await CastService.updateCast(action.castId, userId, { tags: newTags })
+                }
+              }
+              break
+              
+            case 'remove_tag':
+              if (action.castId && action.value) {
+                console.log('🗑️ Removing tag:', action.value, 'from cast:', action.castId)
+                const cast = userCasts.find(c => c.id === action.castId)
+                if (cast) {
+                  const newTags = (cast.tags || []).filter(tag => tag !== action.value)
+                  await CastService.updateCast(action.castId, userId, { tags: newTags })
+                }
+              }
+              break
+          }
+        } catch (actionError) {
+          console.error('❌ Error executing action:', action.type, actionError)
         }
       }
       
-      // Third pass: Handle casts that need to go into newly created vaults
-      // This is for the fallback organization that uses tags
+      // Third pass: Handle vault-tagged casts (fallback organization)
       for (const action of actions) {
         if (action.type === 'tag_cast' && action.value?.startsWith('vault-')) {
           const topicName = action.value.replace('vault-', '')
           const vaultName = `${topicName.charAt(0).toUpperCase() + topicName.slice(1)} Collection`
           
           if (createdVaults[vaultName] && action.castId) {
-            console.log('Moving tagged cast to vault:', action.castId, createdVaults[vaultName])
-            await CollectionService.addCastToCollection(action.castId, createdVaults[vaultName])
-            
-            // Remove the temporary tag
-            const cast = userCasts.find(c => c.id === action.castId)
-            if (cast) {
-              const newTags = (cast.tags || []).filter(tag => tag !== action.value)
-              await CastService.updateCast(action.castId, userId, { tags: newTags })
+            console.log('🔄 Moving tagged cast to vault:', action.castId, '→', vaultName)
+            try {
+              await CollectionService.addCastToCollection(action.castId, createdVaults[vaultName])
+              
+              // Remove the temporary tag
+              const cast = userCasts.find(c => c.id === action.castId)
+              if (cast) {
+                const newTags = (cast.tags || []).filter(tag => tag !== action.value)
+                await CastService.updateCast(action.castId, userId, { tags: newTags })
+              }
+            } catch (error) {
+              console.error('❌ Error moving tagged cast:', error)
             }
           }
         }
       }
       
+      console.log('✅ All actions executed successfully')
+      
     } catch (error) {
-      console.error('Error executing AI actions:', error)
+      console.error('❌ Error executing AI actions:', error)
       throw error
     }
   }
@@ -301,15 +337,17 @@ What would you like me to help with?`,
                             lowerMessage.includes('vault') ||
                             lowerMessage.includes('categorize') ||
                             lowerMessage.includes('sort') ||
-                            lowerMessage.includes('group')
+                            lowerMessage.includes('group') ||
+                            lowerMessage.includes('crypto') ||
+                            lowerMessage.includes('create')
 
       let aiMessage: ChatMessage
 
       if (isVaultRequest) {
-        // Use enhanced vault organization
+        // Use enhanced vault organization with your existing services
         aiMessage = await handleVaultOrganization(inputMessage.trim())
       } else {
-        // Use original AI response system
+        // Use your existing AI response system for other commands
         const responseContext = {
           castContent: inputMessage.trim(),
           authorUsername: 'system',
@@ -332,7 +370,7 @@ What would you like me to help with?`,
 
       setMessages(prev => [...prev, aiMessage])
 
-      // Update user profile based on interaction
+      // Update user profile based on interaction using your existing service
       await AIResponseService.updateUserProfileFromInteraction(
         userId,
         inputMessage,
@@ -345,7 +383,7 @@ What would you like me to help with?`,
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: "I'm having trouble processing that request right now. Please try again in a moment!",
+        content: "I'm having trouble processing that request right now. Try a simpler command like 'organize crypto casts' or 'show stats'!",
         timestamp: new Date()
       }
 
@@ -378,12 +416,11 @@ What would you like me to help with?`,
 
   const handleQuickAction = async (action: string) => {
     const actionMessages: Record<string, string> = {
-      'organize': 'Can you organize my casts into vaults based on their topics?',
-      'stats': 'Show me my CastKPR statistics and vault organization',
-      'trending': 'What are the trending topics in my saved casts?',
-      'recommendations': 'Suggest how I should organize my casts into vaults',
-      'analysis': 'Analyze my cast collection and suggest vault categories',
-      'help': 'What can you help me with?'
+      'organize': 'organize my casts by topic into vaults',
+      'crypto': 'organize my crypto casts',
+      'stats': 'show me my collection stats and insights',
+      'suggest': 'suggest new vaults for my content',
+      'help': 'help me understand what you can do'
     }
 
     const message = actionMessages[action]
@@ -402,7 +439,7 @@ What would you like me to help with?`,
       <div className="p-4 border-b border-white/10">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            🤖 AI Assistant
+            🤖 AI Cast Organizer
           </h2>
           {stats && (
             <div className="text-sm text-gray-400">
@@ -423,11 +460,11 @@ What would you like me to help with?`,
       <div className="p-3 border-b border-white/10">
         <div className="flex flex-wrap gap-2">
           {[
-            { key: 'organize', label: '🗂️ Organize', color: 'bg-yellow-500/20 text-yellow-300' },
+            { key: 'organize', label: '🗂️ Organize', color: 'bg-purple-500/20 text-purple-300' },
+            { key: 'crypto', label: '🪙 Crypto', color: 'bg-yellow-500/20 text-yellow-300' },
             { key: 'stats', label: '📊 Stats', color: 'bg-blue-500/20 text-blue-300' },
-            { key: 'trending', label: '🔥 Trends', color: 'bg-red-500/20 text-red-300' },
-            { key: 'recommendations', label: '🎯 Recs', color: 'bg-green-500/20 text-green-300' },
-            { key: 'analysis', label: '📈 Analysis', color: 'bg-purple-500/20 text-purple-300' }
+            { key: 'suggest', label: '💡 Suggest', color: 'bg-green-500/20 text-green-300' },
+            { key: 'help', label: '❓ Help', color: 'bg-gray-500/20 text-gray-300' }
           ].map(action => (
             <button
               key={action.key}
@@ -460,7 +497,7 @@ What would you like me to help with?`,
               {/* Show actions taken */}
               {message.actions && message.actions.length > 0 && (
                 <div className="mt-2 p-2 bg-green-500/20 rounded text-xs">
-                  <div className="font-medium text-green-300 mb-1">Actions taken:</div>
+                  <div className="font-medium text-green-300 mb-1">✅ Actions completed:</div>
                   {message.actions.map((action, idx) => (
                     <div key={idx} className="text-green-200">
                       • {action.type.replace('_', ' ')}: {action.vaultName || action.value || 'completed'}
@@ -508,7 +545,7 @@ What would you like me to help with?`,
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask me to organize your casts into vaults..."
+            placeholder="Try: 'organize my casts by topic' or 'organize crypto casts'..."
             className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
             rows={1}
             disabled={isLoading}
@@ -523,7 +560,7 @@ What would you like me to help with?`,
         </div>
         
         <div className="text-xs text-gray-400 mt-2 text-center">
-          Try: "organize my casts by topic" or "create a crypto vault"
+          Try: "organize by topic", "crypto vaults", "suggest new vaults", or "show stats"
         </div>
       </div>
     </div>
