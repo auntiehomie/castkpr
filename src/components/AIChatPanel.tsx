@@ -13,9 +13,10 @@ interface Message {
 interface AICharPanelProps {
   userId: string
   onClose?: () => void
+  onCastUpdate?: () => void
 }
 
-export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
+export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPanelProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -157,7 +158,7 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
       switch (name) {
         case 'list_vaults': {
           const vaults = await VaultService.getUserVaults(userId)
-          const vaultList = vaults.map(v => ({
+          const vaultList = vaults.map((v: Vault) => ({
             name: v.name,
             description: v.description,
             cast_count: v.cast_count || 0,
@@ -180,6 +181,10 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
             args.rules || [],
             userId
           )
+          
+          // Refresh data in parent component
+          onCastUpdate?.()
+          
           return {
             success: true,
             vault: vault,
@@ -201,6 +206,10 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
           }
 
           await VaultService.addCastToVault(cast.id, vault.id)
+          
+          // Refresh data in parent component
+          onCastUpdate?.()
+          
           return {
             success: true,
             message: `Added cast to vault "${args.vault_name}"`
@@ -233,7 +242,7 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
             
             for (const vault of vaults) {
               const rules = vault.auto_add_rules || []
-              const matches = rules.some(rule => content.includes(rule.toLowerCase()))
+              const matches = rules.some((rule: string) => content.includes(rule.toLowerCase()))
               
               if (matches) {
                 try {
@@ -246,6 +255,9 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
               }
             }
           }
+
+          // Refresh data in parent component
+          onCastUpdate?.()
 
           return {
             success: true,
@@ -334,7 +346,7 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
             success: true,
             vault: args.vault_name,
             cast_count: vaultCasts.length,
-            casts: vaultCasts.slice(0, 5).map(c => ({
+            casts: vaultCasts.slice(0, 5).map((c: SavedCast) => ({
               hash: c.cast_hash,
               author: c.username,
               content: c.cast_content.substring(0, 100) + (c.cast_content.length > 100 ? '...' : ''),
@@ -390,6 +402,9 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
               }
             }
           }
+
+          // Refresh data in parent component
+          onCastUpdate?.()
 
           return {
             success: true,
@@ -556,6 +571,9 @@ export default function AICharPanel({ userId, onClose }: AICharPanelProps) {
       ])
       setVaults(updatedVaults)
       setCasts(updatedCasts)
+      
+      // Notify parent component to refresh its data too
+      onCastUpdate?.()
 
     } catch (error) {
       console.error('Chat error:', error)
