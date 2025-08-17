@@ -297,14 +297,25 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
     },
     {
       name: 'delete_vault',
-      description: 'Delete a vault and all its associations. This will remove the vault but not delete the actual casts.',
+      description: 'Delete a vault and all its associations. This will remove the vault but not delete the actual casts. Use this when user confirms deletion with any affirmative response.',
       parameters: {
         type: 'object',
         properties: {
           vault_name: { type: 'string', description: 'Name of the vault to delete' },
-          confirm: { type: 'boolean', description: 'Confirmation that the user wants to delete the vault (should be true)' }
+          user_confirmation: { type: 'string', description: 'The user\'s confirmation message (e.g., "yes", "confirm", "delete it", "yeah")' }
         },
-        required: ['vault_name', 'confirm']
+        required: ['vault_name', 'user_confirmation']
+      }
+    },
+    {
+      name: 'confirm_vault_deletion',
+      description: 'Ask for confirmation before deleting a vault. Use this when user first requests to delete a vault without explicit confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          vault_name: { type: 'string', description: 'Name of the vault to confirm deletion for' }
+        },
+        required: ['vault_name']
       }
     }
   ]
@@ -1588,12 +1599,28 @@ ${vaultSuggestion}`
         }
 
         case 'delete_vault': {
-          const { vault_name, confirm } = args
+          const { vault_name, user_confirmation } = args
           
-          if (!confirm) {
+          // Helper function to check if confirmation is affirmative
+          const isAffirmative = (confirmation: string): boolean => {
+            const affirmativeWords = [
+              'yes', 'yeah', 'yep', 'y', 'confirm', 'confirmed', 'delete', 'delete it', 
+              'remove', 'remove it', 'proceed', 'go ahead', 'ok', 'okay', 'sure', 
+              'affirmative', 'correct', 'right', 'true', 'do it', 'please delete'
+            ]
+            const lowerConfirmation = confirmation.toLowerCase().trim()
+            return affirmativeWords.some(word => 
+              lowerConfirmation === word || 
+              lowerConfirmation.includes(word) ||
+              lowerConfirmation.startsWith('yes ') ||
+              lowerConfirmation.startsWith('yeah ')
+            )
+          }
+          
+          if (!user_confirmation || !isAffirmative(user_confirmation)) {
             return { 
               success: false, 
-              message: 'Vault deletion requires confirmation. Please confirm that you want to delete this vault.' 
+              message: `I need clear confirmation to delete a vault. Please respond with "yes", "confirm", "delete it", or similar to confirm deletion of "${vault_name}".` 
             }
           }
 
@@ -1632,6 +1659,31 @@ ${vaultSuggestion}`
               success: false,
               message: `Failed to delete vault "${vault_name}": ${error instanceof Error ? error.message : 'Unknown error'}`
             }
+          }
+        }
+
+        case 'confirm_vault_deletion': {
+          const { vault_name } = args
+          
+          // Find the vault by name to make sure it exists
+          const vault = vaults.find(v => v.name.toLowerCase() === vault_name.toLowerCase())
+          if (!vault) {
+            return { 
+              success: false, 
+              message: `Vault "${vault_name}" not found. Available vaults: ${vaults.map(v => v.name).join(', ') || 'none'}` 
+            }
+          }
+
+          const castCount = vault.cast_count || 0
+
+          return {
+            success: true,
+            vault_info: {
+              name: vault.name,
+              description: vault.description,
+              cast_count: castCount
+            },
+            message: `Are you sure you want to delete the vault "${vault.name}"? This vault contains ${castCount} casts. The vault will be deleted but your casts will remain saved. Please confirm with "yes", "confirm", or "delete it" to proceed.`
           }
         }
 
