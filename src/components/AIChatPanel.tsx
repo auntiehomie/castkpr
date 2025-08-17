@@ -317,6 +317,18 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
         },
         required: ['vault_name']
       }
+    },
+    {
+      name: 'smart_vault_deletion',
+      description: 'Intelligently handle vault deletion by parsing the user message to find vault names and confirmation. Use this when having trouble extracting vault names from user messages.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_message: { type: 'string', description: 'The complete user message about vault deletion' },
+          action: { type: 'string', enum: ['ask_confirmation', 'delete_with_confirmation'], description: 'Whether to ask for confirmation or proceed with deletion' }
+        },
+        required: ['user_message', 'action']
+      }
     }
   ]
 
@@ -1745,6 +1757,136 @@ ${vaultSuggestion}`
               cast_count: castCount
             },
             message: `Are you sure you want to delete the vault "${vault.name}"? This vault contains ${castCount} casts. The vault will be deleted but your casts will remain saved. Please confirm with "yes", "confirm", or "delete it" to proceed.`
+          }
+        }
+
+        case 'smart_vault_deletion': {
+          const { user_message, action } = args
+          
+          // Validate parameters
+          if (!user_message || typeof user_message !== 'string') {
+            return { 
+              success: false, 
+              message: 'User message is required for smart vault deletion.' 
+            }
+          }
+
+          // Helper function to extract vault names from user message
+          const extractVaultNames = (message: string): string[] => {
+            const lowerMessage = message.toLowerCase()
+            const foundVaultNames: string[] = []
+            
+            // Check for each vault name in the message
+            vaults.forEach(vault => {
+              if (vault.name) {
+                const vaultNameLower = vault.name.toLowerCase()
+                
+                // Check for exact vault name or partial matches
+                if (lowerMessage.includes(vaultNameLower) || 
+                    vaultNameLower.includes(lowerMessage.replace(/delete|remove|vault/g, '').trim())) {
+                  foundVaultNames.push(vault.name)
+                }
+                
+                // Also check for words within vault names
+                const vaultWords = vaultNameLower.split(/\s+/)
+                vaultWords.forEach(word => {
+                  if (word.length > 3 && lowerMessage.includes(word)) {
+                    if (!foundVaultNames.includes(vault.name)) {
+                      foundVaultNames.push(vault.name)
+                    }
+                  }
+                })
+              }
+            })
+            
+            return [...new Set(foundVaultNames)] // Remove duplicates
+          }
+
+          // Helper function to check if message contains confirmation
+          const hasConfirmation = (message: string): boolean => {
+            const confirmationWords = [
+              'yes', 'yeah', 'yep', 'y', 'confirm', 'confirmed', 'delete', 'delete it', 
+              'remove', 'remove it', 'proceed', 'go ahead', 'ok', 'okay', 'sure'
+            ]
+            const lowerMessage = message.toLowerCase()
+            return confirmationWords.some(word => 
+              lowerMessage.includes(word) || 
+              lowerMessage === word ||
+              lowerMessage.startsWith(word + ' ')
+            )
+          }
+
+          const detectedVaults = extractVaultNames(user_message)
+          const hasUserConfirmation = hasConfirmation(user_message)
+
+          if (detectedVaults.length === 0) {
+            const availableVaults = vaults.filter(v => v.name).map(v => v.name)
+            return {
+              success: false,
+              message: `I couldn't identify which vault you want to delete from your message. Available vaults: ${availableVaults.join(', ') || 'none'}. Please specify the vault name clearly.`
+            }
+          }
+
+          if (detectedVaults.length > 1) {
+            return {
+              success: false,
+              message: `Multiple vaults detected: ${detectedVaults.join(', ')}. Please specify which one you want to delete.`
+            }
+          }
+
+          const vaultName = detectedVaults[0]
+          const vault = vaults.find(v => v.name === vaultName)
+
+          if (!vault) {
+            return { success: false, message: `Vault "${vaultName}" not found.` }
+          }
+
+          if (action === 'ask_confirmation' || !hasUserConfirmation) {
+            const castCount = vault.cast_count || 0
+            return {
+              success: true,
+              needs_confirmation: true,
+              vault_info: {
+                name: vault.name,
+                description: vault.description,
+                cast_count: castCount
+              },
+              message: `Are you sure you want to delete the vault "${vault.name}"? This vault contains ${castCount} casts. The vault will be deleted but your casts will remain saved. Please confirm with "yes", "confirm", or "delete it" to proceed.`
+            }
+          }
+
+          // Proceed with deletion if action is 'delete_with_confirmation' and we have confirmation
+          if (action === 'delete_with_confirmation' && hasUserConfirmation) {
+            try {
+              const castCount = vault.cast_count || 0
+              await VaultService.deleteVault(vault.id, userId)
+              
+              // Update local vaults state
+              setVaults(prev => prev.filter(v => v.id !== vault.id))
+              
+              // Refresh data in parent component
+              onCastUpdate?.()
+
+              return {
+                success: true,
+                deleted_vault: {
+                  name: vault.name,
+                  description: vault.description,
+                  cast_count: castCount
+                },
+                message: `Successfully deleted vault "${vault.name}". The vault contained ${castCount} casts, but the casts themselves were not deleted and remain in your saved casts.`
+              }
+            } catch (error) {
+              return {
+                success: false,
+                message: `Failed to delete vault "${vault.name}": ${error instanceof Error ? error.message : 'Unknown error'}`
+              }
+            }
+          }
+
+          return {
+            success: false,
+            message: `Invalid action or missing confirmation for vault deletion.`
           }
         }
 
