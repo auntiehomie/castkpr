@@ -1399,6 +1399,56 @@ export class ContentParser {
       .slice(0, maxPhrases)
       .map(([word]) => word)
   }
+
+  // Search for specific keywords in text (flexible search)
+  static searchKeywords(text: string, keywords: string[]): {
+    found: string[]
+    matches: Array<{ keyword: string; count: number; positions: number[] }>
+  } {
+    const content = text.toLowerCase()
+    const found: string[] = []
+    const matches: Array<{ keyword: string; count: number; positions: number[] }> = []
+
+    keywords.forEach(keyword => {
+      const searchTerm = keyword.toLowerCase()
+      const positions: number[] = []
+      let index = content.indexOf(searchTerm)
+      
+      while (index !== -1) {
+        positions.push(index)
+        index = content.indexOf(searchTerm, index + 1)
+      }
+
+      if (positions.length > 0) {
+        found.push(keyword)
+        matches.push({
+          keyword,
+          count: positions.length,
+          positions
+        })
+      }
+    })
+
+    return { found, matches }
+  }
+
+  // Extract context around a keyword match
+  static extractMatchContext(text: string, keyword: string, contextLength: number = 50): string[] {
+    const content = text.toLowerCase()
+    const searchTerm = keyword.toLowerCase()
+    const contexts: string[] = []
+    let index = content.indexOf(searchTerm)
+
+    while (index !== -1) {
+      const start = Math.max(0, index - contextLength)
+      const end = Math.min(text.length, index + searchTerm.length + contextLength)
+      const context = text.substring(start, end)
+      contexts.push('...' + context + '...')
+      index = content.indexOf(searchTerm, index + 1)
+    }
+
+    return contexts
+  }
 }
 
 // VaultService is an alias/wrapper for CollectionService

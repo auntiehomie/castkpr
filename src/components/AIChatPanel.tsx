@@ -124,6 +124,38 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
       }
     },
     {
+      name: 'search_casts_by_content',
+      description: 'Search through all saved casts for specific words or phrases mentioned by the user',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { 
+            type: 'string', 
+            description: 'The word, phrase, or topic to search for in cast content' 
+          },
+          case_sensitive: {
+            type: 'boolean',
+            description: 'Whether the search should be case sensitive (default: false)'
+          }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'smart_cast_search',
+      description: 'Intelligently search for casts based on natural language queries from the user',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_query: { 
+            type: 'string', 
+            description: 'The user\'s natural language search query' 
+          }
+        },
+        required: ['user_query']
+      }
+    },
+    {
       name: 'get_vault_casts',
       description: 'Get all casts in a specific vault',
       parameters: {
@@ -200,6 +232,31 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           cast_hash: { type: 'string', description: 'Hash of the cast to organize' }
         },
         required: ['cast_hash']
+      }
+    },
+    {
+      name: 'find_casts_by_topic',
+      description: 'Find all saved casts that contain specific words, topics, or keywords mentioned by the user',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: { 
+            type: 'array', 
+            items: { type: 'string' }, 
+            description: 'Any words or phrases to search for (e.g., ["crypto", "bitcoin"], ["AI", "machine learning"], ["pizza", "food"])' 
+          }
+        },
+        required: ['keywords']
+      }
+    },
+    {
+      name: 'debug_cast_analysis',
+      description: 'Debug function to show what topics and keywords the AI can detect in your saved casts',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of casts to analyze (default: 10)' }
+        }
       }
     },
     {
@@ -283,38 +340,104 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           const castsToOrganize = casts.slice(0, limit)
           const results = []
 
+          console.log(`🏗️ Organizing ${castsToOrganize.length} casts into ${vaults.length} existing vaults`)
+
           // Create default vaults if none exist
           if (vaults.length === 0) {
             const defaultVaults = [
-              { name: 'Technical', description: 'Programming, crypto, and technical content', rules: ['programming', 'crypto', 'blockchain', 'code', 'technical'] },
-              { name: 'Social', description: 'Social interactions and community content', rules: ['gm', 'community', 'social', 'friends'] },
-              { name: 'Finance', description: 'Financial and investment content', rules: ['defi', 'trading', 'investment', 'finance', 'money'] },
-              { name: 'Learning', description: 'Educational and learning resources', rules: ['learn', 'tutorial', 'guide', 'education', 'resource'] }
+              { name: 'Crypto & Web3', description: 'Cryptocurrency, blockchain, DeFi, and Web3 content', rules: ['crypto', 'bitcoin', 'ethereum', 'defi', 'blockchain', 'web3', 'nft', 'dao', 'token'] },
+              { name: 'Tech & Development', description: 'Programming, AI, and technical discussions', rules: ['programming', 'code', 'ai', 'tech', 'development', 'software', 'github', 'api'] },
+              { name: 'Social & Community', description: 'Social interactions and community content', rules: ['gm', 'community', 'social', 'friends', 'hello', 'thanks', 'farcaster'] },
+              { name: 'Finance & Trading', description: 'Financial markets, trading, and investment content', rules: ['trading', 'investment', 'finance', 'money', 'market', 'price', 'pump', 'yield'] }
             ]
 
             for (const v of defaultVaults) {
               const newVault = await VaultService.createVault(v.name, v.description, v.rules, userId)
               vaults.push(newVault)
             }
+            console.log(`✅ Created ${defaultVaults.length} default vaults`)
           }
 
-          // Organize casts into vaults
+          // Organize casts into vaults using enhanced analysis
           for (const cast of castsToOrganize) {
+            // Parse the cast content for topics, hashtags, etc.
+            const parsedData = ContentParser.parseContent(cast.cast_content)
             const content = cast.cast_content.toLowerCase()
-            
+            let bestVault = null
+            let bestScore = 0
+
             for (const vault of vaults) {
-              const rules = vault.auto_add_rules || []
-              const matches = rules.some((rule: string) => content.includes(rule.toLowerCase()))
+              let score = 0
               
-              if (matches) {
-                try {
-                  await VaultService.addCastToVault(cast.id, vault.id)
-                  results.push({ cast: cast.cast_hash, vault: vault.name })
-                } catch (error) {
-                  // Cast might already be in vault
+              // Check vault auto-add rules
+              const rules = vault.auto_add_rules || []
+              for (const rule of rules) {
+                if (content.includes(rule.toLowerCase())) {
+                  score += 3 // High weight for explicit rules
                 }
-                break // Only add to first matching vault
               }
+
+              // Check parsed topics against vault name and description
+              if (parsedData.topics) {
+                for (const topic of parsedData.topics) {
+                  if (vault.name.toLowerCase().includes(topic.toLowerCase())) {
+                    score += 2
+                  }
+                  if (vault.description?.toLowerCase().includes(topic.toLowerCase())) {
+                    score += 1
+                  }
+                }
+              }
+
+              // Check hashtags
+              if (parsedData.hashtags) {
+                for (const hashtag of parsedData.hashtags) {
+                  if (vault.name.toLowerCase().includes(hashtag.toLowerCase())) {
+                    score += 1
+                  }
+                }
+              }
+
+              // Special crypto detection
+              const cryptoKeywords = ['bitcoin', 'ethereum', 'crypto', 'defi', 'nft', 'dao', 'token', 'coin', 'blockchain', 'web3']
+              if (vault.name.toLowerCase().includes('crypto') || vault.name.toLowerCase().includes('web3')) {
+                const hasCrypto = cryptoKeywords.some(keyword => content.includes(keyword))
+                if (hasCrypto) score += 2
+              }
+
+              // Special tech detection
+              const techKeywords = ['code', 'programming', 'development', 'ai', 'tech', 'software', 'api', 'github']
+              if (vault.name.toLowerCase().includes('tech') || vault.name.toLowerCase().includes('dev')) {
+                const hasTech = techKeywords.some(keyword => content.includes(keyword))
+                if (hasTech) score += 2
+              }
+
+              if (score > bestScore) {
+                bestScore = score
+                bestVault = vault
+              }
+            }
+
+            // Only add to vault if we have a reasonable confidence score
+            if (bestVault && bestScore >= 1) {
+              try {
+                // Check if cast is already in this vault
+                const isAlreadyInVault = await VaultService.isCastInVault(cast.id, bestVault.id)
+                if (!isAlreadyInVault) {
+                  await VaultService.addCastToVault(cast.id, bestVault.id)
+                  results.push({ 
+                    cast: cast.cast_hash, 
+                    vault: bestVault.name,
+                    score: bestScore,
+                    content_preview: cast.cast_content.substring(0, 50) + '...'
+                  })
+                  console.log(`✅ Added cast to ${bestVault.name} (score: ${bestScore})`)
+                }
+              } catch (error) {
+                console.error('Error adding cast to vault:', error)
+              }
+            } else {
+              console.log(`❌ No suitable vault found for cast: ${cast.cast_content.substring(0, 50)}...`)
             }
           }
 
@@ -324,8 +447,9 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           return {
             success: true,
             organized: results.length,
+            total_analyzed: castsToOrganize.length,
             results: results,
-            message: `Organized ${results.length} casts into vaults`
+            message: `Organized ${results.length} out of ${castsToOrganize.length} casts into vaults. ${castsToOrganize.length - results.length} casts didn't match any vault criteria.`
           }
         }
 
@@ -393,6 +517,161 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
               timestamp: c.cast_timestamp
             })),
             message: `Found ${results.length} casts matching "${args.query}"`
+          }
+        }
+
+        case 'search_casts_by_content': {
+          const query = args.query
+          const caseSensitive = args.case_sensitive || false
+          const searchTerm = caseSensitive ? query : query.toLowerCase()
+          const matchingCasts = []
+
+          console.log(`🔍 Searching ${casts.length} casts for: "${query}" (case sensitive: ${caseSensitive})`)
+
+          for (const cast of casts) {
+            const contentToSearch = caseSensitive ? cast.cast_content : cast.cast_content.toLowerCase()
+            const usernameToSearch = caseSensitive ? cast.username : cast.username.toLowerCase()
+            const tagsToSearch = caseSensitive 
+              ? cast.tags.join(' ')
+              : cast.tags.map(t => t.toLowerCase()).join(' ')
+
+            // Check if the search term appears in content, username, or tags
+            if (contentToSearch.includes(searchTerm) || 
+                usernameToSearch.includes(searchTerm) || 
+                tagsToSearch.includes(searchTerm)) {
+              
+              // Find where the match occurred and extract context
+              let matchContext = ''
+              let matchType = ''
+              
+              if (contentToSearch.includes(searchTerm)) {
+                matchType = 'content'
+                const index = contentToSearch.indexOf(searchTerm)
+                const start = Math.max(0, index - 30)
+                const end = Math.min(cast.cast_content.length, index + searchTerm.length + 30)
+                matchContext = '...' + cast.cast_content.substring(start, end) + '...'
+              } else if (usernameToSearch.includes(searchTerm)) {
+                matchType = 'author'
+                matchContext = `Author: @${cast.username}`
+              } else if (tagsToSearch.includes(searchTerm)) {
+                matchType = 'tags'
+                matchContext = `Tags: ${cast.tags.join(', ')}`
+              }
+
+              matchingCasts.push({
+                hash: cast.cast_hash,
+                author: cast.username,
+                content: cast.cast_content,
+                content_preview: cast.cast_content.substring(0, 150) + (cast.cast_content.length > 150 ? '...' : ''),
+                match_type: matchType,
+                match_context: matchContext,
+                timestamp: cast.cast_timestamp,
+                saved_at: cast.created_at,
+                url: cast.cast_url,
+                tags: cast.tags
+              })
+            }
+          }
+
+          console.log(`📊 Found ${matchingCasts.length} matching casts`)
+
+          return {
+            success: true,
+            search_query: query,
+            case_sensitive: caseSensitive,
+            total_searched: casts.length,
+            found: matchingCasts.length,
+            matches: matchingCasts.slice(0, 10), // Show top 10 matches
+            all_matches_count: matchingCasts.length,
+            message: matchingCasts.length > 0 
+              ? `Found ${matchingCasts.length} casts containing "${query}"`
+              : `No casts found containing "${query}". Try different keywords or check spelling.`
+          }
+        }
+
+        case 'smart_cast_search': {
+          const userQuery = args.user_query.toLowerCase()
+          
+          // Extract potential keywords from the user's natural language query
+          const stopWords = new Set(['find', 'show', 'me', 'get', 'search', 'for', 'about', 'with', 'containing', 'that', 'have', 'posts', 'casts', 'any', 'all', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'from'])
+          
+          const potentialKeywords = userQuery
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter((word: string) => word.length > 2 && !stopWords.has(word))
+          
+          console.log(`🧠 Smart search interpreting: "${args.user_query}"`)
+          console.log(`🔑 Extracted keywords:`, potentialKeywords)
+
+          const matchingCasts = []
+
+          // Search through all casts
+          for (const cast of casts) {
+            const content = cast.cast_content.toLowerCase()
+            const username = cast.username.toLowerCase()
+            const tags = cast.tags?.map(t => t.toLowerCase()) || []
+            
+            let relevanceScore = 0
+            const matchedKeywords = []
+            const matchDetails = []
+
+            // Check each potential keyword
+            for (const keyword of potentialKeywords) {
+              if (content.includes(keyword)) {
+                relevanceScore += 2
+                matchedKeywords.push(keyword)
+                matchDetails.push(`Content matches: "${keyword}"`)
+              }
+              if (username.includes(keyword)) {
+                relevanceScore += 1
+                matchedKeywords.push(keyword)
+                matchDetails.push(`Author matches: "${keyword}"`)
+              }
+              if (tags.some(tag => tag.includes(keyword))) {
+                relevanceScore += 1
+                matchedKeywords.push(keyword)
+                matchDetails.push(`Tag matches: "${keyword}"`)
+              }
+            }
+
+            // Also check if the entire query appears anywhere
+            if (content.includes(userQuery) || username.includes(userQuery)) {
+              relevanceScore += 3
+              matchDetails.push(`Exact phrase match: "${args.user_query}"`)
+            }
+
+            if (relevanceScore > 0) {
+              matchingCasts.push({
+                hash: cast.cast_hash,
+                author: cast.username,
+                content: cast.cast_content,
+                content_preview: cast.cast_content.substring(0, 150) + (cast.cast_content.length > 150 ? '...' : ''),
+                relevance_score: relevanceScore,
+                matched_keywords: [...new Set(matchedKeywords)],
+                match_details: matchDetails,
+                timestamp: cast.cast_timestamp,
+                saved_at: cast.created_at,
+                url: cast.cast_url,
+                tags: cast.tags
+              })
+            }
+          }
+
+          // Sort by relevance score (highest first)
+          matchingCasts.sort((a, b) => b.relevance_score - a.relevance_score)
+
+          console.log(`📊 Smart search found ${matchingCasts.length} relevant casts`)
+
+          return {
+            success: true,
+            original_query: args.user_query,
+            interpreted_keywords: potentialKeywords,
+            total_searched: casts.length,
+            found: matchingCasts.length,
+            results: matchingCasts.slice(0, 10), // Top 10 most relevant
+            message: matchingCasts.length > 0 
+              ? `Found ${matchingCasts.length} casts relevant to "${args.user_query}". Showing top ${Math.min(10, matchingCasts.length)} results.`
+              : `No casts found matching "${args.user_query}". Try different keywords or phrases.`
           }
         }
 
@@ -822,6 +1101,105 @@ If you need any further actions or details, let me know!`
             match_score: bestMatch.match_score,
             reasons: bestMatch.reasons,
             message: `Successfully added cast to "${vault.name}" (score: ${bestMatch.match_score})`
+          }
+        }
+
+        case 'debug_cast_analysis': {
+          const limit = args.limit || 10
+          const castsToAnalyze = casts.slice(0, limit)
+          const analysis = []
+
+          console.log(`🔍 Debugging analysis of ${castsToAnalyze.length} casts`)
+
+          for (const cast of castsToAnalyze) {
+            const parsedData = ContentParser.parseContent(cast.cast_content)
+            analysis.push({
+              cast_hash: cast.cast_hash.substring(0, 10) + '...',
+              author: cast.username,
+              content_preview: cast.cast_content.substring(0, 100) + (cast.cast_content.length > 100 ? '...' : ''),
+              detected_topics: parsedData.topics || [],
+              detected_hashtags: parsedData.hashtags || [],
+              detected_mentions: parsedData.mentions || [],
+              sentiment: parsedData.sentiment,
+              word_count: parsedData.word_count,
+              has_urls: (parsedData.urls?.length || 0) > 0,
+              timestamp: cast.cast_timestamp
+            })
+          }
+
+          // Count all topics found
+          const allTopics: Record<string, number> = {}
+          analysis.forEach(a => {
+            a.detected_topics.forEach(topic => {
+              allTopics[topic] = (allTopics[topic] || 0) + 1
+            })
+          })
+
+          return {
+            success: true,
+            total_casts: casts.length,
+            analyzed_casts: castsToAnalyze.length,
+            cast_analysis: analysis,
+            topic_summary: Object.entries(allTopics)
+              .sort(([,a], [,b]) => (b as number) - (a as number))
+              .slice(0, 10)
+              .map(([topic, count]) => ({ topic, count })),
+            message: `Analyzed ${castsToAnalyze.length} casts. Most common topics: ${Object.entries(allTopics).sort(([,a], [,b]) => (b as number) - (a as number)).slice(0, 3).map(([topic]) => topic).join(', ')}`
+          }
+        }
+
+        case 'find_casts_by_topic': {
+          const keywords = args.keywords.map((k: string) => k.toLowerCase())
+          const matchingCasts = []
+
+          console.log(`🔍 Searching through ${casts.length} casts for keywords:`, keywords)
+          
+          for (const cast of casts) {
+            const content = cast.cast_content.toLowerCase()
+            const username = cast.username.toLowerCase()
+            const tags = cast.tags?.map(t => t.toLowerCase()) || []
+            
+            // Check if any keyword appears in content, username, or tags
+            const hasMatch = keywords.some((keyword: string) => 
+              content.includes(keyword) || 
+              username.includes(keyword) || 
+              tags.some(tag => tag.includes(keyword))
+            )
+
+            if (hasMatch) {
+              // Parse content to get more details
+              const parsedData = ContentParser.parseContent(cast.cast_content)
+              matchingCasts.push({
+                hash: cast.cast_hash,
+                author: cast.username,
+                content: cast.cast_content,
+                content_preview: cast.cast_content.substring(0, 150) + (cast.cast_content.length > 150 ? '...' : ''),
+                timestamp: cast.cast_timestamp,
+                saved_at: cast.created_at,
+                url: cast.cast_url,
+                matched_keywords: keywords.filter((keyword: string) => 
+                  content.includes(keyword) || 
+                  username.includes(keyword) || 
+                  tags.some(tag => tag.includes(keyword))
+                ),
+                topics: parsedData.topics || [],
+                hashtags: parsedData.hashtags || [],
+                sentiment: parsedData.sentiment
+              })
+            }
+          }
+
+          console.log(`📊 Found ${matchingCasts.length} matching casts`)
+
+          return {
+            success: true,
+            found: matchingCasts.length,
+            searched_keywords: keywords,
+            total_casts_searched: casts.length,
+            matches: matchingCasts.slice(0, 10), // Limit to first 10 for response
+            message: matchingCasts.length > 0 
+              ? `Found ${matchingCasts.length} casts containing: ${keywords.join(', ')}`
+              : `No casts found containing any of: ${keywords.join(', ')}`
           }
         }
 
