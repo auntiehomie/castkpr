@@ -294,6 +294,18 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
         },
         required: ['topic', 'vault_name']
       }
+    },
+    {
+      name: 'delete_vault',
+      description: 'Delete a vault and all its associations. This will remove the vault but not delete the actual casts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          vault_name: { type: 'string', description: 'Name of the vault to delete' },
+          confirm: { type: 'boolean', description: 'Confirmation that the user wants to delete the vault (should be true)' }
+        },
+        required: ['vault_name', 'confirm']
+      }
     }
   ]
 
@@ -1572,6 +1584,54 @@ ${vaultSuggestion}`
             failed: matchingCasts.length - successCount,
             matching_casts: results,
             message: `Found ${matchingCasts.length} casts matching "${topic}" and successfully added ${successCount} to vault "${vault_name}"`
+          }
+        }
+
+        case 'delete_vault': {
+          const { vault_name, confirm } = args
+          
+          if (!confirm) {
+            return { 
+              success: false, 
+              message: 'Vault deletion requires confirmation. Please confirm that you want to delete this vault.' 
+            }
+          }
+
+          // Find the vault by name
+          const vault = vaults.find(v => v.name.toLowerCase() === vault_name.toLowerCase())
+          if (!vault) {
+            return { 
+              success: false, 
+              message: `Vault "${vault_name}" not found. Available vaults: ${vaults.map(v => v.name).join(', ') || 'none'}` 
+            }
+          }
+
+          // Get the cast count before deletion for the response
+          const castCount = vault.cast_count || 0
+
+          try {
+            await VaultService.deleteVault(vault.id, userId)
+            
+            // Update local vaults state
+            setVaults(prev => prev.filter(v => v.id !== vault.id))
+            
+            // Refresh data in parent component
+            onCastUpdate?.()
+
+            return {
+              success: true,
+              deleted_vault: {
+                name: vault.name,
+                description: vault.description,
+                cast_count: castCount
+              },
+              message: `Successfully deleted vault "${vault_name}". The vault contained ${castCount} casts, but the casts themselves were not deleted and remain in your saved casts.`
+            }
+          } catch (error) {
+            return {
+              success: false,
+              message: `Failed to delete vault "${vault_name}": ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
           }
         }
 
