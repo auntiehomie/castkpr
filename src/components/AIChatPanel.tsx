@@ -1601,6 +1601,21 @@ ${vaultSuggestion}`
         case 'delete_vault': {
           const { vault_name, user_confirmation } = args
           
+          // Validate required parameters
+          if (!vault_name || typeof vault_name !== 'string') {
+            return { 
+              success: false, 
+              message: 'Vault name is required and must be a string. Please specify which vault you want to delete.' 
+            }
+          }
+
+          if (!user_confirmation || typeof user_confirmation !== 'string') {
+            return { 
+              success: false, 
+              message: `I need confirmation to delete vault "${vault_name}". Please respond with "yes", "confirm", "delete it", or similar.` 
+            }
+          }
+          
           // Helper function to check if confirmation is affirmative
           const isAffirmative = (confirmation: string): boolean => {
             const affirmativeWords = [
@@ -1617,19 +1632,38 @@ ${vaultSuggestion}`
             )
           }
           
-          if (!user_confirmation || !isAffirmative(user_confirmation)) {
+          if (!isAffirmative(user_confirmation)) {
             return { 
               success: false, 
               message: `I need clear confirmation to delete a vault. Please respond with "yes", "confirm", "delete it", or similar to confirm deletion of "${vault_name}".` 
             }
           }
 
-          // Find the vault by name
-          const vault = vaults.find(v => v.name.toLowerCase() === vault_name.toLowerCase())
+          // Find the vault by name with flexible matching
+          const searchName = vault_name.toLowerCase().trim()
+          let vault = vaults.find(v => v.name && v.name.toLowerCase() === searchName)
+          
+          // If no exact match, try partial matching
           if (!vault) {
+            const partialMatches = vaults.filter(v => 
+              v.name && v.name.toLowerCase().includes(searchName)
+            )
+            
+            if (partialMatches.length === 1) {
+              vault = partialMatches[0]
+            } else if (partialMatches.length > 1) {
+              return { 
+                success: false, 
+                message: `Multiple vaults match "${vault_name}": ${partialMatches.map(v => v.name).join(', ')}. Please be more specific.` 
+              }
+            }
+          }
+          
+          if (!vault) {
+            const availableVaults = vaults.filter(v => v.name).map(v => v.name)
             return { 
               success: false, 
-              message: `Vault "${vault_name}" not found. Available vaults: ${vaults.map(v => v.name).join(', ') || 'none'}` 
+              message: `Vault "${vault_name}" not found. Available vaults: ${availableVaults.join(', ') || 'none'}` 
             }
           }
 
@@ -1665,12 +1699,39 @@ ${vaultSuggestion}`
         case 'confirm_vault_deletion': {
           const { vault_name } = args
           
-          // Find the vault by name to make sure it exists
-          const vault = vaults.find(v => v.name.toLowerCase() === vault_name.toLowerCase())
-          if (!vault) {
+          // Validate vault name parameter
+          if (!vault_name || typeof vault_name !== 'string') {
             return { 
               success: false, 
-              message: `Vault "${vault_name}" not found. Available vaults: ${vaults.map(v => v.name).join(', ') || 'none'}` 
+              message: 'Vault name is required. Please specify which vault you want to delete.' 
+            }
+          }
+          
+          // Find the vault by name with flexible matching
+          const searchName = vault_name.toLowerCase().trim()
+          let vault = vaults.find(v => v.name && v.name.toLowerCase() === searchName)
+          
+          // If no exact match, try partial matching
+          if (!vault) {
+            const partialMatches = vaults.filter(v => 
+              v.name && v.name.toLowerCase().includes(searchName)
+            )
+            
+            if (partialMatches.length === 1) {
+              vault = partialMatches[0]
+            } else if (partialMatches.length > 1) {
+              return { 
+                success: false, 
+                message: `Multiple vaults match "${vault_name}": ${partialMatches.map(v => v.name).join(', ')}. Please be more specific.` 
+              }
+            }
+          }
+          
+          if (!vault) {
+            const availableVaults = vaults.filter(v => v.name).map(v => v.name)
+            return { 
+              success: false, 
+              message: `Vault "${vault_name}" not found. Available vaults: ${availableVaults.join(', ') || 'none'}` 
             }
           }
 
