@@ -348,6 +348,36 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
         },
         required: ['vault_names']
       }
+    },
+    {
+      name: 'bulk_delete_casts',
+      description: 'Delete multiple saved casts at once. Use when user wants to delete several casts or all their saved casts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cast_ids: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: 'Array of cast IDs to delete. Use ["ALL"] to delete all casts for the user.' 
+          },
+          confirmation: { type: 'boolean', description: 'Set to true when user confirms bulk deletion with "I want all the casts deleted" or similar' },
+          user_message: { type: 'string', description: 'The exact user message (for confirmation detection)' }
+        },
+        required: ['cast_ids']
+      }
+    },
+    {
+      name: 'delete_cast',
+      description: 'Delete a single saved cast. Use when user wants to delete a specific cast.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cast_id: { type: 'string', description: 'ID of the cast to delete' },
+          confirmation: { type: 'boolean', description: 'Set to true when user confirms deletion' },
+          user_message: { type: 'string', description: 'The exact user message' }
+        },
+        required: ['cast_id']
+      }
     }
   ]
 
@@ -1990,6 +2020,191 @@ ${vaultSuggestion}`
           }
         }
 
+        case 'delete_cast': {
+          const { cast_id, confirmation, user_message } = args
+          
+          if (!cast_id) {
+            return {
+              success: false,
+              message: 'Please specify which cast to delete by providing the cast ID.'
+            }
+          }
+
+          // Find the cast to get details
+          const targetCast = casts.find(c => c.id === cast_id)
+          if (!targetCast) {
+            return {
+              success: false,
+              message: 'Cast not found. Please check the cast ID.'
+            }
+          }
+
+          // Check if user is providing confirmation
+          const isConfirmation = user_message && 
+                               (user_message.toLowerCase().includes('i want the cast deleted') ||
+                                user_message.toLowerCase().includes('delete the cast') ||
+                                user_message.toLowerCase().includes('yes, delete it'))
+
+          // If this is a confirmation, proceed with deletion
+          if (confirmation === true || isConfirmation) {
+            try {
+              await CastService.deleteCast(cast_id, userId)
+              
+              return {
+                success: true,
+                data: {
+                  deleted_cast_id: cast_id,
+                  cast_preview: targetCast.cast_content.substring(0, 100)
+                },
+                message: `✅ Successfully deleted cast by @${targetCast.username}: "${targetCast.cast_content.substring(0, 100)}${targetCast.cast_content.length > 100 ? '...' : ''}"`
+              }
+            } catch (error) {
+              console.error('Error deleting cast:', error)
+              return {
+                success: false,
+                message: `Error deleting cast: ${error instanceof Error ? error.message : 'Unknown error'}`
+              }
+            }
+          } else {
+            // Show confirmation prompt
+            return {
+              success: false,
+              data: {
+                action: 'confirmation_required',
+                cast_id: cast_id,
+                cast_preview: targetCast.cast_content.substring(0, 100)
+              },
+              message: `⚠️  Are you sure you want to delete this cast?\n\n📄 Cast Details:\n• Author: @${targetCast.username}\n• Content: "${targetCast.cast_content.substring(0, 150)}${targetCast.cast_content.length > 150 ? '...' : ''}"\n• Saved: ${new Date(targetCast.created_at).toLocaleDateString()}\n\nTo confirm, please respond with: **"I want the cast deleted"**`
+            }
+          }
+        }
+
+        case 'bulk_delete_casts': {
+          const { cast_ids, confirmation, user_message } = args
+          
+          if (!cast_ids || !Array.isArray(cast_ids) || cast_ids.length === 0) {
+            return {
+              success: false,
+              message: 'Please specify which casts to delete, or use ["ALL"] to delete all casts.'
+            }
+          }
+
+          // Check if user is providing bulk confirmation
+          const isBulkConfirmation = user_message && 
+                                   (user_message.toLowerCase().includes('i want all the casts deleted') ||
+                                    user_message.toLowerCase().includes('delete all casts') ||
+                                    user_message.toLowerCase().includes('i want them all deleted'))
+
+          // If this is a confirmation
+          if (confirmation === true || isBulkConfirmation) {
+            // Determine what to delete based on request
+            let targetCastIds: string[] = []
+            const isAll = cast_ids.includes('ALL') || cast_ids[0]?.toLowerCase() === 'all'
+            
+            if (isAll) {
+              // Delete all user casts using the new deleteAllUserCasts function
+              try {
+                const result = await CastService.deleteAllUserCasts(userId, 'DELETE_ALL_CASTS_CONFIRMED')
+                
+                if (result.success) {
+                  return {
+                    success: true,
+                    data: {
+                      deleted_count: result.deletedCount,
+                      is_all_casts: true
+                    },
+                    message: `✅ Successfully deleted all ${result.deletedCount} saved casts.`
+                  }
+                } else {
+                  return {
+                    success: false,
+                    message: result.message
+                  }
+                }
+              } catch (error) {
+                console.error('Error deleting all casts:', error)
+                return {
+                  success: false,
+                  message: `Error deleting all casts: ${error instanceof Error ? error.message : 'Unknown error'}`
+                }
+              }
+            } else {
+              // Delete specific casts
+              targetCastIds = cast_ids.filter(id => typeof id === 'string' && id !== 'ALL')
+              
+              if (targetCastIds.length === 0) {
+                return {
+                  success: false,
+                  message: "No valid cast IDs found to delete."
+                }
+              }
+
+              try {
+                const result = await CastService.bulkDeleteCasts(targetCastIds, userId)
+                
+                return {
+                  success: result.success,
+                  data: {
+                    deleted_count: result.deletedCount,
+                    failed_count: result.failedCount,
+                    errors: result.errors,
+                    is_all_casts: false
+                  },
+                  message: `Bulk cast deletion completed: ${result.deletedCount} cast${result.deletedCount !== 1 ? 's' : ''} deleted successfully${result.failedCount > 0 ? `, ${result.failedCount} failed` : ''}.`
+                }
+              } catch (error) {
+                console.error('Error in bulk cast deletion:', error)
+                return {
+                  success: false,
+                  message: `Error during bulk deletion: ${error instanceof Error ? error.message : 'Unknown error'}`
+                }
+              }
+            }
+          } else {
+            // Show confirmation prompt
+            const isAll = cast_ids.includes('ALL') || cast_ids[0]?.toLowerCase() === 'all'
+            
+            if (isAll) {
+              const totalCasts = casts.length
+              return {
+                success: false,
+                data: {
+                  action: 'confirmation_required',
+                  cast_ids: ['ALL'],
+                  count: totalCasts,
+                  is_all_casts: true
+                },
+                message: `⚠️  DELETE ALL SAVED CASTS\n\nYou want to delete ALL of your ${totalCasts} saved casts.\n\n📊 Summary:\n• Total casts: ${totalCasts}\n• This action cannot be undone\n• All your saved casts will be permanently removed\n\nTo confirm, please respond with exactly: **"I want all the casts deleted"**`
+              }
+            } else {
+              const validCastIds = cast_ids.filter(id => typeof id === 'string' && id !== 'ALL')
+              const targetCasts = casts.filter(c => validCastIds.includes(c.id))
+              
+              if (targetCasts.length === 0) {
+                return {
+                  success: false,
+                  message: "No valid casts found with the provided IDs."
+                }
+              }
+
+              const castDetails = targetCasts.slice(0, 5).map(cast => 
+                `• @${cast.username}: "${cast.cast_content.substring(0, 60)}${cast.cast_content.length > 60 ? '...' : ''}"`
+              ).join('\n')
+
+              return {
+                success: false,
+                data: {
+                  action: 'confirmation_required',
+                  cast_ids: validCastIds,
+                  count: targetCasts.length,
+                  is_all_casts: false
+                },
+                message: `⚠️  BULK DELETE CASTS\n\nYou want to delete ${targetCasts.length} cast${targetCasts.length !== 1 ? 's' : ''}:\n\n${castDetails}${targetCasts.length > 5 ? `\n... and ${targetCasts.length - 5} more` : ''}\n\n📊 Summary:\n• Total casts: ${targetCasts.length}\n• This action cannot be undone\n\nTo confirm, please respond with exactly: **"I want all the casts deleted"**`
+              }
+            }
+          }
+        }
+
         default:
           return { success: false, message: `Unknown function: ${name}` }
       }
@@ -2050,6 +2265,7 @@ ${vaultSuggestion}`
               6. Organize casts by sentiment or topic
               7. Delete vaults (with confirmation and creation date info)
               8. Find vaults by age or creation date (useful for identifying duplicates)
+              9. Delete individual or multiple saved casts
               
               VAULT DELETION RULES:
               - For single vault: use request_vault_deletion with vault_name
@@ -2060,6 +2276,16 @@ ${vaultSuggestion}`
               - For all vaults: use vault_names: ["ALL"]
               - For multiple specific vaults: use vault_names: ["vault1", "vault2"]
               - Use find_vaults_by_age to help identify duplicate vaults by creation date when multiple vaults have similar names
+              
+              CAST DELETION RULES:
+              - For single cast: use delete_cast with cast_id
+              - For multiple/all casts: use bulk_delete_casts with cast_ids array
+              - When user says "I want the cast deleted" → confirmation=true for single cast
+              - When user says "I want all the casts deleted" → confirmation=true for bulk deletion
+              - Always pass user_message parameter with exact user input
+              - For all casts: use cast_ids: ["ALL"]
+              - For multiple specific casts: use cast_ids: ["cast1", "cast2"]
+              - Cast deletion is permanent and cannot be undone
               
               IMPORTANT: Maintain conversation context and remember what you've previously analyzed or discussed.
               When users refer to previously mentioned topics or results, reference that information.

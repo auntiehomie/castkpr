@@ -250,6 +250,114 @@ export class CastService {
     }
   }
 
+  // Bulk delete multiple casts
+  static async bulkDeleteCasts(castIds: string[], userId: string): Promise<{ 
+    success: boolean, 
+    deletedCount: number, 
+    failedCount: number,
+    errors: Array<{ castId: string, error: string }>
+  }> {
+    console.log('🗑️ Bulk deleting casts:', castIds.length, 'casts for user:', userId)
+    
+    const results = {
+      success: true,
+      deletedCount: 0,
+      failedCount: 0,
+      errors: [] as Array<{ castId: string, error: string }>
+    }
+
+    // Process deletions in batches for better performance
+    const batchSize = 10
+    for (let i = 0; i < castIds.length; i += batchSize) {
+      const batch = castIds.slice(i, i + batchSize)
+      
+      try {
+        const { error, count } = await supabase
+          .from('saved_casts')
+          .delete({ count: 'exact' })
+          .in('id', batch)
+          .eq('saved_by_user_id', userId)
+
+        if (error) {
+          console.error('Batch deletion error:', error)
+          batch.forEach(castId => {
+            results.errors.push({ castId, error: error.message })
+          })
+          results.failedCount += batch.length
+          results.success = false
+        } else {
+          results.deletedCount += count || batch.length
+        }
+      } catch (error) {
+        console.error('Error in batch deletion:', error)
+        batch.forEach(castId => {
+          results.errors.push({ 
+            castId, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+          })
+        })
+        results.failedCount += batch.length
+        results.success = false
+      }
+    }
+
+    console.log('✅ Bulk deletion completed:', {
+      total: castIds.length,
+      deleted: results.deletedCount,
+      failed: results.failedCount
+    })
+
+    return results
+  }
+
+  // Delete all casts for a user (with optional confirmation)
+  static async deleteAllUserCasts(userId: string, confirmationToken?: string): Promise<{
+    success: boolean,
+    deletedCount: number,
+    message: string
+  }> {
+    console.log('⚠️ Attempting to delete ALL casts for user:', userId)
+    
+    // Safety check - require confirmation token for this destructive operation
+    if (!confirmationToken || confirmationToken !== 'DELETE_ALL_CASTS_CONFIRMED') {
+      return {
+        success: false,
+        deletedCount: 0,
+        message: 'Confirmation token required for deleting all casts'
+      }
+    }
+
+    try {
+      const { error, count } = await supabase
+        .from('saved_casts')
+        .delete({ count: 'exact' })
+        .eq('saved_by_user_id', userId)
+
+      if (error) {
+        console.error('Error deleting all user casts:', error)
+        return {
+          success: false,
+          deletedCount: 0,
+          message: `Failed to delete casts: ${error.message}`
+        }
+      }
+
+      console.log('✅ All user casts deleted:', count || 0)
+      return {
+        success: true,
+        deletedCount: count || 0,
+        message: `Successfully deleted ${count || 0} casts`
+      }
+    } catch (error) {
+      console.error('Error in deleteAllUserCasts:', error)
+      return {
+        success: false,
+        deletedCount: 0,
+        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      }
+    }
+  }
+
   // Update cast notes or category
   static async updateCast(castId: string, userId: string, updates: { notes?: string; category?: string; tags?: string[] }): Promise<SavedCast> {
     const { data, error } = await supabase
