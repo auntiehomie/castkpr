@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Send, Sparkles, X } from 'lucide-react'
-import { VaultService, CastService, type Vault, type SavedCast } from '@/lib/supabase'
+import { VaultService, CastService, ContentParser, type Vault, type SavedCast } from '@/lib/supabase'
 
 interface Message {
   role: 'user' | 'assistant' | 'system'
@@ -156,6 +156,60 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
       parameters: {
         type: 'object',
         properties: {}
+      }
+    },
+    {
+      name: 'read_cast_content',
+      description: 'Read the full content and metadata of a specific cast',
+      parameters: {
+        type: 'object',
+        properties: {
+          cast_hash: { type: 'string', description: 'Hash of the cast to read' }
+        },
+        required: ['cast_hash']
+      }
+    },
+    {
+      name: 'analyze_cast_for_vaults',
+      description: 'Analyze a cast content and suggest which existing vaults it might belong to',
+      parameters: {
+        type: 'object',
+        properties: {
+          cast_hash: { type: 'string', description: 'Hash of the cast to analyze' }
+        },
+        required: ['cast_hash']
+      }
+    },
+    {
+      name: 'get_vault_details',
+      description: 'Get detailed information about a specific vault including its purpose and existing cast themes',
+      parameters: {
+        type: 'object',
+        properties: {
+          vault_name: { type: 'string', description: 'Name of the vault to analyze' }
+        },
+        required: ['vault_name']
+      }
+    },
+    {
+      name: 'smart_organize_single_cast',
+      description: 'Intelligently organize a single cast by analyzing its content against all available vaults',
+      parameters: {
+        type: 'object',
+        properties: {
+          cast_hash: { type: 'string', description: 'Hash of the cast to organize' }
+        },
+        required: ['cast_hash']
+      }
+    },
+    {
+      name: 'analyze_all_casts_content',
+      description: 'Analyze content themes across all saved casts to identify patterns and suggest vault organization',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of casts to analyze (default: all)' }
+        }
       }
     }
   ]
@@ -484,6 +538,399 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
 - **URL**: [View Cast](${recentCast.cast_url})
 
 If you need any further actions or details, let me know!`
+          }
+        }
+
+        case 'read_cast_content': {
+          const cast = casts.find(c => c.cast_hash === args.cast_hash)
+          if (!cast) {
+            return { success: false, message: `Cast with hash ${args.cast_hash} not found` }
+          }
+
+          // Parse the cast content using existing ContentParser
+          const parsedData = ContentParser.parseContent(cast.cast_content)
+          
+          return {
+            success: true,
+            cast: {
+              hash: cast.cast_hash,
+              author: cast.username,
+              display_name: cast.author_display_name,
+              content: cast.cast_content,
+              timestamp: cast.cast_timestamp,
+              saved_at: cast.created_at,
+              url: cast.cast_url,
+              parsed: {
+                word_count: parsedData.word_count,
+                sentiment: parsedData.sentiment,
+                topics: parsedData.topics,
+                hashtags: parsedData.hashtags,
+                mentions: parsedData.mentions,
+                urls: parsedData.urls,
+                key_phrases: ContentParser.extractKeyPhrases(cast.cast_content)
+              }
+            },
+            message: `Read cast by @${cast.username} - ${parsedData.word_count} words, ${parsedData.sentiment} sentiment`
+          }
+        }
+
+        case 'analyze_cast_for_vaults': {
+          const cast = casts.find(c => c.cast_hash === args.cast_hash)
+          if (!cast) {
+            return { success: false, message: `Cast with hash ${args.cast_hash} not found` }
+          }
+
+          if (vaults.length === 0) {
+            return { 
+              success: false, 
+              message: 'No vaults exist yet. Create some vaults first to organize casts into them.' 
+            }
+          }
+
+          // Parse the cast content
+          const parsedData = ContentParser.parseContent(cast.cast_content)
+          const suggestions = []
+
+          // Analyze against each vault
+          for (const vault of vaults) {
+            let score = 0
+            const reasons = []
+
+            // Check vault auto-add rules
+            if (vault.auto_add_rules && vault.auto_add_rules.length > 0) {
+              for (const rule of vault.auto_add_rules) {
+                if (cast.cast_content.toLowerCase().includes(rule.toLowerCase())) {
+                  score += 3
+                  reasons.push(`Matches rule: "${rule}"`)
+                }
+              }
+            }
+
+            // Check if vault description relates to cast topics
+            if (vault.description && parsedData.topics) {
+              for (const topic of parsedData.topics) {
+                if (vault.description.toLowerCase().includes(topic.toLowerCase()) ||
+                    vault.name.toLowerCase().includes(topic.toLowerCase())) {
+                  score += 2
+                  reasons.push(`Topic match: "${topic}"`)
+                }
+              }
+            }
+
+            // Check hashtag relevance
+            if (parsedData.hashtags && vault.description) {
+              for (const hashtag of parsedData.hashtags) {
+                if (vault.name.toLowerCase().includes(hashtag.toLowerCase()) ||
+                    vault.description.toLowerCase().includes(hashtag.toLowerCase())) {
+                  score += 1
+                  reasons.push(`Hashtag relevance: #${hashtag}`)
+                }
+              }
+            }
+
+            if (score > 0) {
+              suggestions.push({
+                vault_name: vault.name,
+                vault_description: vault.description,
+                match_score: score,
+                reasons: reasons
+              })
+            }
+          }
+
+          // Sort by score
+          suggestions.sort((a, b) => b.match_score - a.match_score)
+
+          return {
+            success: true,
+            cast_content: cast.cast_content.substring(0, 200) + (cast.cast_content.length > 200 ? '...' : ''),
+            cast_topics: parsedData.topics,
+            suggestions: suggestions.slice(0, 3), // Top 3 suggestions
+            message: suggestions.length > 0 
+              ? `Found ${suggestions.length} potential vault matches for this cast`
+              : 'No vault matches found. This cast may need a new vault or manual categorization.'
+          }
+        }
+
+        case 'get_vault_details': {
+          const vault = vaults.find(v => v.name.toLowerCase() === args.vault_name.toLowerCase())
+          if (!vault) {
+            return { success: false, message: `Vault "${args.vault_name}" not found` }
+          }
+
+          // Get casts in this vault
+          const vaultCasts = await VaultService.getVaultCasts(vault.id)
+          
+          // Analyze common themes in vault casts
+          const allTopics = []
+          const allHashtags = []
+          const authors = new Set()
+          const sentiments = { positive: 0, negative: 0, neutral: 0 }
+
+          for (const cast of vaultCasts) {
+            const parsed = ContentParser.parseContent(cast.cast_content)
+            if (parsed.topics) {
+              allTopics.push(...parsed.topics)
+            }
+            if (parsed.hashtags) {
+              allHashtags.push(...parsed.hashtags)
+            }
+            authors.add(cast.username)
+            if (parsed.sentiment) {
+              sentiments[parsed.sentiment as keyof typeof sentiments]++
+            }
+          }
+
+          // Count topic frequency
+          const topicCounts = allTopics.reduce((acc, topic) => {
+            acc[topic] = (acc[topic] || 0) + 1
+            return acc
+          }, {} as Record<string, number>)
+
+          const topTopics = Object.entries(topicCounts)
+            .sort(([,a], [,b]) => (b as number) - (a as number))
+            .slice(0, 5)
+            .map(([topic, count]) => ({ topic, count: count as number }))
+
+          return {
+            success: true,
+            vault: {
+              name: vault.name,
+              description: vault.description,
+              cast_count: vaultCasts.length,
+              auto_add_rules: vault.auto_add_rules,
+              created_at: vault.created_at
+            },
+            themes: {
+              top_topics: topTopics,
+              common_hashtags: [...new Set(allHashtags)].slice(0, 10),
+              unique_authors: authors.size,
+              sentiment_breakdown: sentiments
+            },
+            sample_casts: vaultCasts.slice(0, 3).map(c => ({
+              author: c.username,
+              content: c.cast_content.substring(0, 100) + '...',
+              timestamp: c.cast_timestamp
+            })),
+            message: `Vault "${vault.name}" contains ${vaultCasts.length} casts with themes: ${topTopics.map(t => t.topic).join(', ')}`
+          }
+        }
+
+        case 'smart_organize_single_cast': {
+          const cast = casts.find(c => c.cast_hash === args.cast_hash)
+          if (!cast) {
+            return { success: false, message: `Cast with hash ${args.cast_hash} not found` }
+          }
+
+          if (vaults.length === 0) {
+            return { 
+              success: false, 
+              message: 'No vaults exist. Create vaults first or use the general organize function to create default vaults.' 
+            }
+          }
+
+          // Analyze cast directly instead of recursive call
+          const parsedData = ContentParser.parseContent(cast.cast_content)
+          const suggestions = []
+
+          // Analyze against each vault
+          for (const vault of vaults) {
+            let score = 0
+            const reasons = []
+
+            // Check vault auto-add rules
+            if (vault.auto_add_rules && vault.auto_add_rules.length > 0) {
+              for (const rule of vault.auto_add_rules) {
+                if (cast.cast_content.toLowerCase().includes(rule.toLowerCase())) {
+                  score += 3
+                  reasons.push(`Matches rule: "${rule}"`)
+                }
+              }
+            }
+
+            // Check if vault description relates to cast topics
+            if (vault.description && parsedData.topics) {
+              for (const topic of parsedData.topics) {
+                if (vault.description.toLowerCase().includes(topic.toLowerCase()) ||
+                    vault.name.toLowerCase().includes(topic.toLowerCase())) {
+                  score += 2
+                  reasons.push(`Topic match: "${topic}"`)
+                }
+              }
+            }
+
+            // Check hashtag relevance
+            if (parsedData.hashtags && vault.description) {
+              for (const hashtag of parsedData.hashtags) {
+                if (vault.name.toLowerCase().includes(hashtag.toLowerCase()) ||
+                    vault.description.toLowerCase().includes(hashtag.toLowerCase())) {
+                  score += 1
+                  reasons.push(`Hashtag relevance: #${hashtag}`)
+                }
+              }
+            }
+
+            if (score > 0) {
+              suggestions.push({
+                vault_name: vault.name,
+                vault_description: vault.description,
+                match_score: score,
+                reasons: reasons
+              })
+            }
+          }
+
+          // Sort by score
+          suggestions.sort((a, b) => b.match_score - a.match_score)
+
+          if (suggestions.length === 0) {
+            return {
+              success: false,
+              message: 'Could not find a suitable vault for this cast. Consider creating a new vault or manual categorization.',
+              cast_content: cast.cast_content.substring(0, 200) + '...'
+            }
+          }
+
+          // Use the highest scoring suggestion
+          const bestMatch = suggestions[0]
+          const vault = vaults.find(v => v.name === bestMatch.vault_name)
+          
+          if (!vault) {
+            return { success: false, message: 'Best matching vault not found' }
+          }
+
+          // Check if cast is already in this vault
+          const isAlreadyInVault = await VaultService.isCastInVault(cast.id, vault.id)
+          if (isAlreadyInVault) {
+            return {
+              success: true,
+              already_organized: true,
+              message: `Cast is already in vault "${vault.name}"`
+            }
+          }
+
+          // Add cast to the vault
+          await VaultService.addCastToVault(cast.id, vault.id)
+          
+          // Refresh data in parent component
+          onCastUpdate?.()
+
+          return {
+            success: true,
+            organized: true,
+            vault_name: vault.name,
+            match_score: bestMatch.match_score,
+            reasons: bestMatch.reasons,
+            message: `Successfully added cast to "${vault.name}" (score: ${bestMatch.match_score})`
+          }
+        }
+
+        case 'analyze_all_casts_content': {
+          const limit = args.limit || casts.length
+          const castsToAnalyze = casts.slice(0, limit)
+          
+          if (castsToAnalyze.length === 0) {
+            return { success: false, message: 'No casts to analyze' }
+          }
+
+          // Analyze all casts for themes
+          const allTopics = []
+          const topicsByAuthor = new Map()
+          const hashtagCounts = new Map()
+          const mentionCounts = new Map()
+          const sentiments = { positive: 0, negative: 0, neutral: 0 }
+          const urlDomains = new Map()
+
+          for (const cast of castsToAnalyze) {
+            const parsed = ContentParser.parseContent(cast.cast_content)
+            
+            // Collect topics
+            if (parsed.topics) {
+              allTopics.push(...parsed.topics)
+            }
+            
+            // Topics by author
+            if (!topicsByAuthor.has(cast.username)) {
+              topicsByAuthor.set(cast.username, new Set())
+            }
+            if (parsed.topics) {
+              parsed.topics.forEach(topic => topicsByAuthor.get(cast.username)!.add(topic))
+            }
+            
+            // Count hashtags and mentions
+            if (parsed.hashtags) {
+              parsed.hashtags.forEach(tag => {
+                hashtagCounts.set(tag, (hashtagCounts.get(tag) || 0) + 1)
+              })
+            }
+            if (parsed.mentions) {
+              parsed.mentions.forEach(mention => {
+                mentionCounts.set(mention, (mentionCounts.get(mention) || 0) + 1)
+              })
+            }
+            
+            // Sentiment
+            if (parsed.sentiment) {
+              sentiments[parsed.sentiment as keyof typeof sentiments]++
+            }
+            
+            // URL domains
+            if (parsed.urls) {
+              parsed.urls.forEach(url => {
+                try {
+                  const domain = new URL(url).hostname
+                  urlDomains.set(domain, (urlDomains.get(domain) || 0) + 1)
+                } catch (e) {
+                  // Invalid URL, skip
+                }
+              })
+            }
+          }
+
+          // Calculate topic frequency
+          const topicCounts = allTopics.reduce((acc, topic) => {
+            acc[topic] = (acc[topic] || 0) + 1
+            return acc
+          }, {} as Record<string, number>)
+
+          const topTopics = Object.entries(topicCounts)
+            .sort(([,a], [,b]) => (b as number) - (a as number))
+            .slice(0, 10)
+            .map(([topic, count]) => ({ topic, count: count as number, percentage: Math.round((count as number) / castsToAnalyze.length * 100) }))
+
+          // Suggest vault categories based on analysis
+          const suggestedVaults = []
+          if (topicCounts['crypto'] > 2) suggestedVaults.push({ name: 'Crypto & Web3', description: 'Cryptocurrency and blockchain related content' })
+          if (topicCounts['ai'] > 2) suggestedVaults.push({ name: 'AI & Tech', description: 'Artificial intelligence and technology discussions' })
+          if (topicCounts['development'] > 2) suggestedVaults.push({ name: 'Development', description: 'Programming and software development' })
+          if (sentiments.positive > castsToAnalyze.length * 0.6) suggestedVaults.push({ name: 'Positive Vibes', description: 'Uplifting and positive content' })
+
+          return {
+            success: true,
+            analysis: {
+              total_analyzed: castsToAnalyze.length,
+              top_topics: topTopics,
+              top_hashtags: Array.from(hashtagCounts.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 10)
+                .map(([tag, count]) => ({ hashtag: tag, count })),
+              top_mentions: Array.from(mentionCounts.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 5)
+                .map(([mention, count]) => ({ mention, count })),
+              sentiment_breakdown: {
+                positive: sentiments.positive,
+                negative: sentiments.negative,
+                neutral: sentiments.neutral,
+                positive_percentage: Math.round(sentiments.positive / castsToAnalyze.length * 100)
+              },
+              top_domains: Array.from(urlDomains.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 5)
+                .map(([domain, count]) => ({ domain, count }))
+            },
+            suggested_vaults: suggestedVaults,
+            message: `Analyzed ${castsToAnalyze.length} casts. Top themes: ${topTopics.slice(0, 3).map(t => t.topic).join(', ')}`
           }
         }
 
