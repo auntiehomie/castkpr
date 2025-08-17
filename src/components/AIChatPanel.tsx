@@ -281,6 +281,19 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           limit: { type: 'number', description: 'Number of casts to analyze (default: all)' }
         }
       }
+    },
+    {
+      name: 'add_topic_casts_to_vault',
+      description: 'Find casts that match a specific topic (like crypto, AI, etc.) and add them to the specified vault. This function combines searching and adding in one step.',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'The topic to search for (e.g., "crypto", "AI", "tech")' },
+          vault_name: { type: 'string', description: 'Name of the vault to add matching casts to' },
+          create_vault_if_missing: { type: 'boolean', description: 'Whether to create the vault if it doesn\'t exist (default: true)' }
+        },
+        required: ['topic', 'vault_name']
+      }
     }
   ]
 
@@ -1475,6 +1488,93 @@ ${vaultSuggestion}`
           }
         }
 
+        case 'add_topic_casts_to_vault': {
+          const { topic, vault_name, create_vault_if_missing = true } = args
+          
+          // Find casts matching the topic
+          const matchingCasts = casts.filter(cast => {
+            const parsed = ContentParser.parseContent(cast.cast_content)
+            return parsed.topics?.includes(topic.toLowerCase()) || 
+                   cast.cast_content.toLowerCase().includes(topic.toLowerCase())
+          })
+
+          if (matchingCasts.length === 0) {
+            return { 
+              success: false, 
+              message: `No casts found matching topic "${topic}". I searched through ${casts.length} total casts.` 
+            }
+          }
+
+          // Find or create the vault
+          let vault = vaults.find(v => v.name.toLowerCase() === vault_name.toLowerCase())
+          
+          if (!vault && create_vault_if_missing) {
+            // Create the vault
+            try {
+              vault = await VaultService.createVault(
+                vault_name,
+                `Automatically created vault for ${topic} related content`,
+                [topic.toLowerCase()],
+                userId,
+                false
+              )
+              
+              // Update vaults state
+              setVaults(prev => [...prev, vault!])
+              
+            } catch (error) {
+              return { 
+                success: false, 
+                message: `Failed to create vault "${vault_name}": ${error instanceof Error ? error.message : 'Unknown error'}` 
+              }
+            }
+          } else if (!vault) {
+            return { 
+              success: false, 
+              message: `Vault "${vault_name}" not found and create_vault_if_missing is false` 
+            }
+          }
+
+          // Add matching casts to the vault
+          const results = []
+          let successCount = 0
+          
+          for (const cast of matchingCasts) {
+            try {
+              await VaultService.addCastToVault(cast.id, vault!.id)
+              results.push({
+                cast_hash: cast.cast_hash,
+                author: cast.username,
+                preview: cast.cast_content.substring(0, 100),
+                success: true
+              })
+              successCount++
+            } catch (error) {
+              results.push({
+                cast_hash: cast.cast_hash,
+                author: cast.username,
+                preview: cast.cast_content.substring(0, 100),
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              })
+            }
+          }
+
+          // Refresh data in parent component
+          onCastUpdate?.()
+
+          return {
+            success: true,
+            topic_searched: topic,
+            vault_name: vault_name,
+            total_found: matchingCasts.length,
+            successfully_added: successCount,
+            failed: matchingCasts.length - successCount,
+            matching_casts: results,
+            message: `Found ${matchingCasts.length} casts matching "${topic}" and successfully added ${successCount} to vault "${vault_name}"`
+          }
+        }
+
         default:
           return { success: false, message: `Unknown function: ${name}` }
       }
@@ -1534,10 +1634,14 @@ ${vaultSuggestion}`
               5. Create new vaults with rules
               6. Organize casts by sentiment or topic
               
+              IMPORTANT: Maintain conversation context and remember what you've previously analyzed or discussed.
+              When users refer to previously mentioned topics or results, reference that information.
+              If you find casts matching a topic the user mentioned, offer to add them to relevant vaults.
+              
               Always be helpful and suggest next actions. When organizing casts, provide clear summaries of what was done.
               Format your responses with clear sections and bullet points when listing items.`
             },
-            ...messages.slice(-10), // Include last 10 messages for context
+            ...messages.slice(-12), // Include more messages for better context
             userMessage
           ],
           functions,
@@ -1560,7 +1664,20 @@ ${vaultSuggestion}`
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             messages: [
-              ...messages.slice(-5),
+              {
+                role: 'system',
+                content: `You are a helpful AI assistant for CastKPR. Maintain conversation context and remember what you've analyzed.
+
+                Current context:
+                - User has ${context.vault_count} vaults: ${context.vault_names.join(', ') || 'none'}
+                - User has ${context.cast_count} saved casts
+                
+                Function just executed: ${data.function_call.name}
+                Function result summary: ${typeof functionResult === 'object' && functionResult.message ? functionResult.message : 'Function completed'}
+                
+                Remember to reference previous analysis results when relevant.`
+              },
+              ...messages.slice(-8), // Include last 8 messages for better context
               userMessage,
               {
                 role: 'assistant',
