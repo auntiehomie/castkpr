@@ -149,6 +149,14 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
         type: 'object',
         properties: {}
       }
+    },
+    {
+      name: 'get_most_recent_cast',
+      description: 'Get the most recent/newest saved cast',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
     }
   ]
 
@@ -444,6 +452,38 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
               url: firstCast.cast_url
             },
             message: `Your first saved cast was from @${firstCast.username} on ${new Date(firstCast.created_at).toLocaleDateString()}`
+          }
+        }
+
+        case 'get_most_recent_cast': {
+          if (casts.length === 0) {
+            return {
+              success: false,
+              message: 'You have no saved casts yet'
+            }
+          }
+
+          // Since casts are already ordered by cast_timestamp (newest first) from getUserCasts(),
+          // the first cast is the most recent by original cast time
+          const recentCast = casts[0]
+          
+          return {
+            success: true,
+            cast: {
+              hash: recentCast.cast_hash,
+              author: recentCast.username,
+              content: recentCast.cast_content,
+              saved_at: recentCast.created_at,
+              timestamp: recentCast.cast_timestamp,
+              url: recentCast.cast_url
+            },
+            message: `Your most recent cast was saved on ${new Date(recentCast.created_at).toLocaleDateString()}, and it was authored by **${recentCast.username}**. Here's a brief overview:
+
+- **Content**: "${recentCast.cast_content}"
+- **Timestamp**: ${new Date(recentCast.cast_timestamp).toLocaleDateString()}, ${new Date(recentCast.cast_timestamp).toLocaleTimeString()} UTC
+- **URL**: [View Cast](${recentCast.cast_url})
+
+If you need any further actions or details, let me know!`
           }
         }
 
