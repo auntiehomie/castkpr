@@ -1324,20 +1324,43 @@ export class ContentParser {
   }
 
   static extractTopics(text: string): string[] {
-    const topicKeywords = [
-      'crypto', 'nft', 'defi', 'web3', 'blockchain', 'ethereum', 'bitcoin',
-      'art', 'music', 'gaming', 'sports', 'politics', 'tech', 'ai', 'ml',
-      'startup', 'venture', 'investment', 'trading', 'market', 'finance',
-      'social', 'community', 'meme', 'culture', 'philosophy', 'science',
-      'development', 'programming', 'design', 'marketing', 'business'
-    ]
-
-    const words = text.toLowerCase().split(/\s+/)
+    const content = text.toLowerCase()
+    const words = content.split(/\s+/)
     const foundTopics: string[] = []
 
-    topicKeywords.forEach(keyword => {
-      if (words.some(word => word.includes(keyword))) {
-        foundTopics.push(keyword)
+    // Enhanced topic detection with context awareness
+    const topicPatterns = {
+      'crypto': ['crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'cryptocurrency'],
+      'blockchain': ['blockchain', 'web3', 'decentralized', 'dao'],
+      'defi': ['defi', 'yield', 'liquidity', 'staking', 'farming'],
+      'nft': ['nft', 'pfp', 'opensea', 'collectible'],
+      'ai': ['ai', 'artificial intelligence', 'machine learning', 'ml', 'gpt', 'llm'],
+      'tech': ['programming', 'code', 'developer', 'software', 'api', 'github'],
+      'finance': ['money', 'pay', 'rent', 'finance', 'investment', 'trading', 'market'],
+      'social': ['gm', 'friends', 'community', 'social', 'hello', 'thanks'],
+      'gaming': ['game', 'gaming', 'play', 'player', 'console'],
+      'art': ['art', 'artist', 'design', 'creative', 'paint'],
+      'music': ['music', 'song', 'album', 'artist', 'sound'],
+      'business': ['business', 'startup', 'company', 'entrepreneur', 'venture'],
+      'politics': ['politics', 'government', 'policy', 'election', 'vote'],
+      'sports': ['sports', 'football', 'basketball', 'soccer', 'game'],
+      'science': ['science', 'research', 'study', 'experiment', 'data']
+    }
+
+    // Check for topic patterns
+    Object.entries(topicPatterns).forEach(([topic, keywords]) => {
+      const hasMatch = keywords.some(keyword => {
+        if (keyword.includes(' ')) {
+          // Multi-word phrases
+          return content.includes(keyword)
+        } else {
+          // Single words - check if any word contains this keyword
+          return words.some(word => word.includes(keyword))
+        }
+      })
+      
+      if (hasMatch) {
+        foundTopics.push(topic)
       }
     })
 

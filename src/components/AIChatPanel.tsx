@@ -156,6 +156,19 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
       }
     },
     {
+      name: 'analyze_cast_topics',
+      description: 'Analyze the topics and themes in a specific cast or the most recent cast',
+      parameters: {
+        type: 'object',
+        properties: {
+          cast_hash: { 
+            type: 'string', 
+            description: 'Optional: Hash of specific cast to analyze. If not provided, analyzes the most recent cast' 
+          }
+        }
+      }
+    },
+    {
       name: 'get_vault_casts',
       description: 'Get all casts in a specific vault',
       parameters: {
@@ -675,6 +688,109 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           }
         }
 
+        case 'analyze_cast_topics': {
+          // Use the most recent cast if no specific hash is provided
+          const targetCast = args.cast_hash 
+            ? casts.find(c => c.cast_hash === args.cast_hash)
+            : casts[0] // Most recent cast
+
+          if (!targetCast) {
+            return {
+              success: false,
+              message: args.cast_hash 
+                ? `Cast with hash ${args.cast_hash} not found`
+                : 'No casts found'
+            }
+          }
+
+          // Perform comprehensive analysis
+          const parsedData = ContentParser.parseContent(targetCast.cast_content)
+          const keyPhrases = ContentParser.extractKeyPhrases(targetCast.cast_content, 8)
+          
+          // Additional analysis for better topic detection
+          const content = targetCast.cast_content.toLowerCase()
+          const additionalTopics = []
+          
+          // Enhanced crypto detection
+          if (content.includes('crypto') || content.includes('bitcoin') || content.includes('ethereum') || 
+              content.includes('defi') || content.includes('blockchain') || content.includes('web3') ||
+              content.includes('nft') || content.includes('token')) {
+            additionalTopics.push('cryptocurrency')
+          }
+          
+          // Enhanced tech detection  
+          if (content.includes('ai') || content.includes('artificial intelligence') || content.includes('machine learning') ||
+              content.includes('programming') || content.includes('code') || content.includes('development')) {
+            additionalTopics.push('technology')
+          }
+          
+          // Financial topics
+          if (content.includes('pay') || content.includes('rent') || content.includes('money') || 
+              content.includes('finance') || content.includes('investment') || content.includes('trading')) {
+            additionalTopics.push('finance')
+          }
+          
+          // Combine detected topics
+          const allTopics = [...new Set([...(parsedData.topics || []), ...additionalTopics])]
+          
+          // Determine primary topic
+          let primaryTopic = 'General Discussion'
+          if (allTopics.length > 0) {
+            // Prioritize certain topics
+            if (allTopics.includes('cryptocurrency') || allTopics.includes('crypto')) {
+              primaryTopic = 'Cryptocurrency & Web3'
+            } else if (allTopics.includes('technology') || allTopics.includes('tech')) {
+              primaryTopic = 'Technology & Development'
+            } else if (allTopics.includes('finance')) {
+              primaryTopic = 'Finance & Economics'
+            } else {
+              primaryTopic = allTopics[0].charAt(0).toUpperCase() + allTopics[0].slice(1)
+            }
+          }
+
+          // Generate topic summary
+          const topicAnalysis = []
+          if (content.includes('ethereum') && content.includes('rent')) {
+            topicAnalysis.push('This cast discusses using Ethereum for real-world payments, specifically rent payments')
+          }
+          if (content.includes('argentina')) {
+            topicAnalysis.push('Mentions experiences in Argentina')
+          }
+          if (content.includes('national id') || content.includes('document')) {
+            topicAnalysis.push('Discusses documentation/identity challenges')
+          }
+          
+          return {
+            success: true,
+            cast: {
+              hash: targetCast.cast_hash,
+              author: targetCast.username,
+              content_preview: targetCast.cast_content.substring(0, 150) + '...'
+            },
+            analysis: {
+              primary_topic: primaryTopic,
+              all_topics: allTopics,
+              key_phrases: keyPhrases,
+              sentiment: parsedData.sentiment,
+              word_count: parsedData.word_count,
+              hashtags: parsedData.hashtags || [],
+              mentions: parsedData.mentions || [],
+              topic_analysis: topicAnalysis,
+              confidence: allTopics.length > 0 ? 'High' : 'Low'
+            },
+            message: `**Topic Analysis Complete**
+
+**Primary Topic**: ${primaryTopic}
+**All Detected Topics**: ${allTopics.length > 0 ? allTopics.join(', ') : 'No specific topics detected'}
+**Key Phrases**: ${keyPhrases.join(', ')}
+**Sentiment**: ${parsedData.sentiment || 'Neutral'}
+
+${topicAnalysis.length > 0 ? '**Specific Insights**: ' + topicAnalysis.join('. ') : ''}
+
+This cast would fit well in a "${primaryTopic}" vault.`
+          }
+        }
+
         case 'get_vault_casts': {
           const vault = vaults.find(v => v.name.toLowerCase() === args.vault_name.toLowerCase())
           if (!vault) {
@@ -800,6 +916,40 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           // the first cast is the most recent by original cast time
           const recentCast = casts[0]
           
+          // Parse the cast content to analyze topics and themes
+          const parsedData = ContentParser.parseContent(recentCast.cast_content)
+          const keyPhrases = ContentParser.extractKeyPhrases(recentCast.cast_content, 5)
+          
+          // Determine the main topic based on analysis
+          let mainTopic = 'General'
+          if (parsedData.topics && parsedData.topics.length > 0) {
+            mainTopic = parsedData.topics[0].charAt(0).toUpperCase() + parsedData.topics[0].slice(1)
+          }
+          
+          // Create a summary of what the cast is about
+          let topicSummary = ''
+          if (parsedData.topics && parsedData.topics.length > 0) {
+            topicSummary = `This cast appears to be about **${parsedData.topics.join(', ')}**.`
+          } else if (keyPhrases.length > 0) {
+            topicSummary = `Key themes include: ${keyPhrases.join(', ')}.`
+          } else {
+            topicSummary = 'This appears to be a general conversation or social post.'
+          }
+
+          // Suggest appropriate vault
+          let vaultSuggestion = ''
+          if (parsedData.topics && parsedData.topics.length > 0) {
+            const suggestedVault = parsedData.topics.includes('crypto') || parsedData.topics.includes('ethereum') || parsedData.topics.includes('defi') 
+              ? 'Crypto & Web3' 
+              : parsedData.topics.includes('tech') || parsedData.topics.includes('ai') || parsedData.topics.includes('development')
+              ? 'Tech & Development'
+              : parsedData.topics.includes('social') || parsedData.topics.includes('community')
+              ? 'Social & Community'
+              : 'General'
+            
+            vaultSuggestion = ` I'd suggest organizing this into a "${suggestedVault}" vault.`
+          }
+          
           return {
             success: true,
             cast: {
@@ -808,15 +958,28 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
               content: recentCast.cast_content,
               saved_at: recentCast.created_at,
               timestamp: recentCast.cast_timestamp,
-              url: recentCast.cast_url
+              url: recentCast.cast_url,
+              analysis: {
+                main_topic: mainTopic,
+                detected_topics: parsedData.topics || [],
+                key_phrases: keyPhrases,
+                sentiment: parsedData.sentiment,
+                word_count: parsedData.word_count,
+                hashtags: parsedData.hashtags || [],
+                mentions: parsedData.mentions || []
+              }
             },
-            message: `Your most recent cast was saved on ${new Date(recentCast.created_at).toLocaleDateString()}, and it was authored by **${recentCast.username}**. Here's a brief overview:
+            message: `Your most recent cast was saved on ${new Date(recentCast.created_at).toLocaleDateString()}, authored by **${recentCast.username}**.
 
-- **Content**: "${recentCast.cast_content}"
-- **Timestamp**: ${new Date(recentCast.cast_timestamp).toLocaleDateString()}, ${new Date(recentCast.cast_timestamp).toLocaleTimeString()} UTC
-- **URL**: [View Cast](${recentCast.cast_url})
+**Topic Analysis**: ${topicSummary}
 
-If you need any further actions or details, let me know!`
+**Content**: "${recentCast.cast_content.length > 200 ? recentCast.cast_content.substring(0, 200) + '...' : recentCast.cast_content}"
+
+**Detected Topics**: ${parsedData.topics && parsedData.topics.length > 0 ? parsedData.topics.join(', ') : 'None detected'}
+**Sentiment**: ${parsedData.sentiment || 'Neutral'}
+**Key Phrases**: ${keyPhrases.length > 0 ? keyPhrases.join(', ') : 'None identified'}
+
+${vaultSuggestion}`
           }
         }
 
