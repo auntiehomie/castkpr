@@ -59,11 +59,36 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
   const functions = [
     {
       name: 'list_vaults',
-      description: 'List all vaults for the user',
+      description: 'List all vaults for the user with creation dates and sorting options',
       parameters: {
         type: 'object',
-        properties: {},
+        properties: {
+          sort_by: { 
+            type: 'string', 
+            enum: ['name', 'created_at', 'updated_at', 'cast_count'], 
+            description: 'How to sort the vaults (default: created_at)' 
+          },
+          order: { 
+            type: 'string', 
+            enum: ['asc', 'desc'], 
+            description: 'Sort order (default: desc for newest first)' 
+          }
+        },
         required: []
+      }
+    },
+    {
+      name: 'find_vaults_by_age',
+      description: 'Find vaults by their age or creation date. Useful for finding recently created vaults or old duplicates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          max_age_days: { type: 'number', description: 'Find vaults newer than this many days old' },
+          min_age_days: { type: 'number', description: 'Find vaults older than this many days old' },
+          created_after: { type: 'string', description: 'Find vaults created after this date (YYYY-MM-DD)' },
+          created_before: { type: 'string', description: 'Find vaults created before this date (YYYY-MM-DD)' },
+          name_pattern: { type: 'string', description: 'Optional: filter by vault name pattern (for finding duplicates)' }
+        }
       }
     },
     {
@@ -306,6 +331,23 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           user_message: { type: 'string', description: 'The exact user message (for confirmation detection)' }
         }
       }
+    },
+    {
+      name: 'bulk_delete_vaults',
+      description: 'Delete multiple vaults at once. Use when user wants to delete several specific vaults or all vaults.',
+      parameters: {
+        type: 'object',
+        properties: {
+          vault_names: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: 'Array of vault names to delete. Use ["ALL"] to delete all vaults.' 
+          },
+          confirmation: { type: 'boolean', description: 'Set to true when user confirms bulk deletion with "I want all the vaults deleted" or similar' },
+          user_message: { type: 'string', description: 'The exact user message (for confirmation detection)' }
+        },
+        required: ['vault_names']
+      }
     }
   ]
 
@@ -314,20 +356,110 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
     try {
       switch (name) {
         case 'list_vaults': {
+          const { sort_by = 'created_at', order = 'desc' } = args
           const vaults = await VaultService.getUserVaults(userId)
           const vaultList = vaults.map((v: Vault) => ({
             name: v.name,
             description: v.description,
             cast_count: v.cast_count || 0,
-            rules: v.auto_add_rules
+            rules: v.auto_add_rules,
+            created_at: v.created_at,
+            updated_at: v.updated_at,
+            age_days: Math.floor((new Date().getTime() - new Date(v.created_at).getTime()) / (1000 * 60 * 60 * 24))
           }))
+          
+          // Sort based on parameters
+          vaultList.sort((a, b) => {
+            let comparison = 0
+            switch (sort_by) {
+              case 'name':
+                comparison = a.name.localeCompare(b.name)
+                break
+              case 'cast_count':
+                comparison = a.cast_count - b.cast_count
+                break
+              case 'updated_at':
+                comparison = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+                break
+              case 'created_at':
+              default:
+                comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                break
+            }
+            return order === 'desc' ? -comparison : comparison
+          })
+          
           return {
             success: true,
             vaults: vaultList,
             total: vaults.length,
+            sorting: { sort_by, order },
             message: vaults.length > 0 
-              ? `You have ${vaults.length} vault${vaults.length !== 1 ? 's' : ''}` 
+              ? `You have ${vaults.length} vault${vaults.length !== 1 ? 's' : ''}, sorted by ${sort_by} (${order}). ${vaultList.length > 0 ? `${order === 'desc' ? 'Newest' : 'Oldest'} vault: "${vaultList[0].name}" created ${vaultList[0].age_days} days ago.` : ''}` 
               : 'You have no vaults yet. Would you like me to create some based on your saved casts?'
+          }
+        }
+
+        case 'find_vaults_by_age': {
+          const { max_age_days, min_age_days, created_after, created_before, name_pattern } = args
+          const vaults = await VaultService.getUserVaults(userId)
+          
+          let filteredVaults = vaults.filter(v => {
+            const createdDate = new Date(v.created_at)
+            const ageDays = Math.floor((new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
+            
+            // Check age constraints
+            if (max_age_days !== undefined && ageDays > max_age_days) return false
+            if (min_age_days !== undefined && ageDays < min_age_days) return false
+            
+            // Check date constraints
+            if (created_after && createdDate < new Date(created_after)) return false
+            if (created_before && createdDate > new Date(created_before)) return false
+            
+            // Check name pattern
+            if (name_pattern && !v.name.toLowerCase().includes(name_pattern.toLowerCase())) return false
+            
+            return true
+          })
+          
+          const vaultList = filteredVaults.map((v: Vault) => ({
+            name: v.name,
+            description: v.description,
+            cast_count: v.cast_count || 0,
+            created_at: v.created_at,
+            updated_at: v.updated_at,
+            age_days: Math.floor((new Date().getTime() - new Date(v.created_at).getTime()) / (1000 * 60 * 60 * 24)),
+            created_date_friendly: new Date(v.created_at).toLocaleDateString()
+          }))
+          
+          // Sort by creation date (newest first)
+          vaultList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          
+          // Build filter summary for the message
+          const filters = []
+          if (max_age_days !== undefined) filters.push(`newer than ${max_age_days} days`)
+          if (min_age_days !== undefined) filters.push(`older than ${min_age_days} days`)
+          if (created_after) filters.push(`created after ${created_after}`)
+          if (created_before) filters.push(`created before ${created_before}`)
+          if (name_pattern) filters.push(`name contains "${name_pattern}"`)
+          
+          const filterSummary = filters.length > 0 ? ` (filtered by: ${filters.join(', ')})` : ''
+          
+          return {
+            success: true,
+            vaults: vaultList,
+            total_found: vaultList.length,
+            total_all_vaults: vaults.length,
+            filters_applied: {
+              max_age_days,
+              min_age_days,
+              created_after,
+              created_before,
+              name_pattern
+            },
+            message: vaultList.length > 0 
+              ? `Found ${vaultList.length} vault${vaultList.length !== 1 ? 's' : ''}${filterSummary}. ${vaultList.length > 0 ? `Newest match: "${vaultList[0].name}" (${vaultList[0].age_days} days old).` : ''}` 
+              : `No vaults found matching the specified criteria${filterSummary}.`
           }
         }
 
@@ -1671,9 +1803,15 @@ ${vaultSuggestion}`
             if (partialMatches.length === 1) {
               vault = partialMatches[0]
             } else if (partialMatches.length > 1) {
+              // Provide detailed info about each matching vault to help user distinguish
+              const matchDetails = partialMatches.map(v => {
+                const ageDays = Math.floor((new Date().getTime() - new Date(v.created_at).getTime()) / (1000 * 60 * 60 * 24))
+                return `"${v.name}" (${v.cast_count || 0} casts, created ${ageDays} days ago)`
+              }).join(', ')
+              
               return { 
                 success: false, 
-                message: `Multiple vaults match "${vault_name}": ${partialMatches.map(v => v.name).join(', ')}. Please be more specific.` 
+                message: `Multiple vaults match "${vault_name}": ${matchDetails}. Please be more specific with the exact vault name.` 
               }
             }
           }
@@ -1687,15 +1825,168 @@ ${vaultSuggestion}`
           }
 
           const castCount = vault.cast_count || 0
+          const createdDate = new Date(vault.created_at)
+          const ageDays = Math.floor((new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
 
           return {
             success: true,
             vault_info: {
               name: vault.name,
               description: vault.description,
-              cast_count: castCount
+              cast_count: castCount,
+              created_at: vault.created_at,
+              age_days: ageDays,
+              created_date_friendly: createdDate.toLocaleDateString()
             },
-            message: `⚠️  Are you sure you want to delete the vault "${vault.name}"? This vault contains ${castCount} casts. The vault will be deleted but your casts will remain saved.\n\nTo confirm, please respond with exactly: **"I want the vault deleted"**`
+            message: `⚠️  Are you sure you want to delete the vault "${vault.name}"?\n\n📊 Vault Details:\n• Contains: ${castCount} casts\n• Created: ${createdDate.toLocaleDateString()} (${ageDays} days ago)\n• Description: ${vault.description || 'No description'}\n\nThe vault will be deleted but your casts will remain saved.\n\nTo confirm, please respond with exactly: **"I want the vault deleted"**`
+          }
+        }
+
+        case 'bulk_delete_vaults': {
+          const { vault_names, confirmation, user_message } = args
+          
+          if (!vault_names || !Array.isArray(vault_names) || vault_names.length === 0) {
+            return {
+              success: false,
+              message: 'Please specify which vaults to delete, or use ["ALL"] to delete all vaults.'
+            }
+          }
+
+          // Check if user is providing bulk confirmation
+          const isBulkConfirmation = user_message && 
+                                   (user_message.toLowerCase().includes('i want all the vaults deleted') ||
+                                    user_message.toLowerCase().includes('delete all vaults') ||
+                                    user_message.toLowerCase().includes('i want them all deleted'))
+
+          // If this is a confirmation
+          if (confirmation === true || isBulkConfirmation) {
+            // Determine what to delete based on recent conversation
+            let targetVaults: Vault[] = []
+            
+            // Check if we're deleting all vaults
+            if (vault_names.includes('ALL') || vault_names[0]?.toLowerCase() === 'all') {
+              targetVaults = vaults
+            } else {
+              // Find specific vaults
+              targetVaults = vaults.filter(v => 
+                vault_names.some(name => 
+                  v.name.toLowerCase().includes(name.toLowerCase()) ||
+                  name.toLowerCase().includes(v.name.toLowerCase())
+                )
+              )
+            }
+
+            if (targetVaults.length === 0) {
+              return {
+                success: false,
+                message: "No vaults found to delete. Please specify vault names or use 'all vaults' to delete everything."
+              }
+            }
+
+            // Proceed with bulk deletion
+            try {
+              const deletionResults = []
+              let successCount = 0
+              let failCount = 0
+
+              for (const vault of targetVaults) {
+                try {
+                  await VaultService.deleteVault(vault.id, userId)
+                  deletionResults.push({
+                    name: vault.name,
+                    success: true,
+                    cast_count: vault.cast_count || 0
+                  })
+                  successCount++
+                } catch (error) {
+                  deletionResults.push({
+                    name: vault.name,
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                  })
+                  failCount++
+                }
+              }
+              
+              // Update local vaults state
+              const deletedVaultIds = deletionResults
+                .filter(r => r.success)
+                .map(r => targetVaults.find(v => v.name === r.name)?.id)
+                .filter(Boolean)
+              
+              setVaults(prev => prev.filter(v => !deletedVaultIds.includes(v.id)))
+              
+              // Refresh data in parent component
+              onCastUpdate?.()
+
+              const totalCasts = deletionResults
+                .filter(r => r.success)
+                .reduce((sum, r) => sum + (r.cast_count || 0), 0)
+
+              return {
+                success: successCount > 0,
+                deleted_vaults: deletionResults.filter(r => r.success),
+                failed_deletions: deletionResults.filter(r => !r.success),
+                summary: {
+                  total_attempted: targetVaults.length,
+                  successful: successCount,
+                  failed: failCount,
+                  total_casts_affected: totalCasts
+                },
+                message: `Bulk deletion completed: ${successCount} vault${successCount !== 1 ? 's' : ''} deleted successfully${failCount > 0 ? `, ${failCount} failed` : ''}. Total casts in deleted vaults: ${totalCasts} (casts remain in your saved casts).`
+              }
+            } catch (error) {
+              return {
+                success: false,
+                message: `Bulk deletion failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+              }
+            }
+          }
+
+          // This is an initial bulk deletion request - ask for confirmation
+          let targetVaults: Vault[] = []
+          let isAll = false
+
+          if (vault_names.includes('ALL') || vault_names[0]?.toLowerCase() === 'all') {
+            targetVaults = vaults
+            isAll = true
+          } else {
+            // Find specific vaults by name matching
+            targetVaults = vaults.filter(v => 
+              vault_names.some(name => 
+                v.name.toLowerCase().includes(name.toLowerCase()) ||
+                name.toLowerCase().includes(v.name.toLowerCase())
+              )
+            )
+          }
+
+          if (targetVaults.length === 0) {
+            const availableVaults = vaults.filter(v => v.name).map(v => v.name)
+            return {
+              success: false,
+              message: `No vaults found matching: ${vault_names.join(', ')}. Available vaults: ${availableVaults.join(', ') || 'none'}`
+            }
+          }
+
+          const totalCasts = targetVaults.reduce((sum, v) => sum + (v.cast_count || 0), 0)
+          const vaultDetails = targetVaults.map(v => {
+            const ageDays = Math.floor((new Date().getTime() - new Date(v.created_at).getTime()) / (1000 * 60 * 60 * 24))
+            return `• "${v.name}" (${v.cast_count || 0} casts, ${ageDays} days old)`
+          }).join('\n')
+
+          return {
+            success: true,
+            vaults_to_delete: targetVaults.map(v => ({
+              name: v.name,
+              cast_count: v.cast_count || 0,
+              created_at: v.created_at
+            })),
+            summary: {
+              count: targetVaults.length,
+              total_casts: totalCasts,
+              is_all_vaults: isAll
+            },
+            message: `⚠️  ${isAll ? 'DELETE ALL VAULTS' : 'BULK DELETE VAULTS'}\n\nYou want to delete ${targetVaults.length} vault${targetVaults.length !== 1 ? 's' : ''}:\n\n${vaultDetails}\n\n📊 Summary:\n• Total vaults: ${targetVaults.length}\n• Total casts: ${totalCasts}\n• All vaults will be deleted but your casts will remain saved.\n\nTo confirm, please respond with exactly: **"I want all the vaults deleted"**`
           }
         }
 
@@ -1751,20 +2042,24 @@ ${vaultSuggestion}`
               - User has ${context.cast_count} saved casts
               
               You can help users:
-              1. List and manage vaults
+              1. List and manage vaults (with creation dates and sorting)
               2. Organize casts into vaults automatically
               3. Analyze patterns in saved casts
               4. Search for specific casts
               5. Create new vaults with rules
               6. Organize casts by sentiment or topic
-              7. Delete vaults (with confirmation)
+              7. Delete vaults (with confirmation and creation date info)
+              8. Find vaults by age or creation date (useful for identifying duplicates)
               
               VAULT DELETION RULES:
-              - When user first asks to delete a vault, call request_vault_deletion with vault_name only
-              - When user says exactly "I want the vault deleted" (or very similar), call request_vault_deletion with confirmation=true AND user_message parameter
-              - Always pass user_message parameter with the exact user input for confirmation detection
-              - Look for phrases like "I want the vault deleted", "I want it deleted", or exact confirmation phrases
-              - Do NOT accept vague confirmations like "yes" or "ok" - require the specific phrase
+              - For single vault: use request_vault_deletion with vault_name
+              - For multiple/all vaults: use bulk_delete_vaults with vault_names array
+              - When user says "I want the vault deleted" → confirmation=true for single vault
+              - When user says "I want all the vaults deleted" → confirmation=true for bulk deletion
+              - Always pass user_message parameter with exact user input
+              - For all vaults: use vault_names: ["ALL"]
+              - For multiple specific vaults: use vault_names: ["vault1", "vault2"]
+              - Use find_vaults_by_age to help identify duplicate vaults by creation date when multiple vaults have similar names
               
               IMPORTANT: Maintain conversation context and remember what you've previously analyzed or discussed.
               When users refer to previously mentioned topics or results, reference that information.

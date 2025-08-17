@@ -23,6 +23,9 @@ export default function VaultManager({ userId }: VaultManagerProps) {
   const [error, setError] = useState<string | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [showAddCastModal, setShowAddCastModal] = useState(false)
+  const [selectedVaultIds, setSelectedVaultIds] = useState<Set<string>>(new Set())
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
   const [newVaultName, setNewVaultName] = useState('')
   const [newVaultDescription, setNewVaultDescription] = useState('')
   const [newVaultPublic, setNewVaultPublic] = useState(false)
@@ -202,6 +205,89 @@ export default function VaultManager({ userId }: VaultManagerProps) {
       
       // Clear error after 5 seconds
       setTimeout(() => setError(null), 5000)
+    }
+  }
+
+  // Bulk deletion functions
+  const handleSelectVaultForDeletion = (vaultId: string) => {
+    const newSelected = new Set(selectedVaultIds)
+    if (newSelected.has(vaultId)) {
+      newSelected.delete(vaultId)
+    } else {
+      newSelected.add(vaultId)
+    }
+    setSelectedVaultIds(newSelected)
+  }
+
+  const handleSelectAllVaults = () => {
+    if (selectedVaultIds.size === vaults.length) {
+      setSelectedVaultIds(new Set())
+    } else {
+      setSelectedVaultIds(new Set(vaults.map(v => v.id)))
+    }
+  }
+
+  const handleBulkDelete = () => {
+    if (selectedVaultIds.size === 0) return
+    setShowBulkDeleteConfirm(true)
+  }
+
+  const confirmBulkDelete = async () => {
+    setIsDeletingBulk(true)
+    setShowBulkDeleteConfirm(false)
+    
+    try {
+      const vaultsToDelete = vaults.filter(v => selectedVaultIds.has(v.id))
+      const results = []
+      
+      for (const vault of vaultsToDelete) {
+        try {
+          await CollectionService.deleteCollection(vault.id, userId)
+          results.push({ vault: vault.name, success: true })
+        } catch (err) {
+          console.error(`Error deleting vault ${vault.name}:`, err)
+          results.push({ vault: vault.name, success: false, error: err })
+        }
+      }
+      
+      // Update local state
+      setVaults(prev => prev.filter(v => !selectedVaultIds.has(v.id)))
+      setSelectedVaultIds(new Set())
+      
+      const successCount = results.filter(r => r.success).length
+      const failCount = results.filter(r => !r.success).length
+      
+      if (failCount > 0) {
+        setError(`Deleted ${successCount} vaults, ${failCount} failed`)
+      } else {
+        setError(null)
+      }
+      
+    } catch (error) {
+      console.error('Bulk deletion error:', error)
+      setError('Error during bulk deletion. Please try again.')
+    } finally {
+      setIsDeletingBulk(false)
+    }
+  }
+
+  const handleDeleteSingleVault = async (vault: VaultWithCasts) => {
+    if (!confirm(`Are you sure you want to delete "${vault.name}"? This vault contains ${vault.castCount} casts.`)) {
+      return
+    }
+    
+    try {
+      await CollectionService.deleteCollection(vault.id, userId)
+      setVaults(prev => prev.filter(v => v.id !== vault.id))
+      
+      // If this was the selected vault, clear it
+      if (selectedVault?.id === vault.id) {
+        setSelectedVault(null)
+        setVaultCasts([])
+      }
+    } catch (error) {
+      console.error('Error deleting vault:', error)
+      setError('Error deleting vault. Please try again.')
     }
   }
 
@@ -439,13 +525,57 @@ export default function VaultManager({ userId }: VaultManagerProps) {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white">Cast Vaults</h2>
-        <button
-          onClick={() => setShowCreateForm(true)}
-          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-        >
-          ➕ New Vault
-        </button>
+        <div className="flex items-center gap-3">
+          {vaults.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={selectedVaultIds.size === 0 || isDeletingBulk}
+              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+            >
+              {isDeletingBulk ? '⏳ Deleting...' : `🗑️ Delete Selected (${selectedVaultIds.size})`}
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreateForm(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+          >
+            ➕ New Vault
+          </button>
+        </div>
       </div>
+
+      {/* Bulk Selection Controls */}
+      {vaults.length > 0 && (
+        <div className="bg-white/5 rounded-lg p-4 mb-6 border border-white/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedVaultIds.size === vaults.length && vaults.length > 0}
+                  onChange={handleSelectAllVaults}
+                  className="rounded bg-white/10 border-white/20 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="text-white">Select All ({vaults.length})</span>
+              </label>
+              {selectedVaultIds.size > 0 && (
+                <span className="text-gray-400">
+                  {selectedVaultIds.size} selected
+                </span>
+              )}
+            </div>
+            
+            {selectedVaultIds.size > 0 && (
+              <button
+                onClick={() => setSelectedVaultIds(new Set())}
+                className="text-gray-400 hover:text-white transition-colors text-sm"
+              >
+                Clear Selection
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Create Form */}
       {showCreateForm && (
@@ -537,41 +667,113 @@ export default function VaultManager({ userId }: VaultManagerProps) {
           {vaults.map((vault) => (
             <div
               key={vault.id}
-              onClick={() => handleSelectVault(vault)}
-              className="bg-white/5 border border-white/20 rounded-lg p-4 cursor-pointer hover:bg-white/10 transition-colors"
+              className="bg-white/5 border border-white/20 rounded-lg p-4 relative group hover:bg-white/10 transition-colors"
             >
-              <div className="flex items-start justify-between mb-3">
-                <h3 className="font-semibold text-white line-clamp-1">{vault.name}</h3>
-                <div className="text-xs text-gray-400">
-                  {vault.is_public ? '🌐' : '🔒'}
-                </div>
+              {/* Selection Checkbox */}
+              <div className="absolute top-3 left-3 z-10">
+                <input
+                  type="checkbox"
+                  checked={selectedVaultIds.has(vault.id)}
+                  onChange={(e) => {
+                    e.stopPropagation()
+                    handleSelectVaultForDeletion(vault.id)
+                  }}
+                  className="rounded bg-white/10 border-white/20 text-purple-600 focus:ring-purple-500"
+                />
+              </div>
+
+              {/* Delete Button */}
+              <div className="absolute top-3 right-3 z-10">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteSingleVault(vault)
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 hover:bg-red-700 text-white p-1 rounded text-xs"
+                  title="Delete vault"
+                >
+                  🗑️
+                </button>
               </div>
               
-              {vault.description && (
-                <p className="text-sm text-gray-400 mb-3 line-clamp-2">{vault.description}</p>
-              )}
-              
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-purple-300">{vault.castCount} casts</span>
-                <span className="text-gray-500">
-                  {new Date(vault.created_at).toLocaleDateString()}
-                </span>
-              </div>
-              
-              {vault.recentCasts.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-white/10">
-                  <div className="text-xs text-gray-400 mb-2">Recent:</div>
-                  <div className="space-y-1">
-                    {vault.recentCasts.slice(0, 2).map((cast) => (
-                      <div key={cast.id} className="text-xs text-gray-300 line-clamp-1">
-                        @{cast.username}: {cast.cast_content}
-                      </div>
-                    ))}
+              {/* Clickable vault content */}
+              <div 
+                onClick={() => handleSelectVault(vault)}
+                className="cursor-pointer pt-6"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <h3 className="font-semibold text-white line-clamp-1 pr-8">{vault.name}</h3>
+                  <div className="text-xs text-gray-400">
+                    {vault.is_public ? '🌐' : '🔒'}
                   </div>
                 </div>
-              )}
+                
+                {vault.description && (
+                  <p className="text-sm text-gray-400 mb-3 line-clamp-2">{vault.description}</p>
+                )}
+                
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-purple-300">{vault.castCount} casts</span>
+                  <span className="text-gray-500">
+                    {new Date(vault.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                
+                {vault.recentCasts.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <div className="text-xs text-gray-400 mb-2">Recent:</div>
+                    <div className="space-y-1">
+                      {vault.recentCasts.slice(0, 2).map((cast) => (
+                        <div key={cast.id} className="text-xs text-gray-300 line-clamp-1">
+                          @{cast.username}: {cast.cast_content}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="text-red-400 text-4xl mb-4">⚠️</div>
+              <h3 className="text-xl font-semibold text-white mb-2">Delete Selected Vaults</h3>
+              <p className="text-gray-400 mb-6">
+                Are you sure you want to delete {selectedVaultIds.size} vault{selectedVaultIds.size > 1 ? 's' : ''}? 
+                This action cannot be undone.
+              </p>
+              
+              <div className="space-y-2 mb-6 max-h-40 overflow-y-auto">
+                {vaults.filter(v => selectedVaultIds.has(v.id)).map(vault => (
+                  <div key={vault.id} className="text-left bg-white/5 rounded p-2">
+                    <div className="font-medium text-white">{vault.name}</div>
+                    <div className="text-sm text-gray-400">{vault.castCount} casts</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmBulkDelete}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  Delete {selectedVaultIds.size} Vault{selectedVaultIds.size > 1 ? 's' : ''}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
