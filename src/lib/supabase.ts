@@ -543,22 +543,39 @@ export class CastService {
 export class CollectionService {
   // Create a new collection
   static async createCollection(name: string, description: string, userId: string, isPublic: boolean = false): Promise<Collection> {
-    console.log('📁 Creating collection:', { name, userId, isPublic })
+    console.log('📁 Creating collection:', { name, description, userId, isPublic })
+    
+    // Validate inputs
+    if (!name || typeof name !== 'string') {
+      throw new Error('Collection name is required and must be a string')
+    }
+    if (!userId || typeof userId !== 'string') {
+      throw new Error('User ID is required and must be a string')
+    }
+    if (description && typeof description !== 'string') {
+      throw new Error('Description must be a string')
+    }
     
     const { data, error } = await supabase
       .from('collections')
       .insert({
-        name,
-        description,
+        name: name.trim(),
+        description: description?.trim() || null,
         created_by: userId,
-        is_public: isPublic
+        is_public: Boolean(isPublic)
       })
       .select()
       .single()
 
     if (error) {
       console.error('Error creating collection:', error)
-      throw error
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      })
+      throw new Error(`Failed to create collection: ${error.message}`)
     }
 
     console.log('✅ Collection created:', data.id)

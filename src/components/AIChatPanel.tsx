@@ -494,20 +494,33 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
         }
 
         case 'create_vault': {
-          const vault = await VaultService.createVault(
-            args.name,
-            args.description || '',
-            args.rules || [],
-            userId
-          )
-          
-          // Refresh data in parent component
-          onCastUpdate?.()
-          
-          return {
-            success: true,
-            vault: vault,
-            message: `Created vault "${args.name}" successfully!`
+          try {
+            const vault = await VaultService.createVault(
+              args.name,
+              args.description || '',
+              args.rules || [],
+              userId,
+              false // isPublic default to false
+            )
+            
+            // Update local state
+            const updatedVaults = await VaultService.getUserVaults(userId)
+            setVaults(updatedVaults)
+            
+            // Refresh data in parent component
+            onCastUpdate?.()
+            
+            return {
+              success: true,
+              vault: vault,
+              message: `Created vault "${args.name}" successfully!`
+            }
+          } catch (error) {
+            console.error('Error creating vault:', error)
+            return {
+              success: false,
+              message: `Failed to create vault: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
           }
         }
 
