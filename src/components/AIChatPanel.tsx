@@ -47,6 +47,60 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
     loadData()
   }, [userId])
 
+  // Natural language parsing helper
+  const parseVaultFromMessage = (message: string): { name?: string; description?: string } => {
+    const lowerMessage = message.toLowerCase()
+    
+    // Patterns to extract vault name
+    const patterns = [
+      /create.*vault.*(?:named|called)\s+"([^"]+)"/i,
+      /create.*vault.*(?:named|called)\s+([a-zA-Z0-9\s&]+?)(?:\s+(?:for|with|about))/i,
+      /create.*vault.*(?:named|called)\s+([a-zA-Z0-9\s&]+?)$/i,
+      /vault.*(?:named|called)\s+"([^"]+)"/i,
+      /vault.*(?:named|called)\s+([a-zA-Z0-9\s&]+?)(?:\s+(?:for|with|about))/i,
+      /vault.*(?:named|called)\s+([a-zA-Z0-9\s&]+?)$/i,
+      /"([^"]+)"\s*vault/i,
+      /create\s+"([^"]+)"/i
+    ]
+    
+    let extractedName = ''
+    let extractedDescription = ''
+    
+    // Try to extract name using patterns
+    for (const pattern of patterns) {
+      const match = message.match(pattern)
+      if (match && match[1]) {
+        extractedName = match[1].trim()
+        break
+      }
+    }
+    
+    // Try to extract description
+    const descPatterns = [
+      /(?:for|about|containing|with)\s+([a-zA-Z0-9\s,&-]+?)(?:\.|$)/i,
+      /vault.*(?:for|about)\s+([a-zA-Z0-9\s,&-]+?)(?:\.|$)/i
+    ]
+    
+    for (const pattern of descPatterns) {
+      const match = message.match(pattern)
+      if (match && match[1]) {
+        extractedDescription = match[1].trim()
+        break
+      }
+    }
+    
+    console.log('🔍 Natural language parsing results:', { 
+      message: message.substring(0, 100), 
+      extractedName, 
+      extractedDescription 
+    })
+    
+    return {
+      name: extractedName || undefined,
+      description: extractedDescription || undefined
+    }
+  }
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -497,57 +551,84 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           try {
             console.log('🏗️ Raw create_vault args:', args)
             console.log('🏗️ Args type:', typeof args)
-            console.log('🏗️ Args.name:', args.name, 'Type:', typeof args.name)
+            console.log('🏗️ Args keys:', Object.keys(args))
+            console.log('🏗️ Full args object:', JSON.stringify(args, null, 2))
             
             // Extract and validate parameters with robust handling
-            let vaultName: string
-            let vaultDescription: string
-            let vaultRules: string[]
+            let vaultName: string = ''
+            let vaultDescription: string = ''
+            let vaultRules: string[] = []
             
-            // Handle case where AI might pass nested object or JSON string
-            if (typeof args.name === 'object' && args.name !== null) {
-              console.log('⚠️ Name is object, extracting from nested structure')
-              const nameObj = args.name as any
-              vaultName = nameObj.name || nameObj.value || String(nameObj)
-            } else if (typeof args.name === 'string' && args.name.startsWith('{')) {
-              // Try to parse JSON string
-              try {
-                const parsed = JSON.parse(args.name)
-                vaultName = parsed.name || parsed.value || String(parsed)
-              } catch {
-                vaultName = String(args.name)
-              }
-            } else {
-              vaultName = String(args.name || '')
+            // Method 1: Direct property access
+            if (args.name && typeof args.name === 'string') {
+              vaultName = args.name
+            }
+            if (args.description && typeof args.description === 'string') {
+              vaultDescription = args.description
             }
             
+            // Method 2: Handle object properties 
+            if (typeof args.name === 'object' && args.name !== null) {
+              const nameObj = args.name as any
+              vaultName = nameObj.name || nameObj.value || String(nameObj)
+            }
             if (typeof args.description === 'object' && args.description !== null) {
               const descObj = args.description as any
               vaultDescription = descObj.description || descObj.value || String(descObj)
-            } else if (typeof args.description === 'string' && args.description.startsWith('{')) {
-              try {
-                const parsed = JSON.parse(args.description)
-                vaultDescription = parsed.description || parsed.value || String(parsed)
-              } catch {
-                vaultDescription = String(args.description)
-              }
-            } else {
-              vaultDescription = String(args.description || '')
             }
             
+            // Method 3: Try to extract from the raw args object directly
+            if (!vaultName && args) {
+              // Look for any property that might contain the name
+              const possibleNames = [args.name, args.vault_name, args.vaultName, args.title]
+              for (const possible of possibleNames) {
+                if (possible && typeof possible === 'string' && possible.trim()) {
+                  vaultName = possible.trim()
+                  break
+                }
+              }
+            }
+            
+            // Method 4: Fallback - try to parse from any string values in args
+            if (!vaultName) {
+              const allValues = Object.values(args).filter(v => typeof v === 'string' && v.trim())
+              if (allValues.length > 0) {
+                vaultName = allValues[0] as string
+                if (allValues.length > 1) {
+                  vaultDescription = allValues[1] as string
+                }
+              }
+            }
+            
+            // Handle rules array
             if (Array.isArray(args.rules)) {
               vaultRules = args.rules.map((rule: any) => String(rule))
             } else if (args.rules) {
               vaultRules = [String(args.rules)]
-            } else {
-              vaultRules = []
             }
             
             console.log('🏗️ Processed params:', { vaultName, vaultDescription, vaultRules })
             
-            // Validate required fields
+            // Final validation with helpful error
             if (!vaultName.trim()) {
-              throw new Error('Vault name is required')
+              console.log('🔍 Attempting natural language parsing from user message...')
+              
+              // Get the last user message for natural language parsing
+              const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || ''
+              const parsed = parseVaultFromMessage(lastUserMessage)
+              
+              if (parsed.name) {
+                vaultName = parsed.name
+                if (parsed.description && !vaultDescription.trim()) {
+                  vaultDescription = parsed.description
+                }
+                console.log('✅ Extracted from natural language:', { vaultName, vaultDescription })
+              }
+            }
+            
+            if (!vaultName.trim()) {
+              console.error('❌ Could not extract vault name from args:', args)
+              throw new Error('Could not determine vault name from the request. Please try: "Create a vault named [Name]" or "Create a vault called [Name]"')
             }
             
             const vault = await VaultService.createVault(
