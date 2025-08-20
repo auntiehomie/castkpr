@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, CstkprIntelligenceService, supabase } from '@/lib/supabase'
+import { CastService, CstkprIntelligenceService, ContentParser, supabase } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
 // Response templates for variety
@@ -463,16 +463,26 @@ async function handleOpinionCommand(cast: any): Promise<void> {
     
     // Generate @cstkpr's opinion using the intelligence service
     try {
-      const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
-        parentHash,
+      // Use a simplified approach that doesn't require database storage
+      console.log('🧠 Generating simple opinion analysis...')
+      
+      // Extract topics and analyze sentiment
+      const topics = CstkprIntelligenceService.extractCastTopics(parentCastContent)
+      const parsed = ContentParser.parseContent(parentCastContent)
+      const sentiment = parsed.sentiment || 'neutral'
+      
+      // Generate opinion using simplified logic
+      const opinion = await CstkprIntelligenceService.generateOpinion(
         parentCastContent,
         parentAuthor,
-        true // Include web research
+        topics,
+        [], // No related casts for now
+        null // No web research for now
       )
       
       // Format the opinion response with personality
-      const confidenceEmoji = opinion.confidence_score > 0.8 ? '💯' : 
-                            opinion.confidence_score > 0.6 ? '✨' : '🤔'
+      const confidenceEmoji = opinion.confidence > 0.8 ? '💯' : 
+                            opinion.confidence > 0.6 ? '✨' : '🤔'
       
       const toneEmoji = {
         'analytical': '📊',
@@ -480,13 +490,13 @@ async function handleOpinionCommand(cast: any): Promise<void> {
         'critical': '🔍',
         'curious': '❓',
         'neutral': '💭'
-      }[opinion.response_tone] || '💭'
+      }[opinion.tone] || '💭'
       
-      const responseText = `🧠 **My Opinion:** ${opinion.opinion_text} ${confidenceEmoji}
+      const responseText = `🧠 **My Opinion:** ${opinion.text} ${confidenceEmoji}
       
-${toneEmoji} **Analysis:** ${Math.round(opinion.confidence_score * 100)}% confidence • ${opinion.response_tone} tone
+${toneEmoji} **Analysis:** ${Math.round(opinion.confidence * 100)}% confidence • ${opinion.tone} tone
 
-📊 Based on ${opinion.related_saved_casts?.length || 0} saved casts and current data trends.
+📊 Based on analysis of cast content and patterns.
 
 💡 *Want deeper analysis? Check the Intelligence Dashboard at castkpr.vercel.app*`
       
