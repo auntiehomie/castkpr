@@ -1829,14 +1829,48 @@ ${vaultSuggestion}`
         }
 
         case 'add_topic_casts_to_vault': {
-          const { topic, vault_name, create_vault_if_missing = true } = args
+          console.log('🔍 add_topic_casts_to_vault args:', parsedArgs)
+          
+          // Extract and validate parameters
+          const topic = parsedArgs.topic
+          const vault_name = parsedArgs.vault_name
+          const create_vault_if_missing = parsedArgs.create_vault_if_missing !== false // default to true
+          
+          // Validate required parameters
+          if (!topic || typeof topic !== 'string') {
+            return { 
+              success: false, 
+              message: 'Topic is required and must be a string' 
+            }
+          }
+          
+          if (!vault_name || typeof vault_name !== 'string') {
+            return { 
+              success: false, 
+              message: 'Vault name is required and must be a string' 
+            }
+          }
+          
+          console.log('🔍 Searching for casts about:', topic)
           
           // Find casts matching the topic
+          const topicLower = topic.toLowerCase()
           const matchingCasts = casts.filter(cast => {
-            const parsed = ContentParser.parseContent(cast.cast_content)
-            return parsed.topics?.includes(topic.toLowerCase()) || 
-                   cast.cast_content.toLowerCase().includes(topic.toLowerCase())
+            if (!cast.cast_content) return false
+            
+            try {
+              const parsed = ContentParser.parseContent(cast.cast_content)
+              return (parsed.topics && parsed.topics.some(t => t.toLowerCase().includes(topicLower))) || 
+                     cast.cast_content.toLowerCase().includes(topicLower) ||
+                     (cast.tags && cast.tags.some(tag => tag.toLowerCase().includes(topicLower)))
+            } catch (error) {
+              console.error('Error parsing cast content:', error)
+              // Fallback to simple text search
+              return cast.cast_content.toLowerCase().includes(topicLower)
+            }
           })
+
+          console.log('📊 Found', matchingCasts.length, 'matching casts out of', casts.length, 'total casts')
 
           if (matchingCasts.length === 0) {
             return { 
@@ -1846,23 +1880,26 @@ ${vaultSuggestion}`
           }
 
           // Find or create the vault
-          let vault = vaults.find(v => v.name.toLowerCase() === vault_name.toLowerCase())
+          let vault = vaults.find(v => v.name && v.name.toLowerCase() === vault_name.toLowerCase())
           
           if (!vault && create_vault_if_missing) {
+            console.log('🏗️ Creating vault:', vault_name)
             // Create the vault
             try {
               vault = await VaultService.createVault(
                 vault_name,
                 `Automatically created vault for ${topic} related content`,
-                [topic.toLowerCase()],
+                [topicLower],
                 userId,
                 false
               )
               
               // Update vaults state
               setVaults(prev => [...prev, vault!])
+              console.log('✅ Vault created successfully:', vault.id)
               
             } catch (error) {
+              console.error('❌ Failed to create vault:', error)
               return { 
                 success: false, 
                 message: `Failed to create vault "${vault_name}": ${error instanceof Error ? error.message : 'Unknown error'}` 
@@ -1876,29 +1913,51 @@ ${vaultSuggestion}`
           }
 
           // Add matching casts to the vault
+          console.log('🔗 Adding', matchingCasts.length, 'casts to vault:', vault!.name)
           const results = []
           let successCount = 0
           
           for (const cast of matchingCasts) {
             try {
+              if (!cast.id) {
+                console.error('⚠️ Cast missing ID:', cast)
+                results.push({
+                  cast_hash: cast.cast_hash,
+                  author: cast.username || 'Unknown',
+                  preview: (cast.cast_content || '').substring(0, 100),
+                  success: false,
+                  error: 'Cast ID is missing'
+                })
+                continue
+              }
+
               await VaultService.addCastToVault(cast.id, vault!.id)
               results.push({
                 cast_hash: cast.cast_hash,
-                author: cast.username,
-                preview: cast.cast_content.substring(0, 100),
+                author: cast.username || 'Unknown',
+                preview: (cast.cast_content || '').substring(0, 100),
                 success: true
               })
               successCount++
+              console.log('✅ Added cast to vault:', cast.cast_hash)
+              
             } catch (error) {
+              console.error('❌ Failed to add cast:', cast.cast_hash, error)
               results.push({
                 cast_hash: cast.cast_hash,
-                author: cast.username,
-                preview: cast.cast_content.substring(0, 100),
+                author: cast.username || 'Unknown',
+                preview: (cast.cast_content || '').substring(0, 100),
                 success: false,
                 error: error instanceof Error ? error.message : 'Unknown error'
               })
             }
           }
+
+          console.log('📊 Vault operation complete:', {
+            total: matchingCasts.length,
+            success: successCount,
+            failed: matchingCasts.length - successCount
+          })
 
           // Refresh data in parent component
           onCastUpdate?.()
