@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { CastService, supabase } from '@/lib/supabase'
+import { CastService, CstkprIntelligenceService, supabase } from '@/lib/supabase'
 import type { SavedCast } from '@/lib/supabase'
 
 // Response templates for variety
@@ -52,6 +52,8 @@ const RESPONSES = {
     `🤖 **CastKPR Bot Commands:**
 
 💾 **@cstkpr save this** - Save any cast
+🧠 **@cstkpr what's your opinion** - Get my AI opinion
+💭 **@cstkpr your thoughts** - Alternative opinion request
 📊 **@cstkpr stats** - Your save statistics  
 ❓ **@cstkpr help** - Show this help menu
 🔍 **@cstkpr search [term]** - Search your saved casts
@@ -93,6 +95,20 @@ Try: "@cstkpr save this" on any cast!`
     "🔍 Search results are best viewed at castkpr.vercel.app - try the search there!",
     "🎯 For powerful search, visit castkpr.vercel.app and use the search bar!",
     "📱 The web dashboard has amazing search features - check it out!"
+  ],
+
+  OPINION: [
+    "🧠 Let me analyze this cast and share my opinion...",
+    "💭 Analyzing the content and forming my thoughts...",
+    "🤖 Processing cast data to generate my perspective...",
+    "✨ Give me a moment to analyze and respond thoughtfully..."
+  ],
+
+  OPINION_ERROR: [
+    "🤖 Sorry, I couldn't analyze that cast right now. Technical difficulties!",
+    "⚠️ Opinion analysis failed. I might be having some processing issues.",
+    "💥 Couldn't generate opinion - something went wrong on my end.",
+    "🔧 Analysis error! Please try again later."
   ],
   
   UNKNOWN_COMMAND: [
@@ -203,6 +219,8 @@ export async function POST(request: NextRequest) {
     
     if (text.includes('save this') || text.includes('save')) {
       commandType = 'save'
+    } else if (text.includes("what's your opinion") || text.includes('your opinion') || text.includes('opinion') || text.includes('what do you think') || text.includes('thoughts')) {
+      commandType = 'opinion'
     } else if (text.includes('help') || text.includes('commands') || text.includes('how')) {
       commandType = 'help'
     } else if (text.includes('stats') || text.includes('statistics') || text.includes('count')) {
@@ -232,6 +250,10 @@ export async function POST(request: NextRequest) {
       case 'help':
         responseText = getRandomResponse(RESPONSES.HELP)
         await sendReply(cast.hash, responseText)
+        break
+        
+      case 'opinion':
+        await handleOpinionCommand(cast)
         break
         
       case 'stats':
@@ -401,6 +423,83 @@ async function handleSaveCommand(cast: any, text: string): Promise<void> {
     
   } catch (error) {
     console.error('💥 Save command error:', error)
+    const responseText = getRandomResponse(RESPONSES.GENERAL_ERROR)
+    await sendReply(cast.hash, responseText)
+  }
+}
+
+// Handle opinion command - analyze a cast and provide @cstkpr's opinion
+async function handleOpinionCommand(cast: any): Promise<void> {
+  try {
+    console.log('🧠 Handling opinion request from:', cast.author.username)
+    
+    const parentHash = cast.parent_hash
+    console.log('👆 Parent hash for opinion analysis:', parentHash)
+    
+    if (!parentHash) {
+      const responseText = "🤔 I need a cast to analyze! Reply to any cast with '@cstkpr what's your opinion' to get my thoughts on it."
+      await sendReply(cast.hash, responseText)
+      return
+    }
+    
+    // Send initial analysis message
+    const initialResponse = getRandomResponse(RESPONSES.OPINION)
+    await sendReply(cast.hash, initialResponse)
+    
+    // Extract parent cast data from webhook payload (if available)
+    let parentCastContent = 'Cast content not available in webhook data'
+    let parentAuthor = 'Unknown author'
+    
+    // Check if parent cast data is in the webhook payload
+    if (cast.parent_cast?.text) {
+      parentCastContent = cast.parent_cast.text
+      parentAuthor = cast.parent_cast.author?.username || cast.parent_cast.author?.display_name || 'Unknown'
+    } else if (cast.parent?.text) {
+      parentCastContent = cast.parent.text
+      parentAuthor = cast.parent.author?.username || cast.parent.author?.display_name || 'Unknown'
+    }
+    
+    console.log('📝 Parent cast content for analysis:', parentCastContent.substring(0, 100))
+    
+    // Generate @cstkpr's opinion using the intelligence service
+    try {
+      const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
+        parentHash,
+        parentCastContent,
+        parentAuthor,
+        true // Include web research
+      )
+      
+      // Format the opinion response with personality
+      const confidenceEmoji = opinion.confidence_score > 0.8 ? '💯' : 
+                            opinion.confidence_score > 0.6 ? '✨' : '🤔'
+      
+      const toneEmoji = {
+        'analytical': '📊',
+        'supportive': '👍',
+        'critical': '🔍',
+        'curious': '❓',
+        'neutral': '💭'
+      }[opinion.response_tone] || '💭'
+      
+      const responseText = `🧠 **My Opinion:** ${opinion.opinion_text} ${confidenceEmoji}
+      
+${toneEmoji} **Analysis:** ${Math.round(opinion.confidence_score * 100)}% confidence • ${opinion.response_tone} tone
+
+📊 Based on ${opinion.related_saved_casts?.length || 0} saved casts and current data trends.
+
+💡 *Want deeper analysis? Check the Intelligence Dashboard at castkpr.vercel.app*`
+      
+      await sendReply(cast.hash, responseText)
+      
+    } catch (analysisError) {
+      console.error('💥 Opinion analysis error:', analysisError)
+      const errorResponse = getRandomResponse(RESPONSES.OPINION_ERROR)
+      await sendReply(cast.hash, errorResponse)
+    }
+    
+  } catch (error) {
+    console.error('💥 Opinion command error:', error)
     const responseText = getRandomResponse(RESPONSES.GENERAL_ERROR)
     await sendReply(cast.hash, responseText)
   }
