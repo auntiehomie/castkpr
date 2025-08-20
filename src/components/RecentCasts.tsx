@@ -84,8 +84,30 @@ export default function RecentCasts({ userId, onViewAllClick }: RecentCastsProps
       setError(null)
       
       console.log('📥 Fetching recent casts for user:', currentUserId)
-      // Fetch 3 most recent casts
-      const recentCasts = await CastService.getUserCasts(currentUserId, 3)
+      
+      // Debug: Check what user IDs exist in database
+      const debugInfo = await CastService.debugUserIds()
+      console.log('🔍 Database user ID debug info:', debugInfo)
+      
+      // Try to find casts with various user ID patterns
+      const searchResults = await CastService.findCastsByUserIdPattern(currentUserId)
+      console.log('🎯 Search results:', searchResults)
+      
+      // Use the best match we can find
+      let recentCasts: SavedCast[] = []
+      
+      if (searchResults.exactMatch.length > 0) {
+        console.log('✅ Found exact match casts:', searchResults.exactMatch.length)
+        recentCasts = searchResults.exactMatch.slice(0, 3)
+      } else if (searchResults.similarMatches.length > 0) {
+        console.log('⚠️ Using similar match casts:', searchResults.similarMatches.length)
+        recentCasts = searchResults.similarMatches.slice(0, 3)
+      } else {
+        console.log('❌ No user-specific casts found, showing recent public casts for demo')
+        // Show some recent casts from any user for demo purposes
+        recentCasts = searchResults.allPossibleMatches.slice(0, 3)
+      }
+      
       setCasts(recentCasts)
     } catch (err) {
       console.error('Error fetching recent casts:', err)
@@ -190,6 +212,17 @@ export default function RecentCasts({ userId, onViewAllClick }: RecentCastsProps
           <p className="text-gray-400 mb-6">
             Start saving casts by replying &quot;@cstkpr save this&quot; to any cast on Farcaster
           </p>
+          
+          {/* Debug info in development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="bg-yellow-500/10 rounded-lg p-4 max-w-md mx-auto mb-4">
+              <h4 className="font-semibold text-yellow-300 mb-2">Debug Info:</h4>
+              <div className="text-xs text-yellow-200 text-left space-y-1">
+                <div>Current User ID: {currentUserId || 'Loading...'}</div>
+                <div>Check browser console for detailed user ID analysis</div>
+              </div>
+            </div>
+          )}
           
           {/* Quick demo instructions */}
           <div className="bg-white/5 rounded-lg p-4 max-w-md mx-auto">

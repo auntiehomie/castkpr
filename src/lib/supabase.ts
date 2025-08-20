@@ -419,6 +419,124 @@ export class CastService {
 
     return !!data
   }
+
+  // Debug function to check what user IDs exist in the database
+  static async debugUserIds(): Promise<{
+    uniqueUserIds: string[]
+    totalCasts: number
+    userIdFormats: Record<string, number>
+  }> {
+    console.log('🔍 Debugging user IDs in database...')
+    
+    const { data, error } = await supabase
+      .from('saved_casts')
+      .select('saved_by_user_id')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching user IDs:', error)
+      return {
+        uniqueUserIds: [],
+        totalCasts: 0,
+        userIdFormats: {}
+      }
+    }
+
+    const userIds = data?.map(cast => cast.saved_by_user_id).filter(Boolean) || []
+    const uniqueUserIds = [...new Set(userIds)]
+    
+    // Analyze the format of user IDs
+    const userIdFormats: Record<string, number> = {}
+    userIds.forEach(userId => {
+      if (!userId) return
+      
+      if (userId.startsWith('fid-')) {
+        userIdFormats['fid-format'] = (userIdFormats['fid-format'] || 0) + 1
+      } else if (userId.match(/^\d+$/)) {
+        userIdFormats['numeric-only'] = (userIdFormats['numeric-only'] || 0) + 1
+      } else if (userId.includes('-')) {
+        userIdFormats['with-hyphens'] = (userIdFormats['with-hyphens'] || 0) + 1
+      } else {
+        userIdFormats['username-format'] = (userIdFormats['username-format'] || 0) + 1
+      }
+    })
+
+    console.log('📊 User ID Analysis:', {
+      uniqueUserIds: uniqueUserIds.length,
+      totalCasts: userIds.length,
+      formats: userIdFormats,
+      sampleUserIds: uniqueUserIds.slice(0, 5)
+    })
+
+    return {
+      uniqueUserIds,
+      totalCasts: userIds.length,
+      userIdFormats
+    }
+  }
+
+  // Helper to find casts by similar user ID patterns
+  static async findCastsByUserIdPattern(currentUserId: string): Promise<{
+    exactMatch: SavedCast[]
+    similarMatches: SavedCast[]
+    allPossibleMatches: SavedCast[]
+  }> {
+    console.log('🔍 Searching for casts with similar user ID patterns for:', currentUserId)
+    
+    // Try exact match first
+    const exactMatch = await this.getUserCasts(currentUserId, 10)
+    
+    // If no exact match, try variations
+    const variations: string[] = []
+    
+    if (currentUserId.startsWith('fid-')) {
+      // If current is fid-123, also try just "123"
+      const fidNumber = currentUserId.replace('fid-', '')
+      variations.push(fidNumber)
+    } else if (currentUserId.match(/^\d+$/)) {
+      // If current is "123", also try "fid-123"
+      variations.push(`fid-${currentUserId}`)
+    }
+    
+    // Try username variations if it looks like a username
+    if (!currentUserId.match(/^\d+$/) && !currentUserId.startsWith('fid-')) {
+      // Current is likely a username, try with fid prefix if we can extract FID
+      // This would need more context from the Mini App SDK
+    }
+
+    const similarMatches: SavedCast[] = []
+    const allPossibleMatches: SavedCast[] = []
+
+    for (const variation of variations) {
+      try {
+        const casts = await this.getUserCasts(variation, 10)
+        similarMatches.push(...casts)
+      } catch (error) {
+        console.log(`No casts found for variation: ${variation}`)
+      }
+    }
+
+    // Get all recent casts to see what's available
+    try {
+      allPossibleMatches.push(...(await this.getAllRecentCasts(20)))
+    } catch (error) {
+      console.error('Error fetching all recent casts:', error)
+    }
+
+    console.log('📊 User ID Search Results:', {
+      currentUserId,
+      exactMatchCount: exactMatch.length,
+      similarMatchCount: similarMatches.length,
+      totalRecentCasts: allPossibleMatches.length,
+      variations
+    })
+
+    return {
+      exactMatch,
+      similarMatches,
+      allPossibleMatches
+    }
+  }
 }
 
 // Helper functions for collections - FULLY UPDATED
