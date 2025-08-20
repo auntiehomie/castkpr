@@ -449,35 +449,147 @@ async function handleOpinionCommand(cast: any): Promise<void> {
     // Extract parent cast data from webhook payload (if available)
     let parentCastContent = 'Cast content not available in webhook data'
     let parentAuthor = 'Unknown author'
+    let parentCastMediaInfo = ''
     
     // Check if parent cast data is in the webhook payload
     if (cast.parent_cast?.text) {
       parentCastContent = cast.parent_cast.text
       parentAuthor = cast.parent_cast.author?.username || cast.parent_cast.author?.display_name || 'Unknown'
+      
+      // Extract media information
+      if (cast.parent_cast.embeds && cast.parent_cast.embeds.length > 0) {
+        const mediaTypes = cast.parent_cast.embeds.map((embed: any) => {
+          if (embed.url) {
+            if (embed.url.includes('youtube.com') || embed.url.includes('youtu.be')) {
+              return 'YouTube video'
+            } else if (embed.url.includes('.mp4') || embed.url.includes('.webm')) {
+              return 'video'
+            } else if (embed.url.includes('.jpg') || embed.url.includes('.png') || embed.url.includes('.gif')) {
+              return 'image'
+            } else {
+              return 'link'
+            }
+          }
+          return 'media'
+        })
+        parentCastMediaInfo = ` [Contains: ${mediaTypes.join(', ')}]`
+      }
     } else if (cast.parent?.text) {
       parentCastContent = cast.parent.text
       parentAuthor = cast.parent.author?.username || cast.parent.author?.display_name || 'Unknown'
+      
+      // Extract media information from parent
+      if (cast.parent.embeds && cast.parent.embeds.length > 0) {
+        const mediaTypes = cast.parent.embeds.map((embed: any) => {
+          if (embed.url) {
+            if (embed.url.includes('youtube.com') || embed.url.includes('youtu.be')) {
+              return 'YouTube video'
+            } else if (embed.url.includes('.mp4') || embed.url.includes('.webm')) {
+              return 'video'
+            } else if (embed.url.includes('.jpg') || embed.url.includes('.png') || embed.url.includes('.gif')) {
+              return 'image'
+            } else {
+              return 'link'
+            }
+          }
+          return 'media'
+        })
+        parentCastMediaInfo = ` [Contains: ${mediaTypes.join(', ')}]`
+      }
+    } else {
+      // Fallback: Try to fetch parent cast from Neynar API
+      console.log('🔍 Parent cast data not in webhook, attempting to fetch from API...')
+      try {
+        const neynarApiKey = process.env.NEYNAR_API_KEY
+        if (neynarApiKey) {
+          const response = await fetch(`https://api.neynar.com/v2/farcaster/cast?identifier=${parentHash}&type=hash`, {
+            headers: {
+              'Accept': 'application/json',
+              'api_key': neynarApiKey,
+            },
+          })
+          
+          if (response.ok) {
+            const castData = await response.json()
+            if (castData.cast) {
+              parentCastContent = castData.cast.text || 'No text content'
+              parentAuthor = castData.cast.author?.username || castData.cast.author?.display_name || 'Unknown'
+              
+              // Extract media information
+              if (castData.cast.embeds && castData.cast.embeds.length > 0) {
+                const mediaTypes = castData.cast.embeds.map((embed: any) => {
+                  if (embed.url) {
+                    if (embed.url.includes('youtube.com') || embed.url.includes('youtu.be')) {
+                      return 'YouTube video'
+                    } else if (embed.url.includes('.mp4') || embed.url.includes('.webm')) {
+                      return 'video'
+                    } else if (embed.url.includes('.jpg') || embed.url.includes('.png') || embed.url.includes('.gif')) {
+                      return 'image'
+                    } else {
+                      return 'link'
+                    }
+                  }
+                  return 'media'
+                })
+                parentCastMediaInfo = ` [Contains: ${mediaTypes.join(', ')}]`
+              }
+              console.log('✅ Successfully fetched parent cast from API')
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch parent cast from API:', error)
+      }
     }
     
     console.log('📝 Parent cast content for analysis:', parentCastContent.substring(0, 100))
+    console.log('🎬 Media info:', parentCastMediaInfo || 'No media detected')
     
     // Generate @cstkpr's opinion using the intelligence service
     try {
       // Use a simplified approach that doesn't require database storage
-      console.log('🧠 Generating simple opinion analysis...')
+      console.log('🧠 Generating enhanced opinion analysis...')
+      
+      // Enhance the content with media context
+      const enhancedContent = parentCastContent + parentCastMediaInfo
       
       // Extract topics and analyze sentiment
-      const topics = CstkprIntelligenceService.extractCastTopics(parentCastContent)
-      const parsed = ContentParser.parseContent(parentCastContent)
+      const topics = CstkprIntelligenceService.extractCastTopics(enhancedContent)
+      const parsed = ContentParser.parseContent(enhancedContent)
       const sentiment = parsed.sentiment || 'neutral'
       
-      // Generate opinion using simplified logic
+      // Try to get some related casts for better context
+      let relatedCasts: any[] = []
+      if (topics.length > 0) {
+        try {
+          // Get some related casts from the database
+          for (const topic of topics.slice(0, 2)) { // Use top 2 topics
+            try {
+              const topicCasts = await CastService.getCastsByTopic(topic, 3)
+              relatedCasts.push(...topicCasts)
+            } catch (error) {
+              console.log(`No casts found for topic: ${topic}`)
+            }
+          }
+          
+          // Remove duplicates
+          relatedCasts = relatedCasts.filter((cast, index, self) => 
+            index === self.findIndex(c => c.id === cast.id)
+          ).slice(0, 5) // Limit to 5 related casts
+          
+          console.log(`🔍 Found ${relatedCasts.length} related casts for context`)
+        } catch (error) {
+          console.log('No related casts found in database')
+        }
+      }
+      
+      // Generate opinion using enhanced logic
       const opinion = await CstkprIntelligenceService.generateOpinion(
-        parentCastContent,
+        enhancedContent,
         parentAuthor,
         topics,
-        [], // No related casts for now
-        null // No web research for now
+        relatedCasts,
+        null // No web research for now, but we could add this
       )
       
       // Format the opinion response with personality
@@ -494,9 +606,9 @@ async function handleOpinionCommand(cast: any): Promise<void> {
       
       const responseText = `🧠 **My Opinion:** ${opinion.text} ${confidenceEmoji}
       
-${toneEmoji} **Analysis:** ${Math.round(opinion.confidence * 100)}% confidence • ${opinion.tone} tone
+${toneEmoji} **Analysis:** ${Math.round(opinion.confidence * 100)}% confidence • ${opinion.tone} tone${parentCastMediaInfo ? `\n🎬 **Media Context:** ${parentCastMediaInfo.replace(/^\s*\[Contains:\s*/, '').replace(/\]$/, '')}` : ''}${relatedCasts.length > 0 ? `\n📚 **Context:** Based on ${relatedCasts.length} related saved casts` : ''}
 
-📊 Based on analysis of cast content and patterns.
+📊 Enhanced analysis with ${topics.length > 0 ? `topics: ${topics.slice(0, 3).join(', ')}` : 'content patterns'}.
 
 💡 *Want deeper analysis? Check the Intelligence Dashboard at castkpr.vercel.app*`
       
