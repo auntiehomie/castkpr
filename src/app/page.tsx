@@ -16,7 +16,15 @@ export default function Home() {
           </p>
         </div>
 
-
+        {/* Dashboard Button - Moved to Top */}
+        <div className="text-center mb-16">
+          <Link 
+            href="/Dashboard"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block text-lg"
+          >
+            View Dashboard
+          </Link>
+        </div>
 
         {/* Features Grid */}
         <div className="grid md:grid-cols-3 gap-8 mb-16">
@@ -42,16 +50,6 @@ export default function Home() {
         {/* Recent Casts Section */}
         <div className="mb-16">
           <RecentCasts userId="demo-user" />
-        </div>
-
-        {/* CTA Buttons */}
-        <div className="text-center mb-16">
-          <Link 
-            href="/Dashboard"
-            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
-          >
-            View Dashboard
-          </Link>
         </div>
 
         {/* Bot Instructions */}
