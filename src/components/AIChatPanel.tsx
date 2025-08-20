@@ -20,7 +20,7 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: "Hi! I'm your AI assistant. I can help you organize your saved casts into vaults, analyze patterns, and manage your knowledge base. Try commands like:\n• 'List my vaults'\n• 'Analyze my recent casts'\n• 'Organize my casts into vaults'\n• 'Show casts about [topic]'\n• 'Create a vault for [topic]'",
+      content: "Hi! I'm your AI assistant with @cstkpr intelligence built in. I can help you:\n\n📚 **Vault Management:**\n• Create and organize vaults\n• Add casts to collections\n• Search and analyze your saved casts\n\n🧠 **@cstkpr Intelligence:**\n• Ask me 'What's your opinion on [topic]?'\n• Analyze sentiment for topics\n• Get opinions on parent casts you're replying to\n• Generate '@cstkpr what's your opinion' replies\n• Contextual analysis: 'What do you think about X in relation to Y?'\n• Generate insights from your saved casts\n\n💡 **Try asking:**\n• 'What do you think about crypto?'\n• 'Generate a @cstkpr reply for this cast: [paste content]'\n• 'Analyze this parent cast: [paste content]'\n• 'What's your opinion on AI in relation to crypto?'\n• 'Analyze sentiment for DeFi'\n• 'Create a vault for blockchain content'",
       timestamp: new Date()
     }
   ])
@@ -472,6 +472,69 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
           cast_hash: { type: 'string', description: 'Hash of the cast to find opinion for' }
         },
         required: ['cast_hash']
+      }
+    },
+    {
+      name: 'ask_cstkpr_opinion',
+      description: 'Ask @cstkpr for an opinion on a topic based on saved cast analysis. Use this when user asks "what do you think about X" or "what\'s your opinion on Y"',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'The topic to ask @cstkpr about (e.g., "crypto", "AI", "market trends")' },
+          context: { type: 'string', description: 'Additional context from the user\'s question' }
+        },
+        required: ['topic']
+      }
+    },
+    {
+      name: 'cstkpr_analyze_topic_sentiment',
+      description: 'Have @cstkpr analyze sentiment and trends for a specific topic across saved casts',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Topic to analyze sentiment for' },
+          time_range_days: { type: 'number', description: 'Number of days back to analyze (default: 30)' }
+        },
+        required: ['topic']
+      }
+    },
+    {
+      name: 'cstkpr_analyze_parent_cast',
+      description: 'Ask @cstkpr to analyze a parent cast (the original cast being replied to) and provide opinion on it',
+      parameters: {
+        type: 'object',
+        properties: {
+          parent_cast_url: { type: 'string', description: 'URL of the parent cast to analyze' },
+          parent_cast_content: { type: 'string', description: 'Content of the parent cast to analyze' },
+          context: { type: 'string', description: 'Additional context about why you want the opinion (e.g., "I\'m replying to this")' }
+        },
+        required: ['parent_cast_content']
+      }
+    },
+    {
+      name: 'cstkpr_contextual_opinion',
+      description: 'Get @cstkpr opinion on a topic with specific context (like "what do you think about X in relation to Y")',
+      parameters: {
+        type: 'object',
+        properties: {
+          main_topic: { type: 'string', description: 'The main topic to get opinion on' },
+          context_topic: { type: 'string', description: 'The contextual topic or situation' },
+          specific_question: { type: 'string', description: 'Specific question or angle of analysis' }
+        },
+        required: ['main_topic', 'context_topic']
+      }
+    },
+    {
+      name: 'cstkpr_reply_opinion',
+      description: 'Generate a "@cstkpr, what\'s your opinion" reply for a parent cast - perfect for when replying to someone else\'s cast',
+      parameters: {
+        type: 'object',
+        properties: {
+          parent_cast_text: { type: 'string', description: 'The text content of the parent cast you\'re replying to' },
+          my_reply_context: { type: 'string', description: 'Optional: your own thoughts or context for why you want @cstkpr\'s opinion' },
+          generate_reply_text: { type: 'boolean', description: 'Whether to generate the full reply text with @cstkpr mention', default: true }
+        },
+        required: ['parent_cast_text']
       }
     }
   ]
@@ -2612,6 +2675,349 @@ ${vaultSuggestion}`
             return {
               success: false,
               message: `Error finding opinion: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
+          }
+        }
+
+        case 'ask_cstkpr_opinion': {
+          const { topic, context } = args
+          
+          if (!topic) {
+            return {
+              success: false,
+              message: 'Please specify what topic you\'d like @cstkpr\'s opinion on.'
+            }
+          }
+
+          try {
+            console.log('🧠 @cstkpr forming opinion on topic:', topic)
+            
+            // Find related casts about this topic
+            const relatedCasts = await CastService.getCastsByTopic(topic, 10)
+            
+            if (relatedCasts.length === 0) {
+              return {
+                success: false,
+                message: `🧠 @cstkpr says: "I don't have any saved casts about '${topic}' to form an opinion on. Try saving some casts about this topic first, then ask me again!"`
+              }
+            }
+
+            // Analyze the most recent relevant cast to generate an opinion
+            const targetCast = relatedCasts[0]
+            const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
+              `opinion-${Date.now()}`, // Generate a unique hash for this opinion request
+              `${context || ''} What do you think about ${topic}? Based on: ${targetCast.cast_content}`,
+              'user-question',
+              true
+            )
+            
+            return {
+              success: true,
+              data: {
+                topic,
+                opinion_text: opinion.opinion_text,
+                confidence_score: opinion.confidence_score,
+                related_casts_count: relatedCasts.length,
+                response_tone: opinion.response_tone
+              },
+              message: `🧠 **@cstkpr's Opinion on "${topic}":**\n\n💭 ${opinion.opinion_text}\n\n📊 **Analysis Details:**\n• Confidence: ${Math.round(opinion.confidence_score * 100)}%\n• Tone: ${opinion.response_tone}\n• Based on ${relatedCasts.length} saved cast${relatedCasts.length !== 1 ? 's' : ''}\n• Topics analyzed: ${(opinion.topic_analysis || []).join(', ')}\n\n🎯 This opinion was generated by analyzing your saved casts about ${topic}.`
+            }
+          } catch (error) {
+            console.error('Error generating @cstkpr opinion:', error)
+            return {
+              success: false,
+              message: `🧠 @cstkpr encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}\n\nTry asking about a different topic or save more casts first.`
+            }
+          }
+        }
+
+        case 'cstkpr_analyze_topic_sentiment': {
+          const { topic, time_range_days = 30 } = args
+          
+          if (!topic) {
+            return {
+              success: false,
+              message: 'Please specify which topic you want @cstkpr to analyze sentiment for.'
+            }
+          }
+
+          try {
+            console.log('📊 @cstkpr analyzing sentiment for topic:', topic)
+            
+            // Get recent casts about this topic
+            const topicCasts = await CastService.getCastsByTopic(topic, 50)
+            
+            if (topicCasts.length === 0) {
+              return {
+                success: false,
+                message: `🧠 @cstkpr says: "I don't have any saved casts about '${topic}' to analyze sentiment for. Save some casts about this topic first!"`
+              }
+            }
+
+            // Filter by time range
+            const cutoffDate = new Date()
+            cutoffDate.setDate(cutoffDate.getDate() - time_range_days)
+            
+            const recentCasts = topicCasts.filter(cast => 
+              new Date(cast.cast_timestamp) > cutoffDate
+            )
+
+            // Analyze sentiment across all casts
+            let positiveCount = 0
+            let negativeCount = 0
+            let neutralCount = 0
+            
+            const sentimentDetails = recentCasts.map(cast => {
+              const parsed = ContentParser.parseContent(cast.cast_content)
+              const sentiment = parsed.sentiment || 'neutral'
+              
+              if (sentiment === 'positive') positiveCount++
+              else if (sentiment === 'negative') negativeCount++
+              else neutralCount++
+              
+              return {
+                cast_hash: cast.cast_hash,
+                sentiment,
+                author: cast.username,
+                content_preview: cast.cast_content.substring(0, 100) + '...',
+                timestamp: cast.cast_timestamp
+              }
+            })
+
+            // Overall sentiment analysis
+            const totalCasts = recentCasts.length
+            const overallSentiment = positiveCount > negativeCount 
+              ? (positiveCount > neutralCount ? 'positive' : 'neutral')
+              : (negativeCount > neutralCount ? 'negative' : 'neutral')
+
+            const sentimentEmoji = {
+              positive: '📈',
+              negative: '📉', 
+              neutral: '📊'
+            }
+
+            const sentimentMessage = {
+              positive: 'The community sentiment is generally positive',
+              negative: 'The community sentiment shows some concerns',
+              neutral: 'The community sentiment is balanced'
+            }
+
+            return {
+              success: true,
+              data: {
+                topic,
+                time_range_days,
+                total_casts: totalCasts,
+                sentiment_breakdown: {
+                  positive: positiveCount,
+                  negative: negativeCount,
+                  neutral: neutralCount
+                },
+                overall_sentiment: overallSentiment,
+                cast_details: sentimentDetails.slice(0, 5) // Sample of recent casts
+              },
+              message: `🧠 **@cstkpr's Sentiment Analysis for "${topic}"**\n\n${sentimentEmoji[overallSentiment as keyof typeof sentimentEmoji]} **Overall Trend:** ${sentimentMessage[overallSentiment as keyof typeof sentimentMessage]}\n\n📊 **Sentiment Breakdown** (Last ${time_range_days} days):\n• 📈 Positive: ${positiveCount} (${Math.round(positiveCount/totalCasts*100)}%)\n• 📉 Negative: ${negativeCount} (${Math.round(negativeCount/totalCasts*100)}%)\n• 📊 Neutral: ${neutralCount} (${Math.round(neutralCount/totalCasts*100)}%)\n\n📈 **Total Casts Analyzed:** ${totalCasts}\n\n💡 This analysis is based on your saved casts about ${topic} from the last ${time_range_days} days.`
+            }
+          } catch (error) {
+            console.error('Error analyzing topic sentiment:', error)
+            return {
+              success: false,
+              message: `Error analyzing sentiment for ${topic}: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
+          }
+        }
+
+        case 'cstkpr_analyze_parent_cast': {
+          const { parent_cast_url, parent_cast_content, context } = args
+          
+          if (!parent_cast_content) {
+            return {
+              success: false,
+              message: 'Please provide the content of the parent cast you want @cstkpr to analyze.'
+            }
+          }
+
+          try {
+            console.log('🧠 @cstkpr analyzing parent cast')
+            
+            // Generate a unique hash for this parent cast analysis
+            const analysisHash = `parent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+            
+            // Create contextual prompt for parent cast analysis
+            const analysisPrompt = `${context || 'Parent cast analysis'}: "${parent_cast_content}"`
+            
+            const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
+              analysisHash,
+              analysisPrompt,
+              'parent-cast-analysis',
+              true // Include web research
+            )
+            
+            // Extract topics from parent cast
+            const parentTopics = ContentParser.extractTopics(parent_cast_content)
+            const sentiment = ContentParser.analyzeSentiment(parent_cast_content)
+            
+            return {
+              success: true,
+              data: {
+                parent_cast_content: parent_cast_content.substring(0, 200) + '...',
+                parent_cast_url,
+                opinion_text: opinion.opinion_text,
+                confidence_score: opinion.confidence_score,
+                response_tone: opinion.response_tone,
+                topics_identified: parentTopics,
+                sentiment_detected: sentiment,
+                reasoning: opinion.reasoning
+              },
+              message: `🧠 **@cstkpr's Analysis of Parent Cast:**\n\n📄 **Original Cast:** "${parent_cast_content.substring(0, 150)}${parent_cast_content.length > 150 ? '...' : ''}"\n\n💭 **@cstkpr's Opinion:** ${opinion.opinion_text}\n\n📊 **Analysis Details:**\n• Confidence: ${Math.round(opinion.confidence_score * 100)}%\n• Tone: ${opinion.response_tone}\n• Topics: ${parentTopics.join(', ') || 'general discussion'}\n• Sentiment: ${sentiment}\n• Based on ${opinion.related_saved_casts?.length || 0} related saved casts\n\n🎯 **Context:** ${context || 'General analysis'}\n\n${parent_cast_url ? `🔗 **Original Cast:** ${parent_cast_url}` : ''}`
+            }
+          } catch (error) {
+            console.error('Error analyzing parent cast:', error)
+            return {
+              success: false,
+              message: `🧠 @cstkpr encountered an error analyzing the parent cast: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
+          }
+        }
+
+        case 'cstkpr_contextual_opinion': {
+          const { main_topic, context_topic, specific_question } = args
+          
+          if (!main_topic || !context_topic) {
+            return {
+              success: false,
+              message: 'Please provide both the main topic and context topic for @cstkpr to analyze.'
+            }
+          }
+
+          try {
+            console.log('🧠 @cstkpr forming contextual opinion:', { main_topic, context_topic })
+            
+            // Find casts related to both topics
+            const [mainTopicCasts, contextTopicCasts] = await Promise.all([
+              CastService.getCastsByTopic(main_topic, 10),
+              CastService.getCastsByTopic(context_topic, 10)
+            ])
+            
+            // Look for casts that mention both topics
+            const relatedCasts = [...mainTopicCasts, ...contextTopicCasts]
+            const uniqueCasts = relatedCasts.filter((cast, index, self) => 
+              index === self.findIndex(c => c.id === cast.id)
+            )
+            
+            if (uniqueCasts.length === 0) {
+              return {
+                success: false,
+                message: `🧠 @cstkpr says: "I don't have saved casts about both '${main_topic}' and '${context_topic}' to provide contextual analysis. Try saving some casts that discuss these topics together."`
+              }
+            }
+
+            // Create contextual analysis prompt
+            const contextualPrompt = `Analyze ${main_topic} in relation to ${context_topic}. ${specific_question || ''} Context from saved casts: ${uniqueCasts.slice(0, 3).map(cast => cast.cast_content.substring(0, 100)).join(' | ')}`
+            
+            const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
+              `contextual-${Date.now()}`,
+              contextualPrompt,
+              'contextual-analysis',
+              true
+            )
+            
+            // Analyze the relationship between topics
+            const mainTopicSentiment = mainTopicCasts.length > 0 ? 
+              ContentParser.analyzeSentiment(mainTopicCasts.map(c => c.cast_content).join(' ')) : 'neutral'
+            const contextTopicSentiment = contextTopicCasts.length > 0 ?
+              ContentParser.analyzeSentiment(contextTopicCasts.map(c => c.cast_content).join(' ')) : 'neutral'
+            
+            return {
+              success: true,
+              data: {
+                main_topic,
+                context_topic,
+                specific_question,
+                opinion_text: opinion.opinion_text,
+                confidence_score: opinion.confidence_score,
+                response_tone: opinion.response_tone,
+                main_topic_sentiment: mainTopicSentiment,
+                context_topic_sentiment: contextTopicSentiment,
+                related_casts_count: uniqueCasts.length,
+                cross_topic_analysis: true
+              },
+              message: `🧠 **@cstkpr's Contextual Analysis:**\n\n🎯 **Question:** ${main_topic} in relation to ${context_topic}${specific_question ? `\n📝 **Specific Focus:** ${specific_question}` : ''}\n\n💭 **@cstkpr's Opinion:** ${opinion.opinion_text}\n\n📊 **Cross-Topic Analysis:**\n• Main Topic (${main_topic}): ${mainTopicSentiment} sentiment, ${mainTopicCasts.length} casts\n• Context Topic (${context_topic}): ${contextTopicSentiment} sentiment, ${contextTopicCasts.length} casts\n• Combined Analysis: ${Math.round(opinion.confidence_score * 100)}% confidence\n• Response Tone: ${opinion.response_tone}\n\n🔍 This analysis is based on ${uniqueCasts.length} saved casts that discuss these topics.`
+            }
+          } catch (error) {
+            console.error('Error generating contextual opinion:', error)
+            return {
+              success: false,
+              message: `Error generating contextual opinion: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
+          }
+        }
+
+        case 'cstkpr_reply_opinion': {
+          const { parent_cast_text, my_reply_context, generate_reply_text = true } = args
+          
+          if (!parent_cast_text) {
+            return {
+              success: false,
+              message: 'Please provide the text content of the parent cast you want @cstkpr to analyze.'
+            }
+          }
+
+          try {
+            console.log('🧠 @cstkpr generating opinion for reply to parent cast')
+            
+            // Analyze the parent cast context
+            const parentAnalysis = await CstkprIntelligenceService.analyzeParentCastContext(parent_cast_text)
+            
+            // Generate unique hash for this analysis
+            const replyHash = `reply-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+            
+            // Create analysis prompt with reply context
+            const contextPrompt = my_reply_context 
+              ? `Reply context: ${my_reply_context}. Parent cast: "${parent_cast_text}"`
+              : `Analyzing parent cast for reply: "${parent_cast_text}"`
+            
+            const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
+              replyHash,
+              contextPrompt,
+              'reply-analysis',
+              true // Include web research
+            )
+            
+            // Generate the actual reply text that can be posted
+            let replyText = ''
+            if (generate_reply_text) {
+              replyText = `@cstkpr ${opinion.opinion_text}`
+              
+              // Add confidence indicator if high confidence
+              if (opinion.confidence_score > 0.8) {
+                replyText += ` 💯`
+              } else if (opinion.confidence_score > 0.6) {
+                replyText += ` ✨`
+              }
+            }
+            
+            return {
+              success: true,
+              data: {
+                parent_cast_preview: parent_cast_text.substring(0, 150) + (parent_cast_text.length > 150 ? '...' : ''),
+                parent_topics: parentAnalysis.parentTopics,
+                parent_sentiment: parentAnalysis.parentSentiment,
+                relationship_type: parentAnalysis.relationshipType,
+                contextual_insights: parentAnalysis.contextualInsights,
+                cstkpr_opinion: opinion.opinion_text,
+                confidence_score: opinion.confidence_score,
+                response_tone: opinion.response_tone,
+                suggested_reply_text: replyText,
+                my_context: my_reply_context
+              },
+              message: `🧠 **@cstkpr Reply Opinion Generated:**\n\n📄 **Parent Cast:** "${parent_cast_text.substring(0, 120)}${parent_cast_text.length > 120 ? '...' : ''}"\n\n💭 **@cstkpr's Opinion:** ${opinion.opinion_text}\n\n${replyText ? `✨ **Suggested Reply Text:**\n\`\`\`\n${replyText}\n\`\`\`` : ''}\n\n📊 **Analysis Details:**\n• Topics: ${parentAnalysis.parentTopics.join(', ') || 'general'}\n• Parent Sentiment: ${parentAnalysis.parentSentiment}\n• Relationship: ${parentAnalysis.relationshipType}\n• Confidence: ${Math.round(opinion.confidence_score * 100)}%\n• Tone: ${opinion.response_tone}\n\n${my_reply_context ? `🎯 **Your Context:** ${my_reply_context}\n\n` : ''}${parentAnalysis.contextualInsights.length > 0 ? `💡 **Insights:** ${parentAnalysis.contextualInsights.join(' | ')}\n\n` : ''}Copy the suggested reply text above to use as your response! 🚀`
+            }
+          } catch (error) {
+            console.error('Error generating reply opinion:', error)
+            return {
+              success: false,
+              message: `🧠 @cstkpr encountered an error generating the reply opinion: ${error instanceof Error ? error.message : 'Unknown error'}`
             }
           }
         }

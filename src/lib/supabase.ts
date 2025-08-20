@@ -1948,6 +1948,58 @@ export class CstkprIntelligenceService {
     return Array.from(enhancedTopics)
   }
 
+  // Analyze parent-child cast relationships
+  static async analyzeParentCastContext(parentContent: string, replyContent?: string): Promise<{
+    parentTopics: string[]
+    parentSentiment: string
+    relationshipType: 'agreement' | 'disagreement' | 'question' | 'elaboration' | 'neutral'
+    contextualInsights: string[]
+  }> {
+    const parentTopics = this.extractCastTopics(parentContent)
+    const parentSentiment = ContentParser.analyzeSentiment(parentContent)
+    
+    let relationshipType: 'agreement' | 'disagreement' | 'question' | 'elaboration' | 'neutral' = 'neutral'
+    const contextualInsights: string[] = []
+    
+    if (replyContent) {
+      const replyLower = replyContent.toLowerCase()
+      const parentLower = parentContent.toLowerCase()
+      
+      // Determine relationship type
+      if (replyLower.includes('agree') || replyLower.includes('yes') || replyLower.includes('exactly')) {
+        relationshipType = 'agreement'
+      } else if (replyLower.includes('disagree') || replyLower.includes('no') || replyLower.includes('wrong')) {
+        relationshipType = 'disagreement'
+      } else if (replyContent.includes('?') || replyLower.includes('what') || replyLower.includes('how')) {
+        relationshipType = 'question'
+      } else if (replyLower.includes('also') || replyLower.includes('furthermore') || replyLower.includes('additionally')) {
+        relationshipType = 'elaboration'
+      }
+      
+      // Generate contextual insights
+      if (parentTopics.length > 0) {
+        contextualInsights.push(`Parent cast discusses: ${parentTopics.join(', ')}`)
+      }
+      
+      if (relationshipType !== 'neutral') {
+        contextualInsights.push(`Reply relationship: ${relationshipType}`)
+      }
+      
+      const replyTopics = this.extractCastTopics(replyContent)
+      const sharedTopics = parentTopics.filter(topic => replyTopics.includes(topic))
+      if (sharedTopics.length > 0) {
+        contextualInsights.push(`Shared topics: ${sharedTopics.join(', ')}`)
+      }
+    }
+    
+    return {
+      parentTopics,
+      parentSentiment,
+      relationshipType,
+      contextualInsights
+    }
+  }
+
   // Find related casts in our saved database
   static async findRelatedSavedCasts(topics: string[], castContent: string): Promise<SavedCast[]> {
     const relatedCasts: SavedCast[] = []
