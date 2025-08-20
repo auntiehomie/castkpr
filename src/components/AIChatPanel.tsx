@@ -438,6 +438,23 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
   // Function implementations
   const executeFunction = async (name: string, args: any) => {
     try {
+      // Debug: Log the raw arguments to understand the format
+      console.log('🔧 executeFunction called with:', { name, args, argsType: typeof args })
+      
+      // Parse arguments if they come as a JSON string
+      let parsedArgs = args
+      if (typeof args === 'string') {
+        try {
+          parsedArgs = JSON.parse(args)
+          console.log('📝 Parsed JSON string args:', parsedArgs)
+        } catch (parseError) {
+          console.error('❌ Failed to parse args as JSON:', parseError)
+          console.log('Raw args string:', args)
+        }
+      }
+      
+      console.log('✅ Final args for processing:', parsedArgs)
+      
       switch (name) {
         case 'list_vaults': {
           const { sort_by = 'created_at', order = 'desc' } = args
@@ -549,10 +566,10 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
 
         case 'create_vault': {
           try {
-            console.log('🏗️ Raw create_vault args:', args)
-            console.log('🏗️ Args type:', typeof args)
-            console.log('🏗️ Args keys:', Object.keys(args))
-            console.log('🏗️ Full args object:', JSON.stringify(args, null, 2))
+            console.log('🏗️ Raw create_vault args:', parsedArgs)
+            console.log('🏗️ Args type:', typeof parsedArgs)
+            console.log('🏗️ Args keys:', Object.keys(parsedArgs))
+            console.log('🏗️ Full args object:', JSON.stringify(parsedArgs, null, 2))
             
             // Extract and validate parameters with robust handling
             let vaultName: string = ''
@@ -560,27 +577,27 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
             let vaultRules: string[] = []
             
             // Method 1: Direct property access
-            if (args.name && typeof args.name === 'string') {
-              vaultName = args.name
+            if (parsedArgs.name && typeof parsedArgs.name === 'string') {
+              vaultName = parsedArgs.name
             }
-            if (args.description && typeof args.description === 'string') {
-              vaultDescription = args.description
+            if (parsedArgs.description && typeof parsedArgs.description === 'string') {
+              vaultDescription = parsedArgs.description
             }
             
             // Method 2: Handle object properties 
-            if (typeof args.name === 'object' && args.name !== null) {
-              const nameObj = args.name as any
+            if (typeof parsedArgs.name === 'object' && parsedArgs.name !== null) {
+              const nameObj = parsedArgs.name as any
               vaultName = nameObj.name || nameObj.value || String(nameObj)
             }
-            if (typeof args.description === 'object' && args.description !== null) {
-              const descObj = args.description as any
+            if (typeof parsedArgs.description === 'object' && parsedArgs.description !== null) {
+              const descObj = parsedArgs.description as any
               vaultDescription = descObj.description || descObj.value || String(descObj)
             }
             
             // Method 3: Try to extract from the raw args object directly
-            if (!vaultName && args) {
+            if (!vaultName && parsedArgs) {
               // Look for any property that might contain the name
-              const possibleNames = [args.name, args.vault_name, args.vaultName, args.title]
+              const possibleNames = [parsedArgs.name, parsedArgs.vault_name, parsedArgs.vaultName, parsedArgs.title]
               for (const possible of possibleNames) {
                 if (possible && typeof possible === 'string' && possible.trim()) {
                   vaultName = possible.trim()
@@ -591,7 +608,7 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
             
             // Method 4: Fallback - try to parse from any string values in args
             if (!vaultName) {
-              const allValues = Object.values(args).filter(v => typeof v === 'string' && v.trim())
+              const allValues = Object.values(parsedArgs).filter(v => typeof v === 'string' && v.trim())
               if (allValues.length > 0) {
                 vaultName = allValues[0] as string
                 if (allValues.length > 1) {
@@ -601,10 +618,10 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
             }
             
             // Handle rules array
-            if (Array.isArray(args.rules)) {
-              vaultRules = args.rules.map((rule: any) => String(rule))
-            } else if (args.rules) {
-              vaultRules = [String(args.rules)]
+            if (Array.isArray(parsedArgs.rules)) {
+              vaultRules = parsedArgs.rules.map((rule: any) => String(rule))
+            } else if (parsedArgs.rules) {
+              vaultRules = [String(parsedArgs.rules)]
             }
             
             console.log('🏗️ Processed params:', { vaultName, vaultDescription, vaultRules })
@@ -627,7 +644,7 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
             }
             
             if (!vaultName.trim()) {
-              console.error('❌ Could not extract vault name from args:', args)
+              console.error('❌ Could not extract vault name from args:', parsedArgs)
               throw new Error('Could not determine vault name from the request. Please try: "Create a vault named [Name]" or "Create a vault called [Name]"')
             }
             
