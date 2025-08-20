@@ -86,6 +86,36 @@ export interface AIContext {
   updated_at: string
 }
 
+export interface CstkprOpinion {
+  id: string
+  original_cast_hash: string
+  original_cast_content: string
+  original_author: string
+  topic_analysis: string[]
+  related_saved_casts: string[]
+  web_research_summary?: string
+  opinion_text: string
+  confidence_score: number
+  reasoning: string[]
+  sources_used: string[]
+  response_tone: 'analytical' | 'supportive' | 'critical' | 'curious' | 'neutral'
+  created_at: string
+  updated_at: string
+}
+
+export interface WebResearchResult {
+  query: string
+  sources: Array<{
+    url: string
+    title: string
+    content_summary: string
+    relevance_score: number
+  }>
+  key_facts: string[]
+  summary: string
+  timestamp: string
+}
+
 export interface UserAIProfile {
   user_id: string
   interests: string[]
@@ -1833,5 +1863,423 @@ export class VaultService {
       cast_count: collectionWithStats.castCount,
       auto_add_rules: []
     } as Vault & { castCount: number }
+  }
+}
+
+// @cstkpr Intelligence Service - The bot's brain
+export class CstkprIntelligenceService {
+  // Analyze a cast that tagged @cstkpr and generate an opinion
+  static async analyzeCastAndFormOpinion(
+    castHash: string,
+    castContent: string,
+    castAuthor: string,
+    includeWebResearch: boolean = true
+  ): Promise<CstkprOpinion> {
+    console.log('🧠 @cstkpr analyzing cast:', castHash)
+    
+    // Step 1: Extract topics and context from the cast
+    const topicAnalysis = this.extractCastTopics(castContent)
+    console.log('📝 Topics extracted:', topicAnalysis)
+    
+    // Step 2: Find related saved casts in our database
+    const relatedCasts = await this.findRelatedSavedCasts(topicAnalysis, castContent)
+    console.log('🔍 Found', relatedCasts.length, 'related saved casts')
+    
+    // Step 3: Perform web research if enabled
+    let webResearch: WebResearchResult | null = null
+    if (includeWebResearch && topicAnalysis.length > 0) {
+      webResearch = await this.performWebResearch(topicAnalysis, castContent)
+      console.log('🌐 Web research completed')
+    }
+    
+    // Step 4: Generate opinion based on all available data
+    const opinion = await this.generateOpinion(
+      castContent,
+      castAuthor,
+      topicAnalysis,
+      relatedCasts,
+      webResearch
+    )
+    
+    // Step 5: Save the opinion to database
+    const savedOpinion = await this.saveOpinion({
+      original_cast_hash: castHash,
+      original_cast_content: castContent,
+      original_author: castAuthor,
+      topic_analysis: topicAnalysis,
+      related_saved_casts: relatedCasts.map(cast => cast.id),
+      web_research_summary: webResearch?.summary,
+      opinion_text: opinion.text,
+      confidence_score: opinion.confidence,
+      reasoning: opinion.reasoning,
+      sources_used: opinion.sources,
+      response_tone: opinion.tone
+    })
+    
+    console.log('✅ @cstkpr opinion generated:', savedOpinion.id)
+    return savedOpinion
+  }
+
+  // Extract topics and key concepts from a cast
+  static extractCastTopics(castContent: string): string[] {
+    const parsed = ContentParser.parseContent(castContent)
+    const topics = parsed.topics || []
+    
+    // Enhanced topic extraction for @cstkpr
+    const content = castContent.toLowerCase()
+    const enhancedTopics = new Set([...topics])
+    
+    // Look for opinion-forming keywords
+    const opinionKeywords = {
+      'market-analysis': ['bull', 'bear', 'pump', 'dump', 'ath', 'dip', 'crash'],
+      'tech-discussion': ['launch', 'update', 'feature', 'bug', 'performance'],
+      'community': ['community', 'team', 'developer', 'founder', 'announcement'],
+      'prediction': ['predict', 'forecast', 'estimate', 'expect', 'think', 'believe'],
+      'news': ['breaking', 'news', 'announced', 'confirmed', 'reported'],
+      'debate': ['vs', 'versus', 'compare', 'better', 'worse', 'opinion', 'thoughts']
+    }
+    
+    Object.entries(opinionKeywords).forEach(([category, keywords]) => {
+      if (keywords.some(keyword => content.includes(keyword))) {
+        enhancedTopics.add(category)
+      }
+    })
+    
+    return Array.from(enhancedTopics)
+  }
+
+  // Find related casts in our saved database
+  static async findRelatedSavedCasts(topics: string[], castContent: string): Promise<SavedCast[]> {
+    const relatedCasts: SavedCast[] = []
+    
+    // Search by topics
+    for (const topic of topics) {
+      try {
+        const casts = await CastService.getCastsByTopic(topic, 5)
+        relatedCasts.push(...casts)
+      } catch (error) {
+        console.error('Error fetching casts for topic:', topic, error)
+      }
+    }
+    
+    // Extract key terms for additional search
+    const keyTerms = ContentParser.extractKeyPhrases(castContent, 3)
+    
+    // Search by key terms if we don't have enough related casts
+    if (relatedCasts.length < 10 && keyTerms.length > 0) {
+      try {
+        const searchResults = await CastService.searchCasts('all', keyTerms[0])
+        relatedCasts.push(...searchResults.slice(0, 5))
+      } catch (error) {
+        console.error('Error searching casts by key terms:', error)
+      }
+    }
+    
+    // Remove duplicates and limit results
+    const uniqueCasts = relatedCasts.filter((cast, index, self) => 
+      index === self.findIndex(c => c.id === cast.id)
+    )
+    
+    return uniqueCasts.slice(0, 15) // Limit to 15 most relevant casts
+  }
+
+  // Perform web research on the topics (placeholder for now)
+  static async performWebResearch(topics: string[], castContent: string): Promise<WebResearchResult> {
+    // This would integrate with a web search API like Google Search API, Bing API, etc.
+    // For now, we'll return a structured placeholder
+    
+    const query = topics.slice(0, 3).join(' ') // Use top 3 topics
+    
+    // Placeholder implementation - in production, this would call actual search APIs
+    return {
+      query,
+      sources: [
+        {
+          url: 'https://example.com/research',
+          title: `Research on ${query}`,
+          content_summary: `Recent developments and analysis regarding ${query}`,
+          relevance_score: 0.8
+        }
+      ],
+      key_facts: [
+        `Current trends in ${topics[0]}`,
+        `Market sentiment around ${topics[1] || topics[0]}`,
+        `Expert opinions on ${topics[2] || topics[0]}`
+      ],
+      summary: `Based on current information, ${query} shows mixed signals with both positive and negative indicators.`,
+      timestamp: new Date().toISOString()
+    }
+  }
+
+  // Generate @cstkpr's opinion based on all collected data
+  static async generateOpinion(
+    castContent: string,
+    castAuthor: string,
+    topics: string[],
+    relatedCasts: SavedCast[],
+    webResearch: WebResearchResult | null
+  ): Promise<{
+    text: string
+    confidence: number
+    reasoning: string[]
+    sources: string[]
+    tone: 'analytical' | 'supportive' | 'critical' | 'curious' | 'neutral'
+  }> {
+    const reasoning: string[] = []
+    const sources: string[] = []
+    let confidence = 0.5 // Base confidence
+    
+    // Analyze sentiment and context
+    const parsed = ContentParser.parseContent(castContent)
+    const sentiment = parsed.sentiment || 'neutral'
+    
+    // Build reasoning based on related casts
+    if (relatedCasts.length > 0) {
+      reasoning.push(`Found ${relatedCasts.length} related casts in our database`)
+      sources.push(`${relatedCasts.length} saved casts`)
+      confidence += 0.2
+    }
+    
+    // Incorporate web research
+    if (webResearch) {
+      reasoning.push(`Considered current web research on ${webResearch.query}`)
+      sources.push(`Web research: ${webResearch.sources.length} sources`)
+      confidence += 0.2
+    }
+    
+    // Determine response tone based on topics and sentiment
+    let tone: 'analytical' | 'supportive' | 'critical' | 'curious' | 'neutral' = 'neutral'
+    
+    if (topics.includes('market-analysis') || topics.includes('prediction')) {
+      tone = 'analytical'
+    } else if (topics.includes('debate') || topics.includes('critical')) {
+      tone = 'critical' 
+    } else if (sentiment === 'positive') {
+      tone = 'supportive'
+    } else if (topics.includes('tech-discussion') || castContent.includes('?')) {
+      tone = 'curious'
+    }
+    
+    // Generate opinion text (this would use an LLM in production)
+    const opinionText = this.craftOpinionText(
+      castContent,
+      castAuthor,
+      topics,
+      relatedCasts,
+      webResearch,
+      tone,
+      sentiment
+    )
+    
+    return {
+      text: opinionText,
+      confidence: Math.min(confidence, 0.95), // Cap at 95%
+      reasoning,
+      sources,
+      tone
+    }
+  }
+
+  // Craft the actual opinion text (simplified version)
+  static craftOpinionText(
+    castContent: string,
+    castAuthor: string,
+    topics: string[],
+    relatedCasts: SavedCast[],
+    webResearch: WebResearchResult | null,
+    tone: string,
+    sentiment: string
+  ): string {
+    const templates = {
+      analytical: [
+        `Interesting perspective on ${topics[0] || 'this topic'}. Based on ${relatedCasts.length} similar discussions I've seen, there are multiple angles to consider here.`,
+        `Looking at the data patterns, ${topics[0] || 'this'} shows some compelling trends. I've noticed similar themes across ${relatedCasts.length} saved casts.`
+      ],
+      supportive: [
+        `I appreciate this take on ${topics[0] || 'the topic'}! This aligns well with some positive developments I've been tracking.`,
+        `Great point about ${topics[0] || 'this'}. The community discussions I've seen suggest this is gaining momentum.`
+      ],
+      critical: [
+        `I see some concerns with this perspective on ${topics[0] || 'the topic'}. The data I've analyzed suggests we should be cautious here.`,
+        `This raises important questions about ${topics[0] || 'the subject'}. From what I've observed, there are some counterarguments worth considering.`
+      ],
+      curious: [
+        `Fascinating point about ${topics[0] || 'this'}! I'd love to explore this further. What led you to this conclusion?`,
+        `This is an interesting angle on ${topics[0] || 'the topic'}. Have you considered how this relates to recent developments?`
+      ],
+      neutral: [
+        `Thanks for sharing your thoughts on ${topics[0] || 'this topic'}. I've been tracking similar discussions and there are various perspectives emerging.`,
+        `Noted on ${topics[0] || 'this'}. The community seems divided on this, with valid points on multiple sides.`
+      ]
+    }
+    
+    const toneTemplates = templates[tone as keyof typeof templates] || templates.neutral
+    const baseText = toneTemplates[Math.floor(Math.random() * toneTemplates.length)]
+    
+    // Add context if we have good data
+    let additionalContext = ''
+    if (relatedCasts.length > 5) {
+      additionalContext += ` I've analyzed ${relatedCasts.length} related discussions.`
+    }
+    if (webResearch && webResearch.sources.length > 0) {
+      additionalContext += ` Current research suggests mixed indicators.`
+    }
+    
+    return baseText + additionalContext
+  }
+
+  // Save opinion to database
+  static async saveOpinion(opinionData: Omit<CstkprOpinion, 'id' | 'created_at' | 'updated_at'>): Promise<CstkprOpinion> {
+    const { data, error } = await supabase
+      .from('cstkpr_opinions')
+      .insert([{
+        ...opinionData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error saving @cstkpr opinion:', error)
+      throw error
+    }
+
+    return data
+  }
+
+  // Get opinion by cast hash
+  static async getOpinionByCastHash(castHash: string): Promise<CstkprOpinion | null> {
+    const { data, error } = await supabase
+      .from('cstkpr_opinions')
+      .select('*')
+      .eq('original_cast_hash', castHash)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error fetching opinion:', error)
+      throw error
+    }
+
+    return data || null
+  }
+
+  // Get recent opinions for analysis
+  static async getRecentOpinions(limit: number = 20): Promise<CstkprOpinion[]> {
+    const { data, error } = await supabase
+      .from('cstkpr_opinions')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Error fetching recent opinions:', error)
+      throw error
+    }
+
+    return data || []
+  }
+
+  // Get opinion statistics
+  static async getOpinionStats(): Promise<{
+    totalOpinions: number
+    averageConfidence: number
+    topTopics: string[]
+    toneDistribution: Record<string, number>
+    recentActivity: string
+  }> {
+    try {
+      const { data: opinions, error } = await supabase
+        .from('cstkpr_opinions')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      const totalOpinions = opinions?.length || 0
+      
+      if (totalOpinions === 0) {
+        return {
+          totalOpinions: 0,
+          averageConfidence: 0,
+          topTopics: [],
+          toneDistribution: {},
+          recentActivity: 'No activity yet'
+        }
+      }
+
+      // Calculate average confidence
+      const averageConfidence = opinions.reduce((sum, op) => sum + op.confidence_score, 0) / totalOpinions
+
+      // Get top topics
+      const allTopics = opinions.flatMap(op => op.topic_analysis || [])
+      const topicCounts = allTopics.reduce((acc: Record<string, number>, topic) => {
+        acc[topic] = (acc[topic] || 0) + 1
+        return acc
+      }, {})
+      
+      const topTopics = Object.entries(topicCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([topic]) => topic)
+
+      // Get tone distribution
+      const toneDistribution = opinions.reduce((acc: Record<string, number>, op) => {
+        acc[op.response_tone] = (acc[op.response_tone] || 0) + 1
+        return acc
+      }, {})
+
+      // Recent activity
+      const recentActivity = opinions[0]?.created_at 
+        ? new Date(opinions[0].created_at).toLocaleDateString()
+        : 'No recent activity'
+
+      return {
+        totalOpinions,
+        averageConfidence,
+        topTopics,
+        toneDistribution,
+        recentActivity
+      }
+    } catch (error) {
+      console.error('Error getting opinion stats:', error)
+      return {
+        totalOpinions: 0,
+        averageConfidence: 0,
+        topTopics: [],
+        toneDistribution: {},
+        recentActivity: 'Error fetching data'
+      }
+    }
+  }
+
+  // Update opinion confidence based on community feedback
+  static async updateOpinionConfidence(opinionId: string, feedbackPositive: boolean): Promise<void> {
+    try {
+      const { data: opinion, error: fetchError } = await supabase
+        .from('cstkpr_opinions')
+        .select('confidence_score')
+        .eq('id', opinionId)
+        .maybeSingle()
+
+      if (fetchError || !opinion) return
+
+      const adjustment = feedbackPositive ? 0.1 : -0.05
+      const newConfidence = Math.max(0.1, Math.min(0.95, opinion.confidence_score + adjustment))
+
+      const { error: updateError } = await supabase
+        .from('cstkpr_opinions')
+        .update({ 
+          confidence_score: newConfidence,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', opinionId)
+
+      if (updateError) {
+        console.error('Error updating opinion confidence:', updateError)
+      }
+    } catch (error) {
+      console.error('Error in updateOpinionConfidence:', error)
+    }
   }
 }

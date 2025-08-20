@@ -7,9 +7,10 @@ import RecentCasts from '@/components/RecentCasts'
 import AIChatPanel from '@/components/AIChatPanel'
 import VaultManager from '@/components/VaultManager'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
+import IntelligenceDashboard from '@/components/IntelligenceDashboard'
 
 export default function Dashboard() {
-  const [activeView, setActiveView] = useState<'recent' | 'all' | 'vaults' | 'ai' | 'analytics'>('recent')
+  const [activeView, setActiveView] = useState<'recent' | 'all' | 'vaults' | 'ai' | 'analytics' | 'intelligence'>('recent')
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [currentUser, setCurrentUser] = useState<string>('demo-user')
 
@@ -120,6 +121,16 @@ export default function Dashboard() {
               📊 Analytics
             </button>
             <button
+              onClick={() => setActiveView('intelligence')}
+              className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                activeView === 'intelligence'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              🧠 @cstkpr
+            </button>
+            <button
               onClick={() => setActiveView('ai')}
               className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
                 activeView === 'ai'
@@ -160,6 +171,13 @@ export default function Dashboard() {
             <AnalyticsDashboard 
               userId={currentUser}
               key={`analytics-${refreshTrigger}`}
+            />
+          )}
+          
+          {activeView === 'intelligence' && (
+            <IntelligenceDashboard 
+              userId={currentUser}
+              key={`intelligence-${refreshTrigger}`}
             />
           )}
           
