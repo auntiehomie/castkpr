@@ -495,10 +495,65 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
 
         case 'create_vault': {
           try {
+            console.log('🏗️ Raw create_vault args:', args)
+            console.log('🏗️ Args type:', typeof args)
+            console.log('🏗️ Args.name:', args.name, 'Type:', typeof args.name)
+            
+            // Extract and validate parameters with robust handling
+            let vaultName: string
+            let vaultDescription: string
+            let vaultRules: string[]
+            
+            // Handle case where AI might pass nested object or JSON string
+            if (typeof args.name === 'object' && args.name !== null) {
+              console.log('⚠️ Name is object, extracting from nested structure')
+              const nameObj = args.name as any
+              vaultName = nameObj.name || nameObj.value || String(nameObj)
+            } else if (typeof args.name === 'string' && args.name.startsWith('{')) {
+              // Try to parse JSON string
+              try {
+                const parsed = JSON.parse(args.name)
+                vaultName = parsed.name || parsed.value || String(parsed)
+              } catch {
+                vaultName = String(args.name)
+              }
+            } else {
+              vaultName = String(args.name || '')
+            }
+            
+            if (typeof args.description === 'object' && args.description !== null) {
+              const descObj = args.description as any
+              vaultDescription = descObj.description || descObj.value || String(descObj)
+            } else if (typeof args.description === 'string' && args.description.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(args.description)
+                vaultDescription = parsed.description || parsed.value || String(parsed)
+              } catch {
+                vaultDescription = String(args.description)
+              }
+            } else {
+              vaultDescription = String(args.description || '')
+            }
+            
+            if (Array.isArray(args.rules)) {
+              vaultRules = args.rules.map((rule: any) => String(rule))
+            } else if (args.rules) {
+              vaultRules = [String(args.rules)]
+            } else {
+              vaultRules = []
+            }
+            
+            console.log('🏗️ Processed params:', { vaultName, vaultDescription, vaultRules })
+            
+            // Validate required fields
+            if (!vaultName.trim()) {
+              throw new Error('Vault name is required')
+            }
+            
             const vault = await VaultService.createVault(
-              args.name,
-              args.description || '',
-              args.rules || [],
+              vaultName.trim(),
+              vaultDescription.trim(),
+              vaultRules,
               userId,
               false // isPublic default to false
             )
@@ -513,7 +568,7 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
             return {
               success: true,
               vault: vault,
-              message: `Created vault "${args.name}" successfully!`
+              message: `Created vault "${vaultName}" successfully!`
             }
           } catch (error) {
             console.error('Error creating vault:', error)
