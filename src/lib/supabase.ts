@@ -2125,12 +2125,12 @@ export class CstkprIntelligenceService {
         }
       ],
       key_facts: [
-        `Community sentiment on ${topics[0] || 'this topic'} is currently **${contextualAnalysis.sentiment}** with **${contextualAnalysis.engagement_level}** engagement`,
-        `Market trends show **${contextualAnalysis.trend_direction}** based on recent discussions and analysis`,
+        `Community sentiment on ${topics[0] || 'this topic'} is currently ${contextualAnalysis.sentiment} with ${contextualAnalysis.engagement_level} engagement`,
+        `Market trends show ${contextualAnalysis.trend_direction} based on recent discussions and analysis`,
         `Key themes emerging: ${keyPhrases.join(', ')} - indicating ${contextualAnalysis.confidence} confidence in direction`,
         `Expert analysis suggests the need for ${topics.includes('ai') ? 'ethical frameworks and regulation' : topics.includes('crypto') ? 'sustainable tokenomics and real utility' : topics.includes('tech-discussion') ? 'better developer tools and documentation' : 'innovative approaches and community collaboration'}`
       ],
-      summary: `**Internet sentiment analysis**: ${topics[0] || 'This topic'} shows **${contextualAnalysis.trend_direction}** with **${contextualAnalysis.confidence}** confidence. ${contextualAnalysis.key_insight} Current discussions emphasize the need for ${keyPhrases.slice(0, 2).join(' and ')}, better ${topics[0] || 'solutions'}, and more thoughtful ${topics[1] || 'implementation'}.`,
+      summary: `Internet sentiment analysis: ${topics[0] || 'This topic'} shows ${contextualAnalysis.trend_direction} with ${contextualAnalysis.confidence} confidence. ${contextualAnalysis.key_insight} Current discussions emphasize the need for ${keyPhrases.slice(0, 2).join(' and ')}, better ${topics[0] || 'solutions'}, and more thoughtful ${topics[1] || 'implementation'}.`,
       timestamp: new Date().toISOString()
     }
   }
@@ -2321,11 +2321,11 @@ export class CstkprIntelligenceService {
     const keyPhrases = ContentParser.extractKeyPhrases(castContent, 3)
     
     // Start with sentiment and tone analysis
-    let opinionText = `🧠 **Analysis**: This cast has a **${sentiment}** sentiment with a **${tone}** tone. `
+    let opinionText = `🧠 Analysis: This cast has a ${sentiment} sentiment with a ${tone} tone. `
     
     // Add topic-specific insights
     if (topics.length > 0) {
-      opinionText += `The discussion centers on **${topics.join(', ')}**. `
+      opinionText += `The discussion centers on ${topics.join(', ')}. `
     }
     
     // Generate actual opinion based on content analysis
@@ -2335,17 +2335,17 @@ export class CstkprIntelligenceService {
     // Add comparison with saved casts
     if (relatedCasts.length > 0) {
       const comparisonInsight = this.compareWithSavedCasts(relatedCasts, topics, sentiment)
-      opinionText += ` **From my saved casts analysis**: ${comparisonInsight}`
+      opinionText += ` From my saved casts analysis: ${comparisonInsight}`
     }
     
     // Add web research insights
     if (webResearch && webResearch.key_facts.length > 0) {
-      opinionText += ` **Current trends**: ${webResearch.key_facts[0]} `
+      opinionText += ` Current trends: ${webResearch.key_facts[0]} `
     }
     
     // Add confidence and reasoning
     const confidence = Math.min(0.5 + (relatedCasts.length > 5 ? 0.2 : 0) + (webResearch ? 0.2 : 0), 0.95)
-    opinionText += `\n\n📊 **Confidence**: ${Math.round(confidence * 100)}% | **Sources**: ${relatedCasts.length} saved casts`
+    opinionText += `\n\n📊 Confidence: ${Math.round(confidence * 100)}% | Sources: ${relatedCasts.length} saved casts`
     
     return opinionText
   }
@@ -2362,25 +2362,25 @@ export class CstkprIntelligenceService {
     
     // Analyze what the cast is trying to convey
     if (content.includes('?')) {
-      opinion = `**I think** this cast is asking an important question that highlights the need for more clarity around ${topics[0] || 'this topic'}. `
+      opinion = `I think this cast is asking an important question that highlights the need for more clarity around ${topics[0] || 'this topic'}. `
     } else if (content.includes('announce') || content.includes('launch')) {
-      opinion = `**In my opinion**, this announcement indicates a strategic move that could signal ${topics[0] || 'market'} expansion. `
+      opinion = `In my opinion, this announcement indicates a strategic move that could signal ${topics[0] || 'market'} expansion. `
     } else if (content.includes('problem') || content.includes('issue')) {
-      opinion = `**I believe** this cast identifies a key problem that explains the need for better ${topics[0] || 'solutions'}, ${topics[1] || 'approaches'}, and ${topics[2] || 'frameworks'}. `
+      opinion = `I believe this cast identifies a key problem that explains the need for better ${topics[0] || 'solutions'}, ${topics[1] || 'approaches'}, and ${topics[2] || 'frameworks'}. `
     } else if (content.includes('bullish') || content.includes('optimistic')) {
-      opinion = `**My take**: This optimistic perspective suggests strong confidence in ${topics[0] || 'the sector'}, which aligns with positive momentum I've observed. `
+      opinion = `My take: This optimistic perspective suggests strong confidence in ${topics[0] || 'the sector'}, which aligns with positive momentum I've observed. `
     } else if (content.includes('bearish') || content.includes('concern')) {
-      opinion = `**I think** this cast raises valid concerns that highlight the need for caution, better risk management, and more thoughtful ${topics[0] || 'strategy'}. `
+      opinion = `I think this cast raises valid concerns that highlight the need for caution, better risk management, and more thoughtful ${topics[0] || 'strategy'}. `
     } else if (keyPhrases.length > 0) {
-      opinion = `**I believe** this cast effectively explains the importance of ${keyPhrases[0]}, and demonstrates the need for ${keyPhrases[1] || 'innovation'}, ${keyPhrases[2] || 'development'}, and broader adoption. `
+      opinion = `I believe this cast effectively explains the importance of ${keyPhrases[0]}, and demonstrates the need for ${keyPhrases[1] || 'innovation'}, ${keyPhrases[2] || 'development'}, and broader adoption. `
     } else if (topics.includes('ai')) {
-      opinion = `**In my view**, this AI discussion explains the need for ethical frameworks, better regulation, and more thoughtful implementation of AI technologies. `
+      opinion = `In my view, this AI discussion explains the need for ethical frameworks, better regulation, and more thoughtful implementation of AI technologies. `
     } else if (topics.includes('crypto')) {
-      opinion = `**I think** this crypto-related cast highlights the need for clearer regulations, better user education, and more sustainable blockchain solutions. `
+      opinion = `I think this crypto-related cast highlights the need for clearer regulations, better user education, and more sustainable blockchain solutions. `
     } else if (topics.includes('tech-discussion')) {
-      opinion = `**My opinion**: This technical discussion explains the need for better developer tools, more accessible documentation, and improved user experiences. `
+      opinion = `My opinion: This technical discussion explains the need for better developer tools, more accessible documentation, and improved user experiences. `
     } else {
-      opinion = `**I believe** this cast makes a compelling point that explains the need for fresh perspectives, innovative solutions, and community-driven approaches to ${topics[0] || 'this challenge'}. `
+      opinion = `I believe this cast makes a compelling point that explains the need for fresh perspectives, innovative solutions, and community-driven approaches to ${topics[0] || 'this challenge'}. `
     }
     
     return opinion
@@ -2404,15 +2404,15 @@ export class CstkprIntelligenceService {
     let comparison = ""
     
     if (sentiment === 'positive' && positiveCasts > totalCasts * 0.6) {
-      comparison = `This positive sentiment aligns with **${positiveCasts}/${totalCasts}** similar casts I've seen, suggesting a consistent optimistic trend in the community.`
+      comparison = `This positive sentiment aligns with ${positiveCasts}/${totalCasts} similar casts I've seen, suggesting a consistent optimistic trend in the community.`
     } else if (sentiment === 'negative' && negativeCasts > totalCasts * 0.6) {
-      comparison = `This critical perspective matches **${negativeCasts}/${totalCasts}** related casts, indicating growing concerns in this area.`
+      comparison = `This critical perspective matches ${negativeCasts}/${totalCasts} related casts, indicating growing concerns in this area.`
     } else if (sentiment === 'positive' && negativeCasts > positiveCasts) {
-      comparison = `Interestingly, this optimistic take contrasts with **${negativeCasts}/${totalCasts}** more critical casts I've saved, suggesting a shift in sentiment.`
+      comparison = `Interestingly, this optimistic take contrasts with ${negativeCasts}/${totalCasts} more critical casts I've saved, suggesting a shift in sentiment.`
     } else if (sentiment === 'negative' && positiveCasts > negativeCasts) {
-      comparison = `This cautious view differs from the **${positiveCasts}/${totalCasts}** more positive casts in my database, showing diverse community opinions.`
+      comparison = `This cautious view differs from the ${positiveCasts}/${totalCasts} more positive casts in my database, showing diverse community opinions.`
     } else {
-      comparison = `Based on **${totalCasts}** related saved casts, this represents a balanced perspective that reflects the mixed sentiment I've observed.`
+      comparison = `Based on ${totalCasts} related saved casts, this represents a balanced perspective that reflects the mixed sentiment I've observed.`
     }
     
     // Add topic-specific insights
@@ -2446,7 +2446,7 @@ export class CstkprIntelligenceService {
       .map(([topic]) => topic)
     
     if (dominantTopics.length > 0 && dominantTopics[0] !== topics[0]) {
-      return `The saved casts frequently discuss **${dominantTopics.join(' and ')}**, suggesting these themes are interconnected.`
+      return `The saved casts frequently discuss ${dominantTopics.join(' and ')}, suggesting these themes are interconnected.`
     }
     
     return ""
