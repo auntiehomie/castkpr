@@ -117,7 +117,9 @@ Try: "@cstkpr save this" on any cast!`
     "🤖 Command not recognized. Type '@cstkpr help' for assistance!",
     "💡 Need help? Try '@cstkpr help' to see what I can do!",
     "🎯 Unknown command! '@cstkpr help' shows all available options.",
-    "📚 I don't know that one. '@cstkpr help' for the full menu!"
+    "📚 I don't know that one. '@cstkpr help' for the full menu!",
+    "🔍 Did you mean 'opinion'? Try '@cstkpr what's your opinion' or '@cstkpr help'",
+    "💭 Looking for my thoughts? Try '@cstkpr what's your opinion' or '@cstkpr help'"
   ],
   
   GENERAL_ERROR: [
@@ -219,14 +221,25 @@ export async function POST(request: NextRequest) {
     const text = cast.text.toLowerCase().trim()
     console.log('💬 Cast text:', text)
     
-    // Identify command type with more precise matching
+    // Identify command type with more precise matching and typo tolerance
     let commandType = 'unknown'
     let responseText = ''
     
-    // Use more specific patterns to avoid false matches
+    // Use more flexible patterns that handle typos and variations
     if (text.includes('save this')) {
       commandType = 'save'
-    } else if (text.includes("what's your opinion") || text.includes('your opinion') || text.includes('what do you think') || text.includes('your thoughts')) {
+    } else if (
+      text.includes("what's your opinion") || 
+      text.includes('your opinion') || 
+      text.includes('what do you think') || 
+      text.includes('your thoughts') ||
+      text.includes("what's your opnion") || // Common typo
+      text.includes('your opnion') || // Common typo
+      text.includes('opinion') ||
+      text.includes('opnion') || // Handle typo
+      text.includes('opnion?') || // Handle typo with punctuation
+      text.match(/op[in]{1,2}ion/) // Flexible matching for common misspellings
+    ) {
       commandType = 'opinion'
     } else if (text.includes('help') || text.includes('commands')) {
       commandType = 'help'
@@ -245,7 +258,12 @@ export async function POST(request: NextRequest) {
     } else if (text.includes('save') && !text.includes('**@cstkpr save')) { // Only match actual save commands, not help text
       commandType = 'save'
     } else {
-      commandType = 'unknown'
+      // Final check for fuzzy matching on common intent patterns
+      if (text.match(/(think|thought|view|take)/)) {
+        commandType = 'opinion'
+      } else {
+        commandType = 'unknown'
+      }
     }
     
     console.log('🎯 Command type:', commandType)
