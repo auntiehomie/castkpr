@@ -196,6 +196,12 @@ export async function POST(request: NextRequest) {
     const cast = body.data
     console.log('📝 Processing cast from:', cast.author.username)
     
+    // Skip if the cast is from the bot itself
+    if (cast.author.username === 'cstkpr') {
+      console.log('🤖 Skipping - cast is from bot itself')
+      return NextResponse.json({ message: 'Skipping own cast' })
+    }
+    
     // Check for mentions
     const mentions = cast.mentioned_profiles || []
     const mentionsBot = mentions.some((profile: { username?: string; fid?: number }) => {
@@ -213,28 +219,31 @@ export async function POST(request: NextRequest) {
     const text = cast.text.toLowerCase().trim()
     console.log('💬 Cast text:', text)
     
-    // Identify command type
+    // Identify command type with more precise matching
     let commandType = 'unknown'
     let responseText = ''
     
-    if (text.includes('save this') || text.includes('save')) {
+    // Use more specific patterns to avoid false matches
+    if (text.includes('save this')) {
       commandType = 'save'
-    } else if (text.includes("what's your opinion") || text.includes('your opinion') || text.includes('opinion') || text.includes('what do you think') || text.includes('thoughts')) {
+    } else if (text.includes("what's your opinion") || text.includes('your opinion') || text.includes('what do you think') || text.includes('your thoughts')) {
       commandType = 'opinion'
-    } else if (text.includes('help') || text.includes('commands') || text.includes('how')) {
+    } else if (text.includes('help') || text.includes('commands')) {
       commandType = 'help'
-    } else if (text.includes('stats') || text.includes('statistics') || text.includes('count')) {
+    } else if (text.includes('stats') || text.includes('statistics')) {
       commandType = 'stats'
-    } else if (text.includes('search') || text.includes('find')) {
+    } else if (text.includes('search') && !text.includes('**@cstkpr search')) { // Avoid matching help text
       commandType = 'search'
-    } else if (text.includes('list') || text.includes('recent') || text.includes('show')) {
+    } else if ((text.includes('list') || text.includes('recent')) && !text.includes('**@cstkpr list')) { // Avoid matching help text
       commandType = 'list'
-    } else if (text.includes('delete') || text.includes('remove')) {
+    } else if (text.includes('delete') && !text.includes('**@cstkpr delete')) { // Avoid matching help text
       commandType = 'delete'
-    } else if (text.includes('tag') || text.includes('hashtag')) {
+    } else if (text.includes('tag') && !text.includes('**@cstkpr tag')) { // Avoid matching help text
       commandType = 'tag'
-    } else if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
+    } else if (text.includes('hello') || text.includes('hi ') || text.includes('hey ')) {
       commandType = 'greeting'
+    } else if (text.includes('save') && !text.includes('**@cstkpr save')) { // Only match actual save commands, not help text
+      commandType = 'save'
     } else {
       commandType = 'unknown'
     }
