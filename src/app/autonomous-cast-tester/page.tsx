@@ -28,9 +28,10 @@ export default function AutonomousCastTester() {
       const response = await fetch('/api/autonomous-cast', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_AUTONOMOUS_CAST_SECRET || 'test-secret'}`,
           'Content-Type': 'application/json',
         },
+        // Note: In production, you would need to implement proper authentication
+        // This test interface works without auth for development purposes
       })
 
       const data = await response.json()
@@ -200,6 +201,9 @@ export default function AutonomousCastTester() {
                 <p>OPENAI_API_KEY=your_openai_api_key</p>
                 <p>AUTONOMOUS_CAST_SECRET=your_secret_token</p>
               </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Note: In development mode, authentication is optional for testing
+              </p>
             </div>
 
             <div>

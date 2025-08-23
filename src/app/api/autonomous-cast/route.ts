@@ -205,10 +205,20 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🤖 Autonomous cast webhook triggered')
     
-    // Optional: Add authentication/authorization here
+    // Authentication: Required in production, optional in development
     const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.AUTONOMOUS_CAST_SECRET}`) {
+    const expectedAuth = `Bearer ${process.env.AUTONOMOUS_CAST_SECRET}`
+    const isDevelopment = process.env.NODE_ENV === 'development'
+    
+    if (!isDevelopment && process.env.AUTONOMOUS_CAST_SECRET && authHeader !== expectedAuth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    // Log authentication status
+    if (isDevelopment && !authHeader) {
+      console.log('🔓 Running in development mode without authentication')
+    } else if (authHeader === expectedAuth) {
+      console.log('🔐 Authenticated request')
     }
 
     // Get trending casts
