@@ -198,6 +198,22 @@ export async function POST(request: NextRequest) {
     const cast = body.data
     console.log('📝 Processing cast from:', cast.author.username)
     
+    // Log cast author data to see what's available (including potential Neynar scores)
+    console.log('👤 Cast author data:', JSON.stringify({
+      username: cast.author.username,
+      fid: cast.author.fid,
+      experimental: cast.author.experimental
+    }, null, 2))
+    
+    // Extract user quality data if available
+    const userQualityData = cast.author.experimental?.neynar_user_score ? {
+      neynar_user_score: cast.author.experimental.neynar_user_score,
+      quality_tier: cast.author.experimental.neynar_user_score >= 0.9 ? 'high' :
+                   cast.author.experimental.neynar_user_score >= 0.7 ? 'high' :
+                   cast.author.experimental.neynar_user_score >= 0.5 ? 'medium' :
+                   cast.author.experimental.neynar_user_score >= 0.3 ? 'medium' : 'low'
+    } : undefined
+    
     // Skip if the cast is from the bot itself
     if (cast.author.username === 'cstkpr') {
       console.log('🤖 Skipping - cast is from bot itself')
@@ -469,10 +485,6 @@ async function handleOpinionCommand(cast: any): Promise<void> {
       return
     }
     
-    // Send initial analysis message
-    const initialResponse = getRandomResponse(RESPONSES.OPINION)
-    await sendReply(cast.hash, initialResponse)
-    
     // Extract parent cast data from webhook payload (if available)
     let parentCastContent = 'Cast content not available in webhook data'
     let parentAuthor = 'Unknown author'
@@ -610,13 +622,54 @@ async function handleOpinionCommand(cast: any): Promise<void> {
         }
       }
       
+      // Try to get user quality data from parent cast
+      let userQualityInsight = ''
+      try {
+        // Check if we have user quality data in any of the parent cast data sources
+        let parentUserScore: number | undefined
+        let parentCastAuthor: any = undefined
+        
+        // Check different sources for parent cast data and user score
+        if (cast.parent_cast?.author?.experimental?.neynar_user_score) {
+          parentUserScore = cast.parent_cast.author.experimental.neynar_user_score
+          parentCastAuthor = cast.parent_cast.author
+        } else if (cast.parent?.author?.experimental?.neynar_user_score) {
+          parentUserScore = cast.parent.author.experimental.neynar_user_score
+          parentCastAuthor = cast.parent.author
+        }
+        
+        // Generate user quality insight if we have a score
+        if (parentUserScore !== undefined && parentCastAuthor) {
+          const qualityTier = parentUserScore >= 0.9 ? 'high' :
+                             parentUserScore >= 0.7 ? 'high' :
+                             parentUserScore >= 0.5 ? 'medium' :
+                             parentUserScore >= 0.3 ? 'medium' : 'low'
+          
+          const authorName = parentCastAuthor.username || parentCastAuthor.display_name || 'Unknown'
+          
+          userQualityInsight = CstkprIntelligenceService.analyzeUserQualityForOpinion(
+            parentUserScore,
+            qualityTier,
+            authorName
+          )
+          
+          console.log('📊 User quality insight generated for', authorName, '- Score:', parentUserScore)
+        } else {
+          console.log('❓ No Neynar user score available for parent cast author')
+        }
+      } catch (error) {
+        console.log('⚠️ Error getting user quality data:', error)
+      }
+      
       // Generate opinion using enhanced logic
       const opinion = await CstkprIntelligenceService.generateOpinion(
         enhancedContent,
         parentAuthor,
         topics,
         relatedCasts,
-        null // No web research for now, but we could add this
+        null, // No web research for now, but we could add this
+        userQualityInsight,
+        [] // Could add Neynar similar cast search here for even more context
       )
       
       // Format the opinion response with personality
@@ -631,13 +684,7 @@ async function handleOpinionCommand(cast: any): Promise<void> {
         'neutral': '💭'
       }[opinion.tone] || '💭'
       
-      const responseText = `🧠 **My Opinion:** ${opinion.text} ${confidenceEmoji}
-      
-${toneEmoji} **Analysis:** ${Math.round(opinion.confidence * 100)}% confidence • ${opinion.tone} tone${parentCastMediaInfo ? `\n🎬 **Media Context:** ${parentCastMediaInfo.replace(/^\s*\[Contains:\s*/, '').replace(/\]$/, '')}` : ''}${relatedCasts.length > 0 ? `\n📚 **Context:** Based on ${relatedCasts.length} related saved casts` : ''}
-
-📊 Enhanced analysis with ${topics.length > 0 ? `topics: ${topics.slice(0, 3).join(', ')}` : 'content patterns'}.
-
-💡 *Want deeper analysis? Check the Intelligence Dashboard at castkpr.vercel.app*`
+      const responseText = opinion.text
       
       await sendReply(cast.hash, responseText)
       

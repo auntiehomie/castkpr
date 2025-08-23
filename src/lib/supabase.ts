@@ -26,6 +26,10 @@ export interface SavedCast {
   likes_count: number
   replies_count: number
   recasts_count: number
+  // Enhanced with user quality analysis
+  neynar_user_score?: number
+  user_quality_tier?: 'high' | 'medium' | 'low' | 'unknown'
+  user_quality_confidence?: number
 }
 
 export interface ParsedData {
@@ -37,6 +41,13 @@ export interface ParsedData {
   word_count?: number
   sentiment?: string
   topics?: string[]
+  // Enhanced with user quality analysis
+  user_quality_analysis?: {
+    neynar_user_score: number | null
+    quality_tier: 'high' | 'medium' | 'low' | 'unknown'
+    quality_confidence: number
+    quality_reasons: string[]
+  }
 }
 
 export interface User {
@@ -1923,7 +1934,8 @@ export class CstkprIntelligenceService {
     castHash: string,
     castContent: string,
     castAuthor: string,
-    includeWebResearch: boolean = true
+    includeWebResearch: boolean = true,
+    userQualityData?: { neynar_user_score?: number; quality_tier?: string }
   ): Promise<CstkprOpinion> {
     console.log('🧠 @cstkpr analyzing cast:', castHash)
     
@@ -1931,24 +1943,46 @@ export class CstkprIntelligenceService {
     const topicAnalysis = this.extractCastTopics(castContent)
     console.log('📝 Topics extracted:', topicAnalysis)
     
-    // Step 2: Find related saved casts in our database
+    // Step 2: Analyze user quality if available
+    let userQualityInsight = ''
+    if (userQualityData?.neynar_user_score !== undefined) {
+      userQualityInsight = this.analyzeUserQualityForOpinion(
+        userQualityData.neynar_user_score,
+        userQualityData.quality_tier || 'unknown',
+        castAuthor
+      )
+      console.log('👤 User quality insight:', userQualityInsight)
+    }
+    
+    // Step 3: Find related saved casts in our database
     const relatedCasts = await this.findRelatedSavedCasts(topicAnalysis, castContent)
     console.log('🔍 Found', relatedCasts.length, 'related saved casts')
     
-    // Step 3: Perform web research if enabled
+    // Step 4: Enhanced search using Neynar API for similar casts
+    let similarCasts: any[] = []
+    try {
+      similarCasts = await this.findSimilarCastsViaAPI(castContent, topicAnalysis, 15)
+      console.log('🌐 Found', similarCasts.length, 'similar casts via Neynar API')
+    } catch (error) {
+      console.log('⚠️ Neynar API search failed, using local data only')
+    }
+    
+    // Step 5: Perform web research if enabled
     let webResearch: WebResearchResult | null = null
     if (includeWebResearch && topicAnalysis.length > 0) {
       webResearch = await this.performWebResearch(topicAnalysis, castContent)
       console.log('🌐 Web research completed')
     }
     
-    // Step 4: Generate opinion based on all available data
+    // Step 6: Generate opinion based on all available data
     const opinion = await this.generateOpinion(
       castContent,
       castAuthor,
       topicAnalysis,
       relatedCasts,
-      webResearch
+      webResearch,
+      userQualityInsight,
+      similarCasts // Pass the similar casts from Neynar
     )
     
     // Step 5: Save the opinion to database
@@ -1996,6 +2030,32 @@ export class CstkprIntelligenceService {
     })
     
     return Array.from(enhancedTopics)
+  }
+
+  // Analyze user quality and provide insights for opinion formation
+  static analyzeUserQualityForOpinion(
+    neynar_user_score: number,
+    quality_tier: string,
+    username: string
+  ): string {
+    let insight = ''
+    
+    if (neynar_user_score >= 0.9) {
+      insight = `@${username} has an exceptional Neynar score (${neynar_user_score.toFixed(2)}), ranking in the top ~2.5k accounts on Farcaster. This indicates consistently high-quality contributions and strong community engagement.`
+    } else if (neynar_user_score >= 0.7) {
+      insight = `@${username} has a high Neynar score (${neynar_user_score.toFixed(2)}), ranking in the top ~27.5k accounts. This suggests reliable, quality content creation and positive community interactions.`
+    } else if (neynar_user_score >= 0.5) {
+      insight = `@${username} has a moderate Neynar score (${neynar_user_score.toFixed(2)}), meeting the recommended quality threshold. This indicates reasonable content quality and engagement.`
+    } else if (neynar_user_score >= 0.3) {
+      insight = `@${username} has a below-average Neynar score (${neynar_user_score.toFixed(2)}), suggesting room for improvement in content quality or community engagement.`
+    } else {
+      insight = `@${username} has a low Neynar score (${neynar_user_score.toFixed(2)}), which may indicate newer account status, spam-like behavior, or low-value content patterns.`
+    }
+    
+    // Add context about score significance
+    insight += ' The Neynar score reflects account quality and value-added contributions to the Farcaster network, discriminating between high and low quality activity.'
+    
+    return insight
   }
 
   // Analyze parent-child cast relationships
@@ -2054,7 +2114,7 @@ export class CstkprIntelligenceService {
   static async findRelatedSavedCasts(topics: string[], castContent: string): Promise<SavedCast[]> {
     const relatedCasts: SavedCast[] = []
     
-    // Search by topics
+    // Search by topics in local database first
     for (const topic of topics) {
       try {
         const casts = await CastService.getCastsByTopic(topic, 5)
@@ -2083,6 +2143,221 @@ export class CstkprIntelligenceService {
     )
     
     return uniqueCasts.slice(0, 15) // Limit to 15 most relevant casts
+  }
+
+  // Enhanced method: Find similar casts using Neynar search API
+  static async findSimilarCastsViaAPI(
+    castContent: string,
+    topics: string[],
+    limit: number = 20
+  ): Promise<Array<{
+    hash: string
+    text: string
+    author: any
+    timestamp: string
+    reactions: any
+    neynar_user_score?: number
+    relevanceScore: number
+  }>> {
+    const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY
+    
+    if (!NEYNAR_API_KEY) {
+      console.log('⚠️ No Neynar API key available for enhanced cast search')
+      return []
+    }
+
+    try {
+      // Create intelligent search queries based on content and topics
+      const searchQueries = this.generateSearchQueries(castContent, topics)
+      const allResults: any[] = []
+
+      // Execute multiple search strategies
+      for (const query of searchQueries.slice(0, 3)) { // Limit to top 3 queries
+        try {
+          console.log('🔍 Searching Neynar for:', query.query)
+          
+          const response = await fetch(
+            `https://api.neynar.com/v2/farcaster/cast/search?${new URLSearchParams({
+              q: query.query,
+              mode: query.mode,
+              sort_type: 'algorithmic', // Quality-ranked results
+              limit: '20',
+              ...(query.dateFilter && { 
+                q: query.query + ` after:${query.dateFilter}` 
+              })
+            })}`,
+            {
+              headers: {
+                'Accept': 'application/json',
+                'x-api-key': NEYNAR_API_KEY,
+                'x-neynar-experimental': 'true' // Enable quality score filtering
+              }
+            }
+          )
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.result?.casts) {
+              // Add relevance scoring and metadata
+              const scoredResults = data.result.casts.map((cast: any) => ({
+                hash: cast.hash,
+                text: cast.text,
+                author: cast.author,
+                timestamp: cast.timestamp,
+                reactions: cast.reactions,
+                neynar_user_score: cast.author?.experimental?.neynar_user_score,
+                relevanceScore: this.calculateCastRelevance(cast, castContent, topics, query.weight)
+              }))
+              
+              allResults.push(...scoredResults)
+            }
+          } else {
+            console.log(`❌ Neynar search failed for query "${query.query}":`, response.status)
+          }
+        } catch (searchError) {
+          console.error('Error in individual search query:', searchError)
+        }
+      }
+
+      // Remove duplicates and sort by relevance
+      const uniqueResults = allResults.filter((cast, index, self) => 
+        index === self.findIndex(c => c.hash === cast.hash)
+      )
+
+      // Sort by combined relevance and quality score
+      uniqueResults.sort((a, b) => {
+        const scoreA = (a.relevanceScore * 0.7) + ((a.neynar_user_score || 0) * 0.3)
+        const scoreB = (b.relevanceScore * 0.7) + ((b.neynar_user_score || 0) * 0.3)
+        return scoreB - scoreA
+      })
+
+      console.log(`✅ Found ${uniqueResults.length} similar casts via Neynar API`)
+      return uniqueResults.slice(0, limit)
+
+    } catch (error) {
+      console.error('❌ Error searching similar casts via Neynar API:', error)
+      return []
+    }
+  }
+
+  // Generate intelligent search queries for different aspects of the cast
+  static generateSearchQueries(
+    castContent: string, 
+    topics: string[]
+  ): Array<{ query: string; mode: 'semantic' | 'hybrid' | 'literal'; weight: number; dateFilter?: string }> {
+    const queries: Array<{ query: string; mode: 'semantic' | 'hybrid' | 'literal'; weight: number; dateFilter?: string }> = []
+    
+    // Get key phrases and clean them
+    const keyPhrases = ContentParser.extractKeyPhrases(castContent, 5)
+    const cleanContent = castContent.replace(/@\w+/g, '').replace(/https?:\/\/[^\s]+/g, '').trim()
+    
+    // 1. Semantic search for meaning-based matches
+    if (cleanContent.length > 10) {
+      queries.push({
+        query: cleanContent.split(' ').slice(0, 15).join(' '), // First 15 words
+        mode: 'semantic',
+        weight: 1.0,
+        dateFilter: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // Last 30 days
+      })
+    }
+
+    // 2. Topic-based searches
+    if (topics.length > 0) {
+      const topicQuery = topics.slice(0, 3).join(' | ') // Use OR operator for topics
+      queries.push({
+        query: topicQuery,
+        mode: 'hybrid',
+        weight: 0.9
+      })
+    }
+
+    // 3. Key phrase searches
+    if (keyPhrases.length > 0) {
+      // Use the most important key phrase
+      const mainPhrase = keyPhrases[0]
+      if (mainPhrase.length > 2) {
+        queries.push({
+          query: `"${mainPhrase}"`, // Exact phrase search
+          mode: 'literal',
+          weight: 0.8
+        })
+      }
+      
+      // Fuzzy search for key concepts
+      if (keyPhrases.length > 1) {
+        const fuzzyQuery = keyPhrases.slice(0, 2).map(phrase => `${phrase}~2`).join(' + ')
+        queries.push({
+          query: fuzzyQuery,
+          mode: 'hybrid',
+          weight: 0.7
+        })
+      }
+    }
+
+    // 4. Context-aware searches based on content type
+    const contentLower = castContent.toLowerCase()
+    if (contentLower.includes('?')) {
+      // For questions, search for similar questions
+      queries.push({
+        query: `${keyPhrases[0] || topics[0] || 'question'} + ("what" | "how" | "why" | "when" | "?")`,
+        mode: 'hybrid',
+        weight: 0.6
+      })
+    }
+
+    if (contentLower.includes('announce') || contentLower.includes('launch')) {
+      // For announcements, find similar announcements
+      queries.push({
+        query: `${topics[0] || keyPhrases[0]} + ("announce" | "launch" | "release" | "introducing")`,
+        mode: 'hybrid',
+        weight: 0.8
+      })
+    }
+
+    return queries.filter(q => q.query.length > 3) // Filter out too-short queries
+  }
+
+  // Calculate relevance score for a cast compared to the original
+  static calculateCastRelevance(
+    cast: any,
+    originalContent: string,
+    originalTopics: string[],
+    queryWeight: number
+  ): number {
+    let relevanceScore = queryWeight // Start with query weight
+    
+    // Topic overlap bonus
+    if (originalTopics.length > 0 && cast.text) {
+      const castTopics = this.extractCastTopics(cast.text)
+      const topicOverlap = originalTopics.filter(topic => castTopics.includes(topic)).length
+      const topicBonus = (topicOverlap / Math.max(originalTopics.length, 1)) * 0.3
+      relevanceScore += topicBonus
+    }
+
+    // Engagement quality bonus
+    if (cast.reactions) {
+      const totalEngagement = (cast.reactions.likes_count || 0) + (cast.reactions.recasts_count || 0)
+      const engagementBonus = Math.min(totalEngagement / 100, 0.2) // Cap at 0.2
+      relevanceScore += engagementBonus
+    }
+
+    // Recency bonus (newer casts get slight preference)
+    if (cast.timestamp) {
+      const castDate = new Date(cast.timestamp)
+      const daysSincePost = (Date.now() - castDate.getTime()) / (1000 * 60 * 60 * 24)
+      const recencyBonus = Math.max(0, (30 - daysSincePost) / 300) // Bonus for casts within 30 days
+      relevanceScore += recencyBonus
+    }
+
+    // Length similarity bonus (prefer casts of similar depth)
+    if (cast.text && originalContent) {
+      const lengthRatio = Math.min(cast.text.length, originalContent.length) / 
+                          Math.max(cast.text.length, originalContent.length)
+      const lengthBonus = lengthRatio * 0.1
+      relevanceScore += lengthBonus
+    }
+
+    return Math.min(relevanceScore, 2.0) // Cap at 2.0
   }
 
   // Perform web research on the topics (enhanced with better context awareness)
@@ -2243,7 +2518,9 @@ export class CstkprIntelligenceService {
     castAuthor: string,
     topics: string[],
     relatedCasts: SavedCast[],
-    webResearch: WebResearchResult | null
+    webResearch: WebResearchResult | null,
+    userQualityInsight: string = '',
+    similarCasts: any[] = []
   ): Promise<{
     text: string
     confidence: number
@@ -2258,6 +2535,24 @@ export class CstkprIntelligenceService {
     // Analyze sentiment and context
     const parsed = ContentParser.parseContent(castContent)
     const sentiment = parsed.sentiment || 'neutral'
+    
+    // Factor in user quality
+    if (userQualityInsight) {
+      reasoning.push('Incorporated Neynar user quality analysis')
+      sources.push('Neynar user score data')
+      confidence += 0.15 // Higher confidence with quality data
+    }
+    
+    // Factor in similar casts from Neynar API
+    if (similarCasts.length > 0) {
+      const highQualityCount = similarCasts.filter(cast => 
+        (cast.neynar_user_score || 0) >= 0.7
+      ).length
+      
+      reasoning.push(`Found ${similarCasts.length} similar casts via Neynar API (${highQualityCount} high-quality)`)
+      sources.push(`Neynar search: ${similarCasts.length} similar casts`)
+      confidence += Math.min(similarCasts.length / 20, 0.25) // Up to 0.25 boost
+    }
     
     // Build reasoning based on related casts
     if (relatedCasts.length > 0) {
@@ -2294,7 +2589,9 @@ export class CstkprIntelligenceService {
       relatedCasts,
       webResearch,
       tone,
-      sentiment
+      sentiment,
+      userQualityInsight,
+      similarCasts
     )
     
     return {
@@ -2314,7 +2611,9 @@ export class CstkprIntelligenceService {
     relatedCasts: SavedCast[],
     webResearch: WebResearchResult | null,
     tone: string,
-    sentiment: string
+    sentiment: string,
+    userQualityInsight: string = '',
+    similarCasts: any[] = []
   ): string {
     // Analyze the cast content to form actual opinions
     const parsed = ContentParser.parseContent(castContent)
@@ -2322,6 +2621,11 @@ export class CstkprIntelligenceService {
     
     // Start with sentiment and tone analysis
     let opinionText = `🧠 Analysis: This cast has a ${sentiment} sentiment with a ${tone} tone. `
+    
+    // Add user quality context if available
+    if (userQualityInsight) {
+      opinionText += `\n\n👤 Author Quality: ${userQualityInsight} `
+    }
     
     // Add topic-specific insights
     if (topics.length > 0) {
@@ -2331,6 +2635,12 @@ export class CstkprIntelligenceService {
     // Generate actual opinion based on content analysis
     const actualOpinion = this.generateActualOpinion(castContent, topics, keyPhrases, relatedCasts)
     opinionText += actualOpinion
+    
+    // Add enhanced insights from similar casts via Neynar
+    if (similarCasts.length > 0) {
+      const similarCastInsight = this.analyzeSimilarCasts(similarCasts, topics, sentiment)
+      opinionText += ` ${similarCastInsight}`
+    }
     
     // Add comparison with saved casts
     if (relatedCasts.length > 0) {
@@ -2343,9 +2653,22 @@ export class CstkprIntelligenceService {
       opinionText += ` Current trends: ${webResearch.key_facts[0]} `
     }
     
-    // Add confidence and reasoning
-    const confidence = Math.min(0.5 + (relatedCasts.length > 5 ? 0.2 : 0) + (webResearch ? 0.2 : 0), 0.95)
+    // Add confidence and reasoning with enhanced context
+    const baseConfidence = 0.5
+    const qualityBonus = userQualityInsight ? 0.15 : 0
+    const similarCastsBonus = Math.min(similarCasts.length / 20, 0.25)
+    const savedCastsBonus = relatedCasts.length > 5 ? 0.2 : 0
+    const webBonus = webResearch ? 0.2 : 0
+    
+    const confidence = Math.min(baseConfidence + qualityBonus + similarCastsBonus + savedCastsBonus + webBonus, 0.95)
+    
     opinionText += `\n\n📊 Confidence: ${Math.round(confidence * 100)}% | Sources: ${relatedCasts.length} saved casts`
+    if (similarCasts.length > 0) {
+      opinionText += ` + ${similarCasts.length} similar casts via Neynar`
+    }
+    if (userQualityInsight) {
+      opinionText += ' + User quality analysis'
+    }
     
     return opinionText
   }
@@ -2422,6 +2745,59 @@ export class CstkprIntelligenceService {
     }
     
     return comparison
+  }
+
+  // Analyze insights from similar casts found via Neynar API
+  static analyzeSimilarCasts(similarCasts: any[], topics: string[], sentiment: string): string {
+    if (similarCasts.length === 0) return ""
+    
+    // Analyze quality distribution
+    const highQualityCasts = similarCasts.filter(cast => (cast.neynar_user_score || 0) >= 0.7)
+    const averageScore = similarCasts
+      .filter(cast => cast.neynar_user_score)
+      .reduce((sum, cast) => sum + cast.neynar_user_score, 0) / 
+      Math.max(similarCasts.filter(cast => cast.neynar_user_score).length, 1)
+    
+    // Analyze engagement patterns
+    const totalEngagement = similarCasts.reduce((sum, cast) => 
+      sum + (cast.reactions?.likes_count || 0) + (cast.reactions?.recasts_count || 0), 0
+    )
+    const averageEngagement = totalEngagement / similarCasts.length
+    
+    // Analyze recency
+    const recentCasts = similarCasts.filter(cast => {
+      const castDate = new Date(cast.timestamp)
+      const daysSince = (Date.now() - castDate.getTime()) / (1000 * 60 * 60 * 24)
+      return daysSince <= 7 // Within last week
+    }).length
+    
+    let insight = `Across ${similarCasts.length} similar casts in the Farcaster network, `
+    
+    if (highQualityCasts.length > 0) {
+      const highQualityPercentage = (highQualityCasts.length / similarCasts.length) * 100
+      insight += `${highQualityPercentage.toFixed(0)}% come from high-quality authors (Neynar score 0.7+). `
+    }
+    
+    if (averageScore > 0) {
+      insight += `The average author quality score is ${averageScore.toFixed(2)}, `
+      if (averageScore >= 0.7) {
+        insight += 'indicating strong community credibility around this topic. '
+      } else if (averageScore >= 0.5) {
+        insight += 'showing moderate community engagement. '
+      } else {
+        insight += 'suggesting this topic may need more authoritative voices. '
+      }
+    }
+    
+    if (recentCasts > 0) {
+      insight += `${recentCasts} similar discussions happened in the past week, suggesting ${recentCasts > 5 ? 'high' : 'moderate'} current relevance. `
+    }
+    
+    if (averageEngagement > 10) {
+      insight += `High average engagement (${averageEngagement.toFixed(0)} reactions per cast) indicates strong community interest. `
+    }
+    
+    return insight
   }
 
   // Analyze patterns in related casts for deeper insights
@@ -2604,6 +2980,187 @@ export class CstkprIntelligenceService {
       }
     } catch (error) {
       console.error('Error in updateOpinionConfidence:', error)
+    }
+  }
+}
+
+// Neynar Quality Filtering Service
+export class NeynarQualityService {
+  // Filter casts based on user quality thresholds
+  static filterByQuality(
+    casts: SavedCast[],
+    minScore: number = 0.5,
+    qualityTiers: Array<'high' | 'medium' | 'low' | 'unknown'> = ['high', 'medium']
+  ): SavedCast[] {
+    return casts.filter(cast => {
+      // Check Neynar score threshold
+      const score = cast.neynar_user_score
+      if (score !== undefined && score < minScore) {
+        return false
+      }
+      
+      // Check quality tier
+      const tier = cast.user_quality_tier
+      if (tier && !qualityTiers.includes(tier)) {
+        return false
+      }
+      
+      return true
+    })
+  }
+  
+  // Rank casts by quality score
+  static rankByQuality(casts: SavedCast[]): SavedCast[] {
+    return [...casts].sort((a, b) => {
+      const scoreA = a.neynar_user_score || 0
+      const scoreB = b.neynar_user_score || 0
+      const confidenceA = a.user_quality_confidence || 0
+      const confidenceB = b.user_quality_confidence || 0
+      
+      // Primary sort by Neynar score
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA
+      }
+      
+      // Secondary sort by confidence
+      return confidenceB - confidenceA
+    })
+  }
+  
+  // Get quality statistics for a collection of casts
+  static getQualityStats(casts: SavedCast[]): {
+    totalCasts: number
+    withScores: number
+    averageScore: number
+    qualityDistribution: Record<string, number>
+    highQualityPercentage: number
+  } {
+    const totalCasts = casts.length
+    const castsWithScores = casts.filter(cast => cast.neynar_user_score !== undefined)
+    const withScores = castsWithScores.length
+    
+    const averageScore = withScores > 0 
+      ? castsWithScores.reduce((sum, cast) => sum + (cast.neynar_user_score || 0), 0) / withScores
+      : 0
+    
+    const qualityDistribution: Record<string, number> = {
+      high: 0,
+      medium: 0,
+      low: 0,
+      unknown: 0
+    }
+    
+    casts.forEach(cast => {
+      const tier = cast.user_quality_tier || 'unknown'
+      qualityDistribution[tier]++
+    })
+    
+    const highQualityPercentage = totalCasts > 0 
+      ? (qualityDistribution.high / totalCasts) * 100
+      : 0
+    
+    return {
+      totalCasts,
+      withScores,
+      averageScore,
+      qualityDistribution,
+      highQualityPercentage
+    }
+  }
+  
+  // Find high-quality conversations based on multiple users' scores
+  static findHighQualityConversations(
+    casts: SavedCast[],
+    minParticipants: number = 2,
+    minAverageScore: number = 0.6
+  ): Array<{ topic: string; casts: SavedCast[]; averageScore: number; participants: number }> {
+    // Group casts by topic
+    const topicGroups = new Map<string, SavedCast[]>()
+    
+    casts.forEach(cast => {
+      const topics = cast.parsed_data?.topics || ['general']
+      topics.forEach(topic => {
+        if (!topicGroups.has(topic)) {
+          topicGroups.set(topic, [])
+        }
+        topicGroups.get(topic)!.push(cast)
+      })
+    })
+    
+    // Analyze each topic group
+    const conversations: Array<{ topic: string; casts: SavedCast[]; averageScore: number; participants: number }> = []
+    
+    topicGroups.forEach((topicCasts, topic) => {
+      const uniqueParticipants = new Set(topicCasts.map(cast => cast.fid)).size
+      
+      if (uniqueParticipants >= minParticipants) {
+        const castsWithScores = topicCasts.filter(cast => cast.neynar_user_score !== undefined)
+        
+        if (castsWithScores.length > 0) {
+          const averageScore = castsWithScores.reduce((sum, cast) => sum + (cast.neynar_user_score || 0), 0) / castsWithScores.length
+          
+          if (averageScore >= minAverageScore) {
+            conversations.push({
+              topic,
+              casts: topicCasts,
+              averageScore,
+              participants: uniqueParticipants
+            })
+          }
+        }
+      }
+    })
+    
+    // Sort by average score and participant count
+    return conversations.sort((a, b) => {
+      if (a.averageScore !== b.averageScore) {
+        return b.averageScore - a.averageScore
+      }
+      return b.participants - a.participants
+    })
+  }
+  
+  // Get recommended quality threshold based on available data
+  static getRecommendedThreshold(casts: SavedCast[]): {
+    threshold: number
+    rationale: string
+    expectedFilterRate: number
+  } {
+    const castsWithScores = casts.filter(cast => cast.neynar_user_score !== undefined)
+    
+    if (castsWithScores.length === 0) {
+      return {
+        threshold: 0.5,
+        rationale: 'No Neynar scores available, using default recommended threshold of 0.5',
+        expectedFilterRate: 0
+      }
+    }
+    
+    const scores = castsWithScores.map(cast => cast.neynar_user_score!).sort((a, b) => b - a)
+    const total = scores.length
+    
+    // Find threshold that keeps ~70% of casts (good balance of quality vs quantity)
+    const targetIndex = Math.floor(total * 0.7)
+    const recommendedThreshold = Math.max(0.3, Math.min(0.7, scores[targetIndex] || 0.5))
+    
+    const filteredCount = scores.filter(score => score >= recommendedThreshold).length
+    const expectedFilterRate = ((total - filteredCount) / total) * 100
+    
+    let rationale = `Based on ${total} casts with scores, threshold ${recommendedThreshold.toFixed(2)} `
+    rationale += `filters out ${Math.round(expectedFilterRate)}% while preserving quality content.`
+    
+    if (recommendedThreshold >= 0.7) {
+      rationale += ' High threshold for premium quality only.'
+    } else if (recommendedThreshold <= 0.3) {
+      rationale += ' Low threshold due to limited high-quality data.'
+    } else {
+      rationale += ' Balanced threshold for good quality-quantity ratio.'
+    }
+    
+    return {
+      threshold: recommendedThreshold,
+      rationale,
+      expectedFilterRate
     }
   }
 }

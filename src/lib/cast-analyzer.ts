@@ -12,6 +12,9 @@ interface NeynarCastResponse {
       username: string
       display_name?: string
       pfp_url?: string
+      experimental?: {
+        neynar_user_score?: number
+      }
     }
     reactions: {
       likes_count: number
@@ -24,6 +27,9 @@ interface NeynarCastResponse {
       fid: number
       username: string
       display_name?: string
+      experimental?: {
+        neynar_user_score?: number
+      }
     }>
     embeds?: Array<{
       url?: string
@@ -39,6 +45,14 @@ interface NeynarCastResponse {
   }
 }
 
+// Enhanced user quality analysis interface
+interface UserQualityAnalysis {
+  neynar_user_score: number | null
+  quality_tier: 'high' | 'medium' | 'low' | 'unknown'
+  quality_confidence: number
+  quality_reasons: string[]
+}
+
 // Enhanced ParsedData interface for cast analyzer features
 interface EnhancedParsedData extends ParsedData {
   topics?: string[]
@@ -46,6 +60,7 @@ interface EnhancedParsedData extends ParsedData {
   sentence_count?: number
   has_questions?: boolean
   has_exclamations?: boolean
+  user_quality_analysis?: UserQualityAnalysis
 }
 
 // Interface for our analyzed cast data
@@ -78,6 +93,79 @@ export interface AnalyzedCast {
     username: string
     display_name?: string
   }>
+}
+
+/**
+ * Analyzes user quality based on Neynar user score and other factors
+ */
+function analyzeUserQuality(
+  neynar_user_score: number | undefined,
+  follower_count?: number,
+  following_count?: number,
+  power_badge?: boolean
+): UserQualityAnalysis {
+  const score = neynar_user_score || null
+  const reasons: string[] = []
+  let qualityTier: 'high' | 'medium' | 'low' | 'unknown' = 'unknown'
+  let confidence = 0.5
+  
+  if (score === null) {
+    reasons.push('No Neynar user score available')
+    return {
+      neynar_user_score: null,
+      quality_tier: 'unknown',
+      quality_confidence: 0.1,
+      quality_reasons: reasons
+    }
+  }
+  
+  // Neynar score analysis (primary factor)
+  if (score >= 0.9) {
+    qualityTier = 'high'
+    confidence = 0.95
+    reasons.push(`Excellent Neynar score (${score.toFixed(2)}) - top ~2.5k accounts`)
+  } else if (score >= 0.7) {
+    qualityTier = 'high'
+    confidence = 0.85
+    reasons.push(`High Neynar score (${score.toFixed(2)}) - top ~27.5k accounts`)
+  } else if (score >= 0.5) {
+    qualityTier = 'medium'
+    confidence = 0.7
+    reasons.push(`Moderate Neynar score (${score.toFixed(2)}) - recommended threshold`)
+  } else if (score >= 0.3) {
+    qualityTier = 'medium'
+    confidence = 0.6
+    reasons.push(`Below average Neynar score (${score.toFixed(2)})`)
+  } else {
+    qualityTier = 'low'
+    confidence = 0.8
+    reasons.push(`Low Neynar score (${score.toFixed(2)}) - may indicate spam or low-value content`)
+  }
+  
+  // Additional quality signals (secondary factors)
+  if (power_badge) {
+    reasons.push('Has power badge - verified high-quality account')
+    confidence = Math.min(confidence + 0.1, 0.98)
+  }
+  
+  if (follower_count && following_count) {
+    const ratio = follower_count / Math.max(following_count, 1)
+    if (ratio > 2 && follower_count > 100) {
+      reasons.push('Strong follower-to-following ratio indicating quality content')
+      confidence = Math.min(confidence + 0.05, 0.98)
+    } else if (ratio < 0.1 && following_count > 1000) {
+      reasons.push('Low follower-to-following ratio may indicate spam behavior')
+      confidence = Math.max(confidence - 0.1, 0.1)
+      if (qualityTier === 'high') qualityTier = 'medium'
+    }
+  }
+  
+  return {
+    neynar_user_score: score,
+    quality_tier: qualityTier,
+    quality_confidence: confidence,
+    quality_reasons: reasons
+  }
 }
 
 /**
@@ -441,6 +529,21 @@ export async function analyzeCast(castHash: string, fallbackInfo?: Partial<Analy
       console.log('✅ Using Neynar API data')
       const cast = castData.cast
       
+      // Analyze user quality based on Neynar score
+      const userQualityAnalysis = analyzeUserQuality(
+        cast.author.experimental?.neynar_user_score,
+        undefined, // follower_count not available in this response
+        undefined, // following_count not available in this response
+        undefined  // power_badge not available in this response
+      )
+      
+      console.log('📊 User Quality Analysis:', {
+        username: cast.author.username,
+        neynar_score: userQualityAnalysis.neynar_user_score,
+        quality_tier: userQualityAnalysis.quality_tier,
+        confidence: userQualityAnalysis.quality_confidence
+      })
+      
       return {
         hash: castHash,
         text: cast.text,
@@ -458,11 +561,14 @@ export async function analyzeCast(castHash: string, fallbackInfo?: Partial<Analy
         replies: {
           count: cast.replies.count
         },
-        parsed_data: enhancedContentParsing(
-          cast.text, 
-          cast.mentioned_profiles,
-          cast.embeds
-        ),
+        parsed_data: {
+          ...enhancedContentParsing(
+            cast.text, 
+            cast.mentioned_profiles,
+            cast.embeds
+          ),
+          user_quality_analysis: userQualityAnalysis
+        },
         cast_url: `https://warpcast.com/~/conversations/${castHash}`,
         channel: cast.channel,
         embeds: cast.embeds?.map(e => e.url).filter((url): url is string => typeof url === 'string') || [],
