@@ -6,12 +6,8 @@ import { AutonomousCastScheduler } from '@/lib/autonomous-scheduler'
 interface AutonomousCastResult {
   success: boolean
   message: string
-  opinion?: string
-  based_on?: {
-    author: string
-    content_preview: string
-    engagement: number
-  }
+  cast?: string
+  inspired_by_topics?: string[]
 }
 
 export default function AutonomousCastTester() {
@@ -97,18 +93,16 @@ export default function AutonomousCastTester() {
               </h3>
               <p className="text-gray-300 mb-2">{result.message}</p>
               
-              {result.opinion && (
+              {result.cast && (
                 <div className="bg-black/30 p-3 rounded mt-2">
-                  <h4 className="text-white font-semibold mb-1">Generated Cast:</h4>
-                  <p className="text-gray-200">"{result.opinion}"</p>
+                  <h4 className="text-white font-semibold mb-1">Generated Original Cast:</h4>
+                  <p className="text-gray-200">"{result.cast}"</p>
                 </div>
               )}
 
-              {result.based_on && (
+              {result.inspired_by_topics && result.inspired_by_topics.length > 0 && (
                 <div className="mt-2 text-sm text-gray-400">
-                  <p><strong>Based on cast by:</strong> @{result.based_on.author}</p>
-                  <p><strong>Original content:</strong> "{result.based_on.content_preview}"</p>
-                  <p><strong>Engagement:</strong> {result.based_on.engagement} total reactions</p>
+                  <p><strong>Inspired by trending topics:</strong> {result.inspired_by_topics.join(', ')}</p>
                 </div>
               )}
             </div>

@@ -127,35 +127,31 @@ async function getTrendingCasts(): Promise<TrendingCast[]> {
   }
 }
 
-// Generate autonomous opinion based on trending cast
-async function generateAutonomousOpinion(cast: TrendingCast): Promise<string | null> {
+// Generate original autonomous cast based on trending topics
+async function generateOriginalCast(trendingTopics: string[]): Promise<string | null> {
   try {
-    // Extract topics from the cast
-    const topics = CstkprIntelligenceService.extractCastTopics(cast.text)
+    // Current context for inspiration
+    const currentHour = new Date().getHours()
+    const timeContext = currentHour < 12 ? 'morning' : currentHour < 17 ? 'afternoon' : 'evening'
+    const dayOfWeek = new Date().toLocaleDateString('en', { weekday: 'long' })
     
-    // Build context about the cast
-    const engagementLevel = cast.reactions.likes_count + cast.reactions.replies_count + cast.reactions.recasts_count
-    const isHighEngagement = engagementLevel > 20
-    const channelContext = cast.channel ? ` in /${cast.channel.id}` : ''
-    
-    const prompt = `You are CastKPR, an AI assistant that analyzes and comments on Farcaster content. You have your own thoughts and opinions.
+    const prompt = `You are CastKPR, an AI assistant focused on analyzing and organizing Farcaster content. You're posting an original thought to the Farcaster network.
 
-Original cast by ${cast.author.display_name || cast.author.username}${channelContext}:
-"${cast.text}"
+Current trending topics on Farcaster: ${trendingTopics.length > 0 ? trendingTopics.join(', ') : 'technology, social media, AI'}
 
-This cast has ${engagementLevel} total engagement (${cast.reactions.likes_count} likes, ${cast.reactions.replies_count} replies, ${cast.reactions.recasts_count} recasts).
+Context: It's ${timeContext} on ${dayOfWeek}
 
-Topics detected: ${topics.length > 0 ? topics.join(', ') : 'general discussion'}
+Generate an original cast that:
+- Shares your perspective as an AI that helps organize social media content
+- Can reference trending topics but don't just repeat them
+- Offers insight about social media, content organization, or digital trends
+- Is conversational and authentic (no corporate speak)
+- No markdown formatting or emojis
+- Between 80-280 characters
+- Could include observations about how people share content, organize information, or discover insights
+- Should feel like a genuine thought, not a promotional message
 
-Write your own thoughtful response as CastKPR. This should be:
-- Your own perspective or analysis, not just a summary
-- Conversational and natural (no markdown formatting)
-- No emojis needed
-- Between 50-280 characters for Farcaster
-- Add insight, ask a question, or provide a different angle
-- Professional but engaging tone
-
-Your response:`
+Your original cast:`
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -168,26 +164,27 @@ Your response:`
         messages: [
           {
             role: 'system',
-            content: 'You are CastKPR, an AI that provides thoughtful commentary on social media content. Be insightful, conversational, and authentic. No markdown or emojis.'
+            content: 'You are CastKPR, an AI that helps people organize and analyze their saved social media content. You have thoughtful perspectives on information management, content discovery, and digital organization. Be authentic and conversational, never promotional.'
           },
           {
             role: 'user',
             content: prompt
           }
         ],
-        max_tokens: 100,
-        temperature: 0.7,
+        max_tokens: 120,
+        temperature: 0.8,
       }),
     })
 
     if (response.ok) {
       const data = await response.json()
-      const opinion = data.choices[0]?.message?.content?.trim()
+      const cast = data.choices[0]?.message?.content?.trim()
       
-      if (opinion && opinion.length >= 10 && opinion.length <= 280) {
-        return opinion
+      if (cast && cast.length >= 20 && cast.length <= 280) {
+        console.log(`✅ Generated original cast (${cast.length} chars): "${cast}"`)
+        return cast
       } else {
-        console.log('⚠️ Generated opinion was too short or too long:', opinion?.length)
+        console.log('⚠️ Generated cast was too short or too long:', cast?.length, cast)
         return null
       }
     } else {
@@ -195,9 +192,22 @@ Your response:`
       return null
     }
   } catch (error) {
-    console.error('💥 Error generating autonomous opinion:', error)
+    console.error('💥 Error generating original cast:', error)
     return null
   }
+}
+
+// Extract trending topics from multiple casts
+function extractTrendingTopics(casts: TrendingCast[]): string[] {
+  const allTopics = new Set<string>()
+  
+  casts.forEach(cast => {
+    const topics = CstkprIntelligenceService.extractCastTopics(cast.text)
+    topics.forEach(topic => allTopics.add(topic))
+  })
+  
+  // Return top trending topics
+  return Array.from(allTopics).slice(0, 5)
 }
 
 // Main webhook handler
@@ -221,45 +231,34 @@ export async function POST(request: NextRequest) {
       console.log('🔐 Authenticated request')
     }
 
-    // Get trending casts
+    // Get trending casts for topic inspiration
     const trendingCasts = await getTrendingCasts()
     
-    if (trendingCasts.length === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        message: 'No suitable trending casts found' 
-      })
-    }
+    // Extract trending topics (even if no casts pass the filter)
+    const trendingTopics = extractTrendingTopics(trendingCasts)
+    console.log(`�️ Current trending topics: ${trendingTopics.join(', ') || 'general tech/social'}`)
 
-    // Select a random cast from the top trending ones
-    const selectedCast = trendingCasts[Math.floor(Math.random() * Math.min(5, trendingCasts.length))]
-    console.log(`🎯 Selected cast by ${selectedCast.author.username}: "${selectedCast.text.substring(0, 50)}..."`)
-
-    // Generate autonomous opinion
-    const opinion = await generateAutonomousOpinion(selectedCast)
+    // Generate original cast
+    const originalCast = await generateOriginalCast(trendingTopics)
     
-    if (!opinion) {
+    if (!originalCast) {
       return NextResponse.json({ 
         success: false, 
-        message: 'Failed to generate opinion' 
+        message: 'Failed to generate original cast' 
       })
     }
 
-    console.log(`💭 Generated opinion: "${opinion}"`)
+    console.log(`💭 Generated original cast: "${originalCast}"`)
 
     // Post the cast
-    const success = await postCastToFarcaster(opinion)
+    const success = await postCastToFarcaster(originalCast)
     
     if (success) {
       return NextResponse.json({
         success: true,
-        message: 'Autonomous cast posted successfully',
-        opinion: opinion,
-        based_on: {
-          author: selectedCast.author.username,
-          content_preview: selectedCast.text.substring(0, 100),
-          engagement: selectedCast.reactions.likes_count + selectedCast.reactions.replies_count + selectedCast.reactions.recasts_count
-        }
+        message: 'Original autonomous cast posted successfully',
+        cast: originalCast,
+        inspired_by_topics: trendingTopics.length > 0 ? trendingTopics : ['general discussion']
       })
     } else {
       return NextResponse.json({ 

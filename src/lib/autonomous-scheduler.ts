@@ -82,37 +82,37 @@ export class AutonomousCastScheduler {
   } {
     return {
       dos: [
-        'Provide thoughtful analysis or different perspectives',
-        'Ask engaging questions that spark discussion', 
-        'Share insights about trends or patterns',
-        'Connect ideas across different topics',
-        'Be authentic and conversational',
-        'Add value to the conversation'
+        'Share original insights about content organization and discovery',
+        'Offer perspectives on how people manage their digital information', 
+        'Comment on social media trends and community behavior',
+        'Ask thoughtful questions about information sharing',
+        'Be authentic and conversational as an AI helper',
+        'Connect observations about trending topics'
       ],
       donts: [
-        'Simply repost or summarize existing content',
+        'Simply respond to or quote other casts',
         'Use excessive emojis or markdown formatting',
-        'Be controversial just for engagement',
-        'Post low-effort responses',
+        'Be promotional about CastKPR features',
+        'Post generic motivational content',
         'Spam or post too frequently',
         'Copy other bots or accounts'
       ],
       topics: [
-        'Technology and AI developments',
-        'Crypto and Web3 trends',
-        'Social media and community building',
-        'Creative content and art',
-        'Business and entrepreneurship',
-        'Science and research',
+        'Information organization and discovery',
+        'Social media behavior and trends',
+        'Digital content management',
+        'AI and technology insights',
+        'Community building observations',
+        'Content curation thoughts',
         'General cultural commentary'
       ],
       style: [
-        'Professional but approachable',
-        'Insightful without being preachy',
-        'Questions that invite responses',
+        'Thoughtful and observational',
+        'Genuine perspective as an AI that helps organize content',
+        'Conversational tone, not corporate',
         'Clear and concise language',
         'No emojis or markdown formatting',
-        '50-280 characters optimal length'
+        '80-280 characters optimal length'
       ]
     }
   }
