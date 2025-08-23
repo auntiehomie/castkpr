@@ -661,6 +661,21 @@ async function handleOpinionCommand(cast: any): Promise<void> {
         console.log('⚠️ Error getting user quality data:', error)
       }
       
+      // Find similar casts via Neynar API for enhanced context
+      let similarCasts: any[] = []
+      try {
+        console.log('🔍 Searching Farcaster network for similar casts...')
+        similarCasts = await CstkprIntelligenceService.findSimilarCastsViaAPI(
+          enhancedContent,
+          topics,
+          15 // Limit to 15 similar casts for optimal performance
+        )
+        console.log(`📊 Found ${similarCasts.length} similar casts via Neynar API`)
+      } catch (error) {
+        console.log('⚠️ Neynar search failed, proceeding with local data only:', error)
+        similarCasts = []
+      }
+
       // Generate opinion using enhanced logic
       const opinion = await CstkprIntelligenceService.generateOpinion(
         enhancedContent,
@@ -669,7 +684,7 @@ async function handleOpinionCommand(cast: any): Promise<void> {
         relatedCasts,
         null, // No web research for now, but we could add this
         userQualityInsight,
-        [] // Could add Neynar similar cast search here for even more context
+        similarCasts // Now using Neynar similar cast search for network-wide context
       )
       
       // Format the opinion response with personality
