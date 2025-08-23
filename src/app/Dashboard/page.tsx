@@ -138,7 +138,7 @@ export default function Dashboard() {
                   : 'text-gray-300 hover:text-white'
               }`}
             >
-              🤖 AI Chat
+              🤖 Ask Me
             </button>
           </div>
         </div>

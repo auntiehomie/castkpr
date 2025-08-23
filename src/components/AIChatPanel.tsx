@@ -20,7 +20,7 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: "Hi! I'm your AI assistant with @cstkpr intelligence built in. I can help you:\n\n📚 **Vault Management:**\n• Create and organize vaults\n• Add casts to collections\n• Search and analyze your saved casts\n\n🧠 **@cstkpr Intelligence:**\n• Ask me 'What's your opinion on [topic]?'\n• Analyze sentiment for topics\n• Get opinions on parent casts you're replying to\n• Generate '@cstkpr what's your opinion' replies\n• Contextual analysis: 'What do you think about X in relation to Y?'\n• Generate insights from your saved casts\n\n💡 **Try asking:**\n• 'What do you think about crypto?'\n• 'Generate a @cstkpr reply for this cast: [paste content]'\n• 'Analyze this parent cast: [paste content]'\n• 'What's your opinion on AI in relation to crypto?'\n• 'Analyze sentiment for DeFi'\n• 'Create a vault for blockchain content'",
+      content: "Hey there! 👋 I'm your friendly AI assistant, and I'm here to help you make the most of your CastKPR experience!\n\n✨ **What can I do for you?**\n\n📚 **Vault Organization:**\n• Help you create and organize vaults\n• Add your favorite casts to collections\n• Find and analyze your saved content\n\n🧠 **Smart Opinions (powered by @cstkpr):**\n• Share thoughts on any topic you're curious about\n• Analyze sentiment and trends\n• Generate thoughtful replies for your conversations\n• Provide contextual insights from your saved casts\n\n� **Just ask me things like:**\n• \"What do you think about [any topic]?\"\n• \"Help me organize my casts into vaults\"\n• \"Create a @cstkpr reply for this cast: [paste content]\"\n• \"What's your opinion on this topic in relation to that?\"\n• \"Analyze the sentiment around technology\"\n\nI'm here to help - what would you like to explore together? 🚀",
       timestamp: new Date()
     }
   ])
@@ -1393,16 +1393,42 @@ This cast would fit well in a "${primaryTopic}" vault.`
             topicSummary = 'This appears to be a general conversation or social post.'
           }
 
-          // Suggest appropriate vault
+          // Suggest appropriate vault based on diverse topics
           let vaultSuggestion = ''
           if (parsedData.topics && parsedData.topics.length > 0) {
-            const suggestedVault = parsedData.topics.includes('crypto') || parsedData.topics.includes('ethereum') || parsedData.topics.includes('defi') 
-              ? 'Crypto & Web3' 
-              : parsedData.topics.includes('tech') || parsedData.topics.includes('ai') || parsedData.topics.includes('development')
-              ? 'Tech & Development'
-              : parsedData.topics.includes('social') || parsedData.topics.includes('community')
-              ? 'Social & Community'
-              : 'General'
+            const topicToVault: Record<string, string> = {
+              'crypto': 'Crypto & Web3',
+              'blockchain': 'Crypto & Web3',
+              'defi': 'Crypto & Web3',
+              'ai': 'AI & Tech',
+              'tech': 'Technology',
+              'development': 'Development',
+              'science': 'Science',
+              'biology': 'Biology & Life Sciences',
+              'chemistry': 'Science',
+              'physics': 'Science',
+              'medicine': 'Biology & Life Sciences',
+              'business': 'Business',
+              'finance': 'Finance',
+              'social': 'Community',
+              'community': 'Community',
+              'art': 'Art & Creative',
+              'music': 'Music',
+              'gaming': 'Gaming',
+              'sports': 'Sports',
+              'politics': 'Politics',
+              'education': 'Learning',
+              'market-analysis': 'Finance'
+            }
+            
+            // Find the most relevant vault suggestion
+            let suggestedVault = 'General'
+            for (const topic of parsedData.topics) {
+              if (topicToVault[topic]) {
+                suggestedVault = topicToVault[topic]
+                break // Use the first matching topic
+              }
+            }
             
             vaultSuggestion = ` I'd suggest organizing this into a "${suggestedVault}" vault.`
           }
@@ -1896,12 +1922,53 @@ ${vaultSuggestion}`
             .slice(0, 10)
             .map(([topic, count]) => ({ topic, count: count as number, percentage: Math.round((count as number) / castsToAnalyze.length * 100) }))
 
-          // Suggest vault categories based on analysis
+          // Suggest vault categories based on analysis - more diverse approach
           const suggestedVaults = []
-          if (topicCounts['crypto'] > 2) suggestedVaults.push({ name: 'Crypto & Web3', description: 'Cryptocurrency and blockchain related content' })
-          if (topicCounts['ai'] > 2) suggestedVaults.push({ name: 'AI & Tech', description: 'Artificial intelligence and technology discussions' })
-          if (topicCounts['development'] > 2) suggestedVaults.push({ name: 'Development', description: 'Programming and software development' })
-          if (sentiments.positive > castsToAnalyze.length * 0.6) suggestedVaults.push({ name: 'Positive Vibes', description: 'Uplifting and positive content' })
+          
+          // Dynamic suggestions based on actual content analysis
+          topTopics.forEach(({ topic, count }) => {
+            if (count > 2) { // At least 3 casts
+              const vaultNames = {
+                'crypto': { name: 'Crypto & Web3', description: 'Cryptocurrency and blockchain related content' },
+                'ai': { name: 'AI & Tech', description: 'Artificial intelligence and technology discussions' },
+                'tech': { name: 'Technology', description: 'General technology and innovation content' },
+                'development': { name: 'Development', description: 'Programming and software development' },
+                'business': { name: 'Business', description: 'Business insights and entrepreneurship' },
+                'social': { name: 'Community', description: 'Social discussions and community content' },
+                'art': { name: 'Art & Creative', description: 'Art, design, and creative content' },
+                'gaming': { name: 'Gaming', description: 'Gaming and interactive entertainment' },
+                'science': { name: 'Science', description: 'Scientific discussions and research' },
+                'biology': { name: 'Biology & Life Sciences', description: 'Biology, health, and life science content' },
+                'finance': { name: 'Finance', description: 'Financial discussions and market analysis' },
+                'politics': { name: 'Politics', description: 'Political discussions and policy topics' },
+                'sports': { name: 'Sports', description: 'Sports and athletic content' },
+                'music': { name: 'Music', description: 'Music and audio content' },
+                'education': { name: 'Learning', description: 'Educational content and knowledge sharing' }
+              }
+              
+              if (vaultNames[topic as keyof typeof vaultNames]) {
+                suggestedVaults.push({
+                  ...vaultNames[topic as keyof typeof vaultNames],
+                  count
+                })
+              } else {
+                // Generic vault for topics not predefined
+                suggestedVaults.push({
+                  name: `${topic.charAt(0).toUpperCase() + topic.slice(1)}`,
+                  description: `Content related to ${topic}`,
+                  count
+                })
+              }
+            }
+          })
+          
+          // Add sentiment-based vaults if there's clear sentiment
+          if (sentiments.positive > castsToAnalyze.length * 0.6) {
+            suggestedVaults.push({ name: 'Positive Vibes', description: 'Uplifting and positive content', count: sentiments.positive })
+          }
+          if (sentiments.negative > castsToAnalyze.length * 0.3) {
+            suggestedVaults.push({ name: 'Critical Analysis', description: 'Critical discussions and analysis', count: sentiments.negative })
+          }
 
           return {
             success: true,
