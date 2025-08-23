@@ -118,7 +118,8 @@ async function getTrendingCasts(): Promise<TrendingCast[]> {
       return trendingCasts
 
     } else {
-      console.error('❌ Failed to fetch trending casts:', response.status)
+      const errorText = await response.text()
+      console.error('❌ Failed to fetch trending casts:', response.status, errorText)
       return []
     }
   } catch (error) {
@@ -147,9 +148,11 @@ Generate an original cast that:
 - Offers insight about social media, content organization, or digital trends
 - Is conversational and authentic (no corporate speak)
 - No markdown formatting or emojis
-- Between 80-280 characters
+- MUST be between 80-280 characters (this is critical for Farcaster)
 - Could include observations about how people share content, organize information, or discover insights
 - Should feel like a genuine thought, not a promotional message
+
+Keep it concise and punchy. Aim for 150-200 characters for best engagement.
 
 Your original cast:`
 
@@ -171,7 +174,7 @@ Your original cast:`
             content: prompt
           }
         ],
-        max_tokens: 120,
+        max_tokens: 80, // Reduced to ensure shorter output
         temperature: 0.8,
       }),
     })
@@ -185,6 +188,12 @@ Your original cast:`
         return cast
       } else {
         console.log('⚠️ Generated cast was too short or too long:', cast?.length, cast)
+        // Try to truncate if too long
+        if (cast && cast.length > 280) {
+          const truncated = cast.substring(0, 277) + '...'
+          console.log(`✂️ Truncated cast to ${truncated.length} chars: "${truncated}"`)
+          return truncated
+        }
         return null
       }
     } else {
@@ -206,8 +215,15 @@ function extractTrendingTopics(casts: TrendingCast[]): string[] {
     topics.forEach(topic => allTopics.add(topic))
   })
   
-  // Return top trending topics
-  return Array.from(allTopics).slice(0, 5)
+  // Return top trending topics, or fallback topics if none found
+  const topics = Array.from(allTopics).slice(0, 5)
+  
+  if (topics.length === 0) {
+    // Fallback topics for content inspiration
+    return ['social media', 'content organization', 'digital trends', 'information discovery']
+  }
+  
+  return topics
 }
 
 // Main webhook handler
