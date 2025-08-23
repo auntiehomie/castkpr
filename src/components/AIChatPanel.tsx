@@ -3143,9 +3143,9 @@ ${vaultSuggestion}`
                 - User has ${context.cast_count} saved casts
                 
                 Function just executed: ${data.function_call.name}
-                Function result summary: ${typeof functionResult === 'object' && functionResult.message ? functionResult.message : 'Function completed'}
+                Function result: ${functionResult?.success ? 'Success' : 'Failed'} - ${functionResult?.message || 'Function completed'}
                 
-                Remember to reference previous analysis results when relevant.`
+                Provide a helpful response based on the function execution result. Be conversational and helpful.`
               },
               ...messages.slice(-8), // Include last 8 messages for better context
               userMessage,
@@ -3157,7 +3157,7 @@ ${vaultSuggestion}`
               {
                 role: 'function',
                 name: data.function_call.name,
-                content: JSON.stringify(functionResult)
+                content: functionResult?.message || (functionResult?.success ? 'Operation completed successfully' : 'Operation failed')
               }
             ],
             userId

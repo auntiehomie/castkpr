@@ -1609,37 +1609,43 @@ export class ContentParser {
 
   static extractTopics(text: string): string[] {
     const content = text.toLowerCase()
-    const words = content.split(/\s+/)
+    const words = content.split(/\W+/).filter(word => word.length > 2) // Split on non-word characters, filter short words
     const foundTopics: string[] = []
 
-    // Enhanced topic detection with context awareness
+    // Enhanced topic detection with precise matching
     const topicPatterns = {
-      'crypto': ['crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'cryptocurrency'],
-      'blockchain': ['blockchain', 'web3', 'decentralized', 'dao'],
-      'defi': ['defi', 'yield', 'liquidity', 'staking', 'farming'],
-      'nft': ['nft', 'pfp', 'opensea', 'collectible'],
-      'ai': ['ai', 'artificial intelligence', 'machine learning', 'ml', 'gpt', 'llm'],
-      'tech': ['programming', 'code', 'developer', 'software', 'api', 'github'],
-      'finance': ['money', 'pay', 'rent', 'finance', 'investment', 'trading', 'market'],
-      'social': ['gm', 'friends', 'community', 'social', 'hello', 'thanks'],
-      'gaming': ['game', 'gaming', 'play', 'player', 'console'],
-      'art': ['art', 'artist', 'design', 'creative', 'paint'],
-      'music': ['music', 'song', 'album', 'artist', 'sound'],
-      'business': ['business', 'startup', 'company', 'entrepreneur', 'venture'],
-      'politics': ['politics', 'government', 'policy', 'election', 'vote'],
-      'sports': ['sports', 'football', 'basketball', 'soccer', 'game'],
-      'science': ['science', 'research', 'study', 'experiment', 'data']
+      'crypto': ['crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'cryptocurrency', 'coin'],
+      'blockchain': ['blockchain', 'web3', 'decentralized', 'dao', 'smart contract'],
+      'defi': ['defi', 'yield', 'liquidity', 'staking', 'farming', 'swap'],
+      'nft': ['nft', 'pfp', 'opensea', 'collectible', 'mint'],
+      'ai': ['artificial intelligence', 'machine learning', 'neural', 'gpt', 'llm', 'chatbot', 'automation'],
+      'tech': ['programming', 'code', 'developer', 'software', 'api', 'github', 'coding'],
+      'finance': ['finance', 'investment', 'trading', 'stock', 'portfolio', 'economics'],
+      'market-analysis': ['market', 'analysis', 'trend', 'chart', 'trading', 'price action'],
+      'social': ['gm', 'friends', 'community', 'social', 'hello', 'thanks', 'networking'],
+      'gaming': ['game', 'gaming', 'play', 'player', 'console', 'esports'],
+      'art': ['art', 'artist', 'design', 'creative', 'paint', 'visual'],
+      'music': ['music', 'song', 'album', 'sound', 'audio', 'concert'],
+      'business': ['business', 'startup', 'company', 'entrepreneur', 'venture', 'corporate'],
+      'politics': ['politics', 'government', 'policy', 'election', 'vote', 'political'],
+      'sports': ['sports', 'football', 'basketball', 'soccer', 'athletics', 'team'],
+      'biology': ['biology', 'biological', 'cell', 'organism', 'species', 'evolution', 'genetics', 'dna', 'protein', 'ecosystem'],
+      'chemistry': ['chemistry', 'chemical', 'molecule', 'reaction', 'compound', 'element', 'atomic'],
+      'physics': ['physics', 'quantum', 'particle', 'energy', 'wave', 'force', 'relativity'],
+      'medicine': ['medicine', 'medical', 'health', 'doctor', 'patient', 'treatment', 'diagnosis', 'therapy'],
+      'science': ['science', 'research', 'study', 'experiment', 'data', 'scientific', 'hypothesis']
     }
 
-    // Check for topic patterns
+    // Check for topic patterns with more precise matching
     Object.entries(topicPatterns).forEach(([topic, keywords]) => {
       const hasMatch = keywords.some(keyword => {
         if (keyword.includes(' ')) {
-          // Multi-word phrases
+          // Multi-word phrases - exact phrase matching
           return content.includes(keyword)
         } else {
-          // Single words - check if any word contains this keyword
-          return words.some(word => word.includes(keyword))
+          // Single words - exact word matching (not substring)
+          return words.includes(keyword) || 
+                 words.some(word => word === keyword + 's' || word === keyword + 'ing' || word === keyword + 'ed')
         }
       })
       
@@ -1647,6 +1653,16 @@ export class ContentParser {
         foundTopics.push(topic)
       }
     })
+
+    // Remove 'ai' if it was matched by accident (common false positive)
+    if (foundTopics.includes('ai')) {
+      const aiKeywords = ['artificial intelligence', 'machine learning', 'neural', 'gpt', 'llm', 'chatbot', 'automation']
+      const hasRealAI = aiKeywords.some(keyword => content.includes(keyword))
+      if (!hasRealAI) {
+        const index = foundTopics.indexOf('ai')
+        foundTopics.splice(index, 1)
+      }
+    }
 
     return foundTopics
   }
@@ -2009,27 +2025,49 @@ export class CstkprIntelligenceService {
     const parsed = ContentParser.parseContent(castContent)
     const topics = parsed.topics || []
     
-    // Enhanced topic extraction for @cstkpr
+    // Enhanced topic extraction for @cstkpr with more precise matching
     const content = castContent.toLowerCase()
+    const words = content.split(/\W+/).filter(word => word.length > 2)
     const enhancedTopics = new Set([...topics])
     
-    // Look for opinion-forming keywords
+    // Look for opinion-forming keywords - but be more precise
     const opinionKeywords = {
-      'market-analysis': ['bull', 'bear', 'pump', 'dump', 'ath', 'dip', 'crash'],
-      'tech-discussion': ['launch', 'update', 'feature', 'bug', 'performance'],
+      'market-analysis': ['bull market', 'bear market', 'pump', 'dump', 'ath', 'dip', 'crash', 'trading'],
+      'tech-discussion': ['launch', 'update', 'feature', 'bug', 'performance', 'development'],
       'community': ['community', 'team', 'developer', 'founder', 'announcement'],
-      'prediction': ['predict', 'forecast', 'estimate', 'expect', 'think', 'believe'],
-      'news': ['breaking', 'news', 'announced', 'confirmed', 'reported'],
-      'debate': ['vs', 'versus', 'compare', 'better', 'worse', 'opinion', 'thoughts']
+      'prediction': ['predict', 'forecast', 'estimate'], // Removed vague words like "expect", "think", "believe"
+      'news': ['breaking', 'announced', 'confirmed', 'reported'], // Removed generic "news"
+      'debate': ['versus', 'compare', 'opinion', 'thoughts', 'debate']
     }
     
-    Object.entries(opinionKeywords).forEach(([category, keywords]) => {
-      if (keywords.some(keyword => content.includes(keyword))) {
-        enhancedTopics.add(category)
+    // More precise keyword matching - require stronger indicators
+    Object.entries(opinionKeywords).forEach(([topic, keywords]) => {
+      const hasStrongMatch = keywords.some(keyword => {
+        if (keyword.includes(' ')) {
+          // Multi-word phrases - exact phrase matching
+          return content.includes(keyword)
+        } else {
+          // Single words - exact word matching (not substring)
+          return words.includes(keyword)
+        }
+      })
+      
+      if (hasStrongMatch) {
+        enhancedTopics.add(topic)
       }
     })
     
-    return Array.from(enhancedTopics)
+    // Filter out topics that don't have strong evidence
+    const finalTopics = Array.from(enhancedTopics).filter(topic => {
+      // If it's a scientific topic, make sure we have strong scientific indicators
+      if (['biology', 'chemistry', 'physics', 'medicine', 'science'].includes(topic)) {
+        const scientificTerms = ['research', 'study', 'experiment', 'data', 'analysis', 'cell', 'organism', 'molecule', 'protein', 'gene']
+        return scientificTerms.some(term => content.includes(term))
+      }
+      return true
+    })
+    
+    return finalTopics.length > 0 ? finalTopics : ['general']
   }
 
   // Analyze user quality and provide insights for opinion formation
