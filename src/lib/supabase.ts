@@ -1569,8 +1569,8 @@ export class AILearningService {
 
 // Content parsing utilities (Enhanced)
 export class ContentParser {
-  static parseContent(text: string): ParsedData {
-    return {
+  static parseContent(text: string, embeds?: Array<{ url?: string }>): ParsedData {
+    const basicData = {
       urls: this.extractUrls(text),
       mentions: this.extractMentions(text),
       hashtags: this.extractHashtags(text),
@@ -1578,8 +1578,46 @@ export class ContentParser {
       dates: this.extractDates(text),
       word_count: text.split(' ').length,
       sentiment: this.analyzeSentiment(text),
-      topics: this.extractTopics(text)
+      topics: this.extractTopics(text, embeds)
     }
+
+    // Enhanced media detection from embeds
+    if (embeds && embeds.length > 0) {
+      const hasImages = embeds.some(embed => embed.url && this.isImageUrl(embed.url))
+      const hasVideos = embeds.some(embed => embed.url && this.isVideoUrl(embed.url))
+      
+      if (hasImages && !basicData.topics.includes('photography')) {
+        basicData.topics.push('photography')
+      }
+      if (hasVideos && !basicData.topics.includes('video')) {
+        basicData.topics.push('video')
+      }
+    }
+
+    return basicData
+  }
+
+  // Helper method to detect image URLs
+  static isImageUrl(url: string): boolean {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.tiff']
+    const lowerUrl = url.toLowerCase()
+    return imageExtensions.some(ext => lowerUrl.includes(ext)) ||
+           lowerUrl.includes('imagedelivery.net') ||
+           lowerUrl.includes('imgur.com') ||
+           lowerUrl.includes('i.imgur.com') ||
+           lowerUrl.includes('media.giphy.com') ||
+           lowerUrl.includes('cdn.discordapp.com/attachments')
+  }
+
+  // Helper method to detect video URLs
+  static isVideoUrl(url: string): boolean {
+    const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv']
+    const lowerUrl = url.toLowerCase()
+    return videoExtensions.some(ext => lowerUrl.includes(ext)) ||
+           lowerUrl.includes('youtube.com') ||
+           lowerUrl.includes('youtu.be') ||
+           lowerUrl.includes('vimeo.com') ||
+           lowerUrl.includes('twitch.tv')
   }
 
   static extractUrls(text: string): string[] {
@@ -1607,33 +1645,45 @@ export class ContentParser {
     return text.match(dateRegex) || []
   }
 
-  static extractTopics(text: string): string[] {
+  static extractTopics(text: string, embeds?: Array<{ url?: string }>): string[] {
     const content = text.toLowerCase()
     const words = content.split(/\W+/).filter(word => word.length > 2) // Split on non-word characters, filter short words
     const foundTopics: string[] = []
 
-    // Enhanced topic detection with precise matching
+    // Enhanced topic detection with comprehensive categories and precise matching
     const topicPatterns = {
-      'crypto': ['crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'cryptocurrency', 'coin'],
-      'blockchain': ['blockchain', 'web3', 'decentralized', 'dao', 'smart contract'],
-      'defi': ['defi', 'yield', 'liquidity', 'staking', 'farming', 'swap'],
-      'nft': ['nft', 'pfp', 'opensea', 'collectible', 'mint'],
-      'ai': ['artificial intelligence', 'machine learning', 'neural', 'gpt', 'llm', 'chatbot', 'automation'],
-      'tech': ['programming', 'code', 'developer', 'software', 'api', 'github', 'coding'],
-      'finance': ['finance', 'investment', 'trading', 'stock', 'portfolio', 'economics'],
-      'market-analysis': ['market', 'analysis', 'trend', 'chart', 'trading', 'price action'],
-      'social': ['gm', 'friends', 'community', 'social', 'hello', 'thanks', 'networking'],
-      'gaming': ['game', 'gaming', 'play', 'player', 'console', 'esports'],
-      'art': ['art', 'artist', 'design', 'creative', 'paint', 'visual'],
-      'music': ['music', 'song', 'album', 'sound', 'audio', 'concert'],
-      'business': ['business', 'startup', 'company', 'entrepreneur', 'venture', 'corporate'],
-      'politics': ['politics', 'government', 'policy', 'election', 'vote', 'political'],
-      'sports': ['sports', 'football', 'basketball', 'soccer', 'athletics', 'team'],
+      'crypto': ['crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'cryptocurrency', 'coin', 'satoshi'],
+      'blockchain': ['blockchain', 'web3', 'decentralized', 'dao', 'smart contract', 'consensus'],
+      'defi': ['defi', 'yield', 'liquidity', 'staking', 'farming', 'swap', 'dex'],
+      'nft': ['nft', 'pfp', 'opensea', 'collectible', 'mint', 'metadata'],
+      'ai': ['artificial intelligence', 'machine learning', 'neural', 'gpt', 'llm', 'chatbot', 'automation', 'algorithm'],
+      'tech': ['programming', 'code', 'developer', 'software', 'api', 'github', 'coding', 'frontend', 'backend'],
+      'development': ['development', 'coding', 'programming', 'software', 'app', 'website', 'framework', 'library'],
+      'finance': ['finance', 'investment', 'trading', 'stock', 'portfolio', 'economics', 'market', 'financial'],
+      'business': ['business', 'startup', 'company', 'entrepreneur', 'venture', 'corporate', 'strategy', 'revenue'],
+      'social': ['gm', 'friends', 'community', 'social', 'hello', 'thanks', 'networking', 'conversation'],
+      'gaming': ['game', 'gaming', 'play', 'player', 'console', 'esports', 'stream', 'twitch'],
+      'art': ['art', 'artist', 'design', 'creative', 'paint', 'visual', 'aesthetic', 'artistic'],
+      'music': ['music', 'song', 'album', 'sound', 'audio', 'concert', 'musician', 'band'],
+      'politics': ['politics', 'government', 'policy', 'election', 'vote', 'political', 'democracy'],
+      'sports': ['sports', 'football', 'basketball', 'soccer', 'athletics', 'team', 'championship'],
+      'education': ['education', 'learning', 'teach', 'student', 'school', 'university', 'course', 'tutorial'],
+      'science': ['science', 'research', 'study', 'experiment', 'data', 'scientific', 'hypothesis', 'theory'],
       'biology': ['biology', 'biological', 'cell', 'organism', 'species', 'evolution', 'genetics', 'dna', 'protein', 'ecosystem'],
-      'chemistry': ['chemistry', 'chemical', 'molecule', 'reaction', 'compound', 'element', 'atomic'],
-      'physics': ['physics', 'quantum', 'particle', 'energy', 'wave', 'force', 'relativity'],
-      'medicine': ['medicine', 'medical', 'health', 'doctor', 'patient', 'treatment', 'diagnosis', 'therapy'],
-      'science': ['science', 'research', 'study', 'experiment', 'data', 'scientific', 'hypothesis']
+      'chemistry': ['chemistry', 'chemical', 'molecule', 'reaction', 'compound', 'element', 'atomic', 'lab'],
+      'physics': ['physics', 'quantum', 'particle', 'energy', 'wave', 'force', 'relativity', 'matter'],
+      'medicine': ['medicine', 'medical', 'health', 'doctor', 'patient', 'treatment', 'diagnosis', 'therapy', 'hospital'],
+      'food': ['food', 'cooking', 'recipe', 'restaurant', 'chef', 'meal', 'eat', 'taste', 'kitchen'],
+      'travel': ['travel', 'trip', 'vacation', 'journey', 'destination', 'explore', 'adventure', 'tourism'],
+      'photography': ['photography', 'photo', 'photos', 'camera', 'lens', 'shoot', 'shot', 'image', 'images', 'picture', 'pictures', 'visual', 'capture', 'captured', 'snap', 'snapshot', 'selfie', 'portrait', 'landscape', 'macro', 'zoom', 'frame', 'framing', 'composition', 'exposure', 'lighting', 'bokeh', 'filter', 'edit', 'edited', 'photoshoot', 'photographer', 'instagram', 'pic', 'pics', 'screenshot', 'gallery', 'album', 'jpeg', 'png'],
+      'video': ['video', 'videos', 'film', 'movie', 'clip', 'youtube', 'vimeo', 'streaming', 'stream', 'record', 'recorded', 'footage', 'cinematic', 'editing', 'montage', 'vlog', 'tutorial', 'timelapse', 'slowmo'],
+      'writing': ['writing', 'write', 'author', 'book', 'story', 'novel', 'article', 'journalism'],
+      'personal': ['personal', 'life', 'daily', 'routine', 'experience', 'feeling', 'thinking', 'reflection'],
+      'lifestyle': ['lifestyle', 'living', 'daily', 'routine', 'habits', 'wellness', 'balance'],
+      'humor': ['funny', 'humor', 'joke', 'laugh', 'comedy', 'meme', 'hilarious', 'amusing'],
+      'news': ['news', 'breaking', 'report', 'update', 'announcement', 'press', 'media', 'journalist'],
+      'environment': ['environment', 'climate', 'sustainability', 'green', 'eco', 'renewable', 'conservation'],
+      'fashion': ['fashion', 'style', 'clothing', 'outfit', 'trend', 'designer', 'wear', 'accessories']
     }
 
     // Check for topic patterns with more precise matching
@@ -1661,6 +1711,19 @@ export class ContentParser {
       if (!hasRealAI) {
         const index = foundTopics.indexOf('ai')
         foundTopics.splice(index, 1)
+      }
+    }
+
+    // Enhanced media detection from embeds
+    if (embeds && embeds.length > 0) {
+      const hasImages = embeds.some(embed => embed.url && this.isImageUrl(embed.url))
+      const hasVideos = embeds.some(embed => embed.url && this.isVideoUrl(embed.url))
+      
+      if (hasImages && !foundTopics.includes('photography')) {
+        foundTopics.push('photography')
+      }
+      if (hasVideos && !foundTopics.includes('video')) {
+        foundTopics.push('video')
       }
     }
 

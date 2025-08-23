@@ -405,23 +405,17 @@ async function handleSaveCommand(cast: any, text: string): Promise<void> {
       }
     }
     
-    // Parse content for metadata
-    const parseContent = (text: string) => {
-      const urls = text.match(/(https?:\/\/[^\s]+)/g) || []
-      const mentions = [...text.matchAll(/@(\w+)/g)].map(match => match[1])
-      const hashtags = [...text.matchAll(/#(\w+)/g)].map(match => match[1])
-      
-      return {
-        urls,
-        mentions,
-        hashtags,
-        word_count: text.split(' ').length,
-        sentiment: 'neutral' as const,
-        topics: hashtags.length > 0 ? hashtags : ['general']
-      }
+    // Parse content for metadata using enhanced parser
+    let parentEmbeds: Array<{ url?: string }> = []
+    
+    // Get embeds from parent cast for better media detection  
+    if (cast.parent_cast?.embeds) {
+      parentEmbeds = cast.parent_cast.embeds
+    } else if (cast.parent?.embeds) {
+      parentEmbeds = cast.parent.embeds
     }
     
-    const parsedData = parseContent(parentCastContent)
+    const parsedData = ContentParser.parseContent(parentCastContent, parentEmbeds)
     
     // Create cast data
     const castData = {
@@ -430,7 +424,7 @@ async function handleSaveCommand(cast: any, text: string): Promise<void> {
       cast_hash: parentHash,
       cast_content: parentCastContent,
       cast_timestamp: new Date().toISOString(),
-      tags: ['saved-via-bot', ...parsedData.hashtags] as string[],
+      tags: ['saved-via-bot', ...(parsedData.hashtags || [])] as string[],
       likes_count: 0,
       replies_count: 0,
       recasts_count: 0,
@@ -592,9 +586,18 @@ async function handleOpinionCommand(cast: any): Promise<void> {
       // Enhance the content with media context
       const enhancedContent = parentCastContent + parentCastMediaInfo
       
-      // Extract topics and analyze sentiment
+      // Extract topics and analyze sentiment with embeds information
       const topics = CstkprIntelligenceService.extractCastTopics(enhancedContent)
-      const parsed = ContentParser.parseContent(enhancedContent)
+      
+      // Get embeds from the parent cast for better media detection
+      let parentEmbeds: Array<{ url?: string }> = []
+      if (cast.parent_cast?.embeds) {
+        parentEmbeds = cast.parent_cast.embeds
+      } else if (cast.parent?.embeds) {
+        parentEmbeds = cast.parent.embeds
+      }
+      
+      const parsed = ContentParser.parseContent(enhancedContent, parentEmbeds)
       const sentiment = parsed.sentiment || 'neutral'
       
       // Try to get some related casts for better context

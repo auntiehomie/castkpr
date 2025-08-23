@@ -812,74 +812,162 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
 
           console.log(`🏗️ Organizing ${castsToOrganize.length} casts into ${vaults.length} existing vaults`)
 
-          // Create default vaults if none exist
+          // Create default vaults if none exist - more diverse and broad categories
           if (vaults.length === 0) {
             const defaultVaults = [
-              { name: 'Crypto & Web3', description: 'Cryptocurrency, blockchain, DeFi, and Web3 content', rules: ['crypto', 'bitcoin', 'ethereum', 'defi', 'blockchain', 'web3', 'nft', 'dao', 'token'] },
-              { name: 'Tech & Development', description: 'Programming, AI, and technical discussions', rules: ['programming', 'code', 'ai', 'tech', 'development', 'software', 'github', 'api'] },
-              { name: 'Social & Community', description: 'Social interactions and community content', rules: ['gm', 'community', 'social', 'friends', 'hello', 'thanks', 'farcaster'] },
-              { name: 'Finance & Trading', description: 'Financial markets, trading, and investment content', rules: ['trading', 'investment', 'finance', 'money', 'market', 'price', 'pump', 'yield'] }
+              { name: 'General Discussion', description: 'General conversations and social interactions', rules: ['gm', 'good', 'great', 'think', 'feel', 'thanks', 'hello', 'nice', 'cool', 'interesting', 'community', 'social'] },
+              { name: 'Technology', description: 'All technology-related content including AI, programming, and tech news', rules: ['tech', 'ai', 'code', 'programming', 'software', 'development', 'computer', 'digital', 'data', 'algorithm', 'app'] },
+              { name: 'Business & Finance', description: 'Business insights, finance, and economic discussions', rules: ['business', 'finance', 'money', 'market', 'investment', 'economy', 'company', 'startup', 'revenue', 'profit', 'trading'] },
+              { name: 'Creative Content', description: 'Art, design, music, photography, and creative expressions', rules: ['art', 'design', 'music', 'creative', 'photo', 'photos', 'image', 'images', 'picture', 'pictures', 'camera', 'photography', 'visual', 'aesthetic', 'artist', 'creator', 'painting', 'draw', 'sketch'] },
+              { name: 'Education & Learning', description: 'Educational content, tutorials, and knowledge sharing', rules: ['learn', 'education', 'teach', 'tutorial', 'study', 'research', 'knowledge', 'school', 'university', 'course', 'book'] },
+              { name: 'News & Updates', description: 'News, announcements, and current events', rules: ['news', 'announced', 'update', 'breaking', 'report', 'launch', 'release', 'event', 'happening', 'today', 'new'] },
+              { name: 'Personal & Lifestyle', description: 'Personal thoughts, lifestyle, and daily life content', rules: ['personal', 'life', 'daily', 'morning', 'today', 'feeling', 'thinking', 'experience', 'journey', 'story', 'weekend'] }
             ]
 
             for (const v of defaultVaults) {
               const newVault = await VaultService.createVault(v.name, v.description, v.rules, userId)
               vaults.push(newVault)
             }
-            console.log(`✅ Created ${defaultVaults.length} default vaults`)
+            console.log(`✅ Created ${defaultVaults.length} diverse default vaults`)
           }
 
-          // Organize casts into vaults using enhanced analysis
+          // Organize casts into vaults using more flexible analysis
           for (const cast of castsToOrganize) {
             // Parse the cast content for topics, hashtags, etc.
             const parsedData = ContentParser.parseContent(cast.cast_content)
             const content = cast.cast_content.toLowerCase()
+            const words = content.split(/\s+/).filter(word => word.length > 2) // Get meaningful words
             let bestVault = null
             let bestScore = 0
 
             for (const vault of vaults) {
               let score = 0
               
-              // Check vault auto-add rules
+              // Check vault auto-add rules with partial matching
               const rules = vault.auto_add_rules || []
               for (const rule of rules) {
-                if (content.includes(rule.toLowerCase())) {
-                  score += 3 // High weight for explicit rules
+                // More flexible matching - check if rule word appears anywhere
+                const ruleWords = rule.toLowerCase().split(/\s+/)
+                for (const ruleWord of ruleWords) {
+                  if (content.includes(ruleWord) || words.some(word => word.includes(ruleWord))) {
+                    score += 2 // Moderate weight for rule matches
+                    break // Don't double-count same rule
+                  }
                 }
               }
 
-              // Check parsed topics against vault name and description
+              // Check parsed topics against vault name and description (more flexible)
               if (parsedData.topics) {
                 for (const topic of parsedData.topics) {
-                  if (vault.name.toLowerCase().includes(topic.toLowerCase())) {
-                    score += 2
-                  }
-                  if (vault.description?.toLowerCase().includes(topic.toLowerCase())) {
-                    score += 1
+                  const topicWords = topic.toLowerCase().split(/\s+/)
+                  for (const topicWord of topicWords) {
+                    if (vault.name.toLowerCase().includes(topicWord) || 
+                        vault.description?.toLowerCase().includes(topicWord)) {
+                      score += 1.5
+                    }
                   }
                 }
               }
 
-              // Check hashtags
+              // Check hashtags (more flexible)
               if (parsedData.hashtags) {
                 for (const hashtag of parsedData.hashtags) {
-                  if (vault.name.toLowerCase().includes(hashtag.toLowerCase())) {
+                  if (vault.name.toLowerCase().includes(hashtag.toLowerCase()) ||
+                      vault.description?.toLowerCase().includes(hashtag.toLowerCase())) {
                     score += 1
                   }
                 }
               }
 
-              // Special crypto detection
-              const cryptoKeywords = ['bitcoin', 'ethereum', 'crypto', 'defi', 'nft', 'dao', 'token', 'coin', 'blockchain', 'web3']
-              if (vault.name.toLowerCase().includes('crypto') || vault.name.toLowerCase().includes('web3')) {
-                const hasCrypto = cryptoKeywords.some(keyword => content.includes(keyword))
-                if (hasCrypto) score += 2
+              // Content-based classification with broader categories
+              const vaultNameLower = vault.name.toLowerCase()
+              
+              // Technology vault matching
+              if (vaultNameLower.includes('tech') || vaultNameLower.includes('development')) {
+                const techIndicators = ['code', 'programming', 'ai', 'tech', 'software', 'app', 'digital', 'computer', 'data', 'algorithm', 'development']
+                const techMatches = techIndicators.filter(keyword => content.includes(keyword)).length
+                score += techMatches * 0.8
               }
 
-              // Special tech detection
-              const techKeywords = ['code', 'programming', 'development', 'ai', 'tech', 'software', 'api', 'github']
-              if (vault.name.toLowerCase().includes('tech') || vault.name.toLowerCase().includes('dev')) {
-                const hasTech = techKeywords.some(keyword => content.includes(keyword))
-                if (hasTech) score += 2
+              // Business & Finance vault matching  
+              if (vaultNameLower.includes('business') || vaultNameLower.includes('finance')) {
+                const businessIndicators = ['business', 'money', 'market', 'finance', 'investment', 'company', 'startup', 'profit', 'revenue', 'economy', 'trading', 'price']
+                const businessMatches = businessIndicators.filter(keyword => content.includes(keyword)).length
+                score += businessMatches * 0.8
+              }
+
+              // Creative vault matching
+              if (vaultNameLower.includes('creative') || vaultNameLower.includes('art')) {
+                const creativeIndicators = ['art', 'design', 'music', 'creative', 'photo', 'image', 'video', 'artist', 'creator', 'aesthetic', 'beautiful']
+                const creativeMatches = creativeIndicators.filter(keyword => content.includes(keyword)).length
+                score += creativeMatches * 0.8
+              }
+
+              // Education & Learning vault matching
+              if (vaultNameLower.includes('education') || vaultNameLower.includes('learning')) {
+                const educationIndicators = ['learn', 'teach', 'education', 'tutorial', 'study', 'research', 'knowledge', 'book', 'course', 'explain']
+                const educationMatches = educationIndicators.filter(keyword => content.includes(keyword)).length
+                score += educationMatches * 0.8
+              }
+
+              // News & Updates vault matching
+              if (vaultNameLower.includes('news') || vaultNameLower.includes('update')) {
+                const newsIndicators = ['news', 'announced', 'update', 'breaking', 'report', 'launch', 'release', 'new', 'today', 'happening']
+                const newsMatches = newsIndicators.filter(keyword => content.includes(keyword)).length
+                score += newsMatches * 0.8
+              }
+
+              // General Discussion vault matching (catch-all for social content)
+              if (vaultNameLower.includes('general') || vaultNameLower.includes('discussion') || vaultNameLower.includes('social')) {
+                const socialIndicators = ['gm', 'good', 'great', 'think', 'feel', 'thanks', 'hello', 'nice', 'cool', 'interesting', 'community', 'friends']
+                const socialMatches = socialIndicators.filter(keyword => content.includes(keyword)).length
+                score += socialMatches * 0.5 // Lower weight since this is catch-all
+              }
+
+              // Photography & Media vault matching
+              if (vaultNameLower.includes('photo') || vaultNameLower.includes('image') || vaultNameLower.includes('visual')) {
+                const photoIndicators = ['photo', 'photos', 'image', 'images', 'picture', 'pictures', 'camera', 'lens', 'shot', 'shoot', 'capture', 'visual', 'snap', 'selfie', 'portrait', 'landscape', 'gallery', 'album', 'pic', 'pics', 'photography', 'photographer', 'instagram', 'screenshot', 'jpeg', 'png', 'filter', 'edit', 'edited']
+                const photoMatches = photoIndicators.filter(keyword => content.includes(keyword)).length
+                score += photoMatches * 1.2 // Higher weight for photo content since it's specific
+                
+                // Also check for image file extensions in URLs
+                if (parsedData.urls) {
+                  const imageUrls = parsedData.urls.filter(url => 
+                    url.toLowerCase().includes('.jpg') || 
+                    url.toLowerCase().includes('.jpeg') || 
+                    url.toLowerCase().includes('.png') || 
+                    url.toLowerCase().includes('.gif') ||
+                    url.toLowerCase().includes('imagedelivery.net') ||
+                    url.toLowerCase().includes('imgur.com')
+                  ).length
+                  score += imageUrls * 2 // Strong indicator of photo content
+                }
+              }
+
+              // Video vault matching
+              if (vaultNameLower.includes('video') || vaultNameLower.includes('media')) {
+                const videoIndicators = ['video', 'videos', 'film', 'movie', 'clip', 'youtube', 'vimeo', 'stream', 'streaming', 'record', 'recorded', 'footage', 'vlog', 'tutorial', 'timelapse']
+                const videoMatches = videoIndicators.filter(keyword => content.includes(keyword)).length
+                score += videoMatches * 1.2
+                
+                // Check for video URLs
+                if (parsedData.urls) {
+                  const videoUrls = parsedData.urls.filter(url => 
+                    url.toLowerCase().includes('youtube.com') ||
+                    url.toLowerCase().includes('youtu.be') ||
+                    url.toLowerCase().includes('vimeo.com') ||
+                    url.toLowerCase().includes('.mp4') ||
+                    url.toLowerCase().includes('.webm')
+                  ).length
+                  score += videoUrls * 2 // Strong indicator of video content
+                }
+              }
+
+              // Personal & Lifestyle vault matching
+              if (vaultNameLower.includes('personal') || vaultNameLower.includes('lifestyle')) {
+                const personalIndicators = ['personal', 'life', 'daily', 'morning', 'feeling', 'thinking', 'experience', 'journey', 'story', 'weekend', 'day']
+                const personalMatches = personalIndicators.filter(keyword => content.includes(keyword)).length
+                score += personalMatches * 0.7
               }
 
               if (score > bestScore) {
@@ -888,8 +976,8 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
               }
             }
 
-            // Only add to vault if we have a reasonable confidence score
-            if (bestVault && bestScore >= 1) {
+            // Lower threshold for matching - be more inclusive
+            if (bestVault && bestScore >= 0.5) {
               try {
                 // Check if cast is already in this vault
                 const isAlreadyInVault = await VaultService.isCastInVault(cast.id, bestVault.id)
@@ -898,16 +986,16 @@ export default function AICharPanel({ userId, onClose, onCastUpdate }: AICharPan
                   results.push({ 
                     cast: cast.cast_hash, 
                     vault: bestVault.name,
-                    score: bestScore,
+                    score: Math.round(bestScore * 100) / 100, // Round to 2 decimal places
                     content_preview: cast.cast_content.substring(0, 50) + '...'
                   })
-                  console.log(`✅ Added cast to ${bestVault.name} (score: ${bestScore})`)
+                  console.log(`✅ Added cast to ${bestVault.name} (score: ${bestScore.toFixed(2)})`)
                 }
               } catch (error) {
                 console.error('Error adding cast to vault:', error)
               }
             } else {
-              console.log(`❌ No suitable vault found for cast: ${cast.cast_content.substring(0, 50)}...`)
+              console.log(`❌ No suitable vault found for cast (best score: ${bestScore.toFixed(2)}): ${cast.cast_content.substring(0, 50)}...`)
             }
           }
 
@@ -1398,26 +1486,48 @@ This cast would fit well in a "${primaryTopic}" vault.`
           if (parsedData.topics && parsedData.topics.length > 0) {
             const topicToVault: Record<string, string> = {
               'crypto': 'Crypto & Web3',
-              'blockchain': 'Crypto & Web3',
+              'blockchain': 'Crypto & Web3', 
               'defi': 'Crypto & Web3',
-              'ai': 'AI & Tech',
+              'ai': 'AI & Technology',
               'tech': 'Technology',
+              'technology': 'Technology',
               'development': 'Development',
+              'programming': 'Development',
+              'code': 'Development',
               'science': 'Science',
               'biology': 'Biology & Life Sciences',
               'chemistry': 'Science',
               'physics': 'Science',
-              'medicine': 'Biology & Life Sciences',
+              'medicine': 'Health & Medicine',
+              'health': 'Health & Medicine',
               'business': 'Business',
               'finance': 'Finance',
+              'trading': 'Finance',
+              'investment': 'Finance',
               'social': 'Community',
               'community': 'Community',
               'art': 'Art & Creative',
+              'creative': 'Art & Creative',
+              'design': 'Art & Creative',
               'music': 'Music',
               'gaming': 'Gaming',
               'sports': 'Sports',
               'politics': 'Politics',
               'education': 'Learning',
+              'learning': 'Learning',
+              'news': 'News & Updates',
+              'personal': 'Personal & Lifestyle',
+              'lifestyle': 'Personal & Lifestyle',
+              'food': 'Food & Cooking',
+              'travel': 'Travel',
+              'photography': 'Photography & Visual',
+              'video': 'Video & Media',
+              'memes': 'Humor & Memes',
+              'funny': 'Humor & Memes',
+              'humor': 'Humor & Memes',
+              'books': 'Books & Reading',
+              'reading': 'Books & Reading',
+              'writing': 'Writing',
               'market-analysis': 'Finance'
             }
             
@@ -1925,25 +2035,43 @@ ${vaultSuggestion}`
           // Suggest vault categories based on analysis - more diverse approach
           const suggestedVaults = []
           
-          // Dynamic suggestions based on actual content analysis
+          // Dynamic suggestions based on actual content analysis - more diverse
           topTopics.forEach(({ topic, count }) => {
-            if (count > 2) { // At least 3 casts
+            if (count > 1) { // Lower threshold - at least 2 casts
               const vaultNames = {
                 'crypto': { name: 'Crypto & Web3', description: 'Cryptocurrency and blockchain related content' },
-                'ai': { name: 'AI & Tech', description: 'Artificial intelligence and technology discussions' },
+                'blockchain': { name: 'Crypto & Web3', description: 'Cryptocurrency and blockchain related content' },
+                'ai': { name: 'AI & Technology', description: 'Artificial intelligence and technology discussions' },
                 'tech': { name: 'Technology', description: 'General technology and innovation content' },
                 'development': { name: 'Development', description: 'Programming and software development' },
+                'programming': { name: 'Development', description: 'Programming and software development' },
                 'business': { name: 'Business', description: 'Business insights and entrepreneurship' },
+                'finance': { name: 'Finance', description: 'Financial discussions and market analysis' },
                 'social': { name: 'Community', description: 'Social discussions and community content' },
+                'community': { name: 'Community', description: 'Social discussions and community content' },
                 'art': { name: 'Art & Creative', description: 'Art, design, and creative content' },
+                'creative': { name: 'Art & Creative', description: 'Art, design, and creative content' },
+                'design': { name: 'Art & Creative', description: 'Art, design, and creative content' },
                 'gaming': { name: 'Gaming', description: 'Gaming and interactive entertainment' },
                 'science': { name: 'Science', description: 'Scientific discussions and research' },
                 'biology': { name: 'Biology & Life Sciences', description: 'Biology, health, and life science content' },
-                'finance': { name: 'Finance', description: 'Financial discussions and market analysis' },
+                'medicine': { name: 'Health & Medicine', description: 'Health, medicine, and wellness content' },
+                'health': { name: 'Health & Medicine', description: 'Health, medicine, and wellness content' },
                 'politics': { name: 'Politics', description: 'Political discussions and policy topics' },
                 'sports': { name: 'Sports', description: 'Sports and athletic content' },
                 'music': { name: 'Music', description: 'Music and audio content' },
-                'education': { name: 'Learning', description: 'Educational content and knowledge sharing' }
+                'education': { name: 'Learning', description: 'Educational content and knowledge sharing' },
+                'news': { name: 'News & Updates', description: 'News, announcements, and current events' },
+                'personal': { name: 'Personal', description: 'Personal thoughts and lifestyle content' },
+                'lifestyle': { name: 'Lifestyle', description: 'Daily life and lifestyle content' },
+                'food': { name: 'Food & Cooking', description: 'Food, cooking, and culinary content' },
+                'travel': { name: 'Travel', description: 'Travel experiences and destinations' },
+                'photography': { name: 'Photography & Visual', description: 'Photos, images, and visual content' },
+                'video': { name: 'Video & Media', description: 'Videos, films, and multimedia content' },
+                'memes': { name: 'Humor & Memes', description: 'Funny content and memes' },
+                'funny': { name: 'Humor & Memes', description: 'Funny content and memes' },
+                'books': { name: 'Books & Reading', description: 'Literature and reading content' },
+                'writing': { name: 'Writing', description: 'Writing and literary content' }
               }
               
               if (vaultNames[topic as keyof typeof vaultNames]) {

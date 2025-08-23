@@ -43,6 +43,11 @@ export default function SharePage() {
             fid: currentUser.fid
           })
           
+          // Transform embeds to the expected format for parsing
+          const embedsForParser = sharedCast.embeds?.map((embed: any) => ({
+            url: typeof embed === 'string' ? embed : embed?.url
+          })) || []
+          
           const castData = {
             username: sharedCast.author.username || `fid-${sharedCast.author.fid}`,
             fid: sharedCast.author.fid,
@@ -57,7 +62,7 @@ export default function SharePage() {
             likes_count: 0,
             replies_count: 0,
             recasts_count: 0,
-            parsed_data: ContentParser.parseContent(sharedCast.text),
+            parsed_data: ContentParser.parseContent(sharedCast.text, embedsForParser),
             notes: `💾 Saved via share extension on ${new Date().toLocaleDateString()}`
           } satisfies Omit<SavedCast, 'id' | 'created_at' | 'updated_at'>
 
