@@ -24,6 +24,17 @@ export default function MiniAppProvider({ children }: { children: React.ReactNod
           
           if (isMiniApp) {
             console.log('🎯 Running in Mini App environment')
+            
+            // Add error handler for provider errors
+            window.addEventListener('unhandledrejection', (event) => {
+              if (event.reason?.message?.includes('User rejected') || 
+                  event.reason?.message?.includes('UserRejectedRequest')) {
+                // Suppress user rejection errors - this is normal behavior
+                event.preventDefault()
+                console.log('ℹ️ User cancelled wallet action (normal behavior)')
+              }
+            })
+            
             // Hide the splash screen
             await sdk.actions.ready()
             console.log('✅ Mini App ready called')
