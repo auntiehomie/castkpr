@@ -4,8 +4,6 @@ import MiniAppProvider from "@/components/MiniAppProvider";
 // Remove this import: import ShareExtensionHandler from "@/components/ShareExtensionHandler";
 import "./globals.css";
 
-// Cache bust: 2025-08-23 22:15 - Force new deployment to clear X-Frame-Options
-
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
