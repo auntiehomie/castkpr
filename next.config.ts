@@ -6,14 +6,7 @@ const nextConfig: NextConfig = {
       {
         source: '/(.*)',
         headers: [
-          {
-            key: 'X-Frame-Options',
-            value: 'ALLOWALL'
-          },
-          {
-            key: 'Content-Security-Policy',
-            value: "frame-ancestors *; default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:"
-          }
+          // Don't set X-Frame-Options at all to allow embedding
         ],
       },
     ]

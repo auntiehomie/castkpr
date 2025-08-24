@@ -16,7 +16,7 @@ export default function MiniAppProvider({ children }: { children: React.ReactNod
         
         if (isMiniApp) {
           console.log('🎯 Running in Mini App environment')
-          // Hide the splash screen
+          // Simple initialization without wallet features
           await sdk.actions.ready()
           console.log('✅ Mini App ready called')
         } else {
@@ -26,7 +26,9 @@ export default function MiniAppProvider({ children }: { children: React.ReactNod
         setIsReady(true)
       } catch (error) {
         console.error('❌ Error initializing Mini App:', error)
-        setIsReady(true) // Continue anyway
+        // Continue anyway - don't block the app for Mini App issues
+        console.log('Continuing without Mini App features')
+        setIsReady(true)
       }
     }
 

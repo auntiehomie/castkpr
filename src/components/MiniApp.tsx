@@ -65,19 +65,25 @@ export default function MiniApp() {
             }
           }
 
-          // Signal that the app is ready
+          // Signal that the app is ready - simple call without options
           await sdk.actions.ready()
         } else {
-          // Fallback for web users - you might want to implement regular auth here
+          // Fallback for web users - no authentication required
           setUser({
             fid: 0,
-            username: 'demo-user',
-            displayName: 'Demo User'
+            username: 'web-user',
+            displayName: 'Web User'
           })
         }
       } catch (err) {
         console.error('Error initializing Mini App:', err)
-        setError('Failed to initialize app')
+        // Don't show error for initialization issues - just continue
+        console.log('Continuing without Mini App features')
+        setUser({
+          fid: 0,
+          username: 'web-user',  
+          displayName: 'Web User'
+        })
       } finally {
         setLoading(false)
       }
