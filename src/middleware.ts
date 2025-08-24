@@ -4,20 +4,21 @@ export function middleware(request: NextRequest) {
   // Create response
   const response = NextResponse.next()
   
-  // Remove any existing X-Frame-Options header
+  // Aggressively remove X-Frame-Options header
   response.headers.delete('X-Frame-Options')
+  response.headers.delete('x-frame-options')
   
-  // Don't set X-Frame-Options at all to allow all embedding
-  // OR alternatively, try setting it to allow from specific origins
-  // response.headers.set('X-Frame-Options', 'ALLOW-FROM https://warpcast.com')
+  // Explicitly set X-Frame-Options to ALLOWALL to override any platform defaults
+  response.headers.set('X-Frame-Options', 'ALLOWALL')
   
-  // Use Content Security Policy instead for more flexible frame control
+  // Use Content Security Policy for modern browsers
   response.headers.set('Content-Security-Policy', 
-    "frame-ancestors 'self' https://*.farcaster.xyz https://warpcast.com https://*.vercel.app"
+    "frame-ancestors *; default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:"
   )
   
-  // Add debug header to confirm middleware is running
+  // Add debug headers to confirm middleware is running and what we're setting
   response.headers.set('X-Middleware-Applied', 'castkpr-' + Date.now())
+  response.headers.set('X-Frame-Debug', 'attempting-allowall')
   
   return response
 }

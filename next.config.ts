@@ -1,6 +1,23 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-Frame-Options',
+            value: 'ALLOWALL'
+          },
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors *; default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:"
+          }
+        ],
+      },
+    ]
+  },
   eslint: {
     // Warning: This allows production builds to successfully complete even if your project has ESLint errors.
     ignoreDuringBuilds: true,
