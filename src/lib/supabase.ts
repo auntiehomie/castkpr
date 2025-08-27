@@ -417,6 +417,23 @@ export class CastService {
     return data
   }
 
+  // Update cast parsed data (for AI enhancement)
+  static async updateCastParsedData(castId: string, parsedData: ParsedData): Promise<SavedCast> {
+    const { data, error } = await supabase
+      .from('saved_casts')
+      .update({ parsed_data: parsedData })
+      .eq('id', castId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating cast parsed data:', error)
+      throw error
+    }
+
+    return data
+  }
+
   // Get stats for a user
   static async getUserStats(userId: string): Promise<{ totalCasts: number }> {
     const { count } = await supabase

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CastService, CstkprIntelligenceService, ContentParser, supabase } from '@/lib/supabase'
+import { analyzeCast } from '@/lib/cast-analyzer'
 import type { SavedCast } from '@/lib/supabase'
 
 // Response templates for variety
@@ -416,6 +417,39 @@ async function handleSaveCommand(cast: any, text: string): Promise<void> {
     }
     
     const parsedData = ContentParser.parseContent(parentCastContent, parentEmbeds)
+    
+    // Enhance with AI analysis and quality scoring
+    console.log('🧠 Adding AI analysis and quality scoring...')
+    let enhancedParsedData = parsedData
+    
+    try {
+      // Run cast analysis to get quality score and enhanced data
+      const analysis = await analyzeCast(parentHash, {
+        hash: parentHash,
+        text: parentCastContent,
+        timestamp: new Date().toISOString(),
+        author: parentAuthor,
+        reactions: {
+          likes_count: 0,
+          recasts_count: 0
+        },
+        replies: {
+          count: 0
+        },
+        parsed_data: parsedData,
+        cast_url: `https://warpcast.com/~/conversations/${parentHash}`,
+        embeds: parentEmbeds.map(embed => embed.url).filter(url => url) as string[]
+      })
+      
+      if (analysis && analysis.parsed_data) {
+        // Use the enhanced parsed data from the analysis
+        enhancedParsedData = analysis.parsed_data
+        console.log('✅ Enhanced with AI analysis - has quality analysis:', !!analysis.parsed_data.user_quality_analysis)
+      }
+    } catch (analysisError) {
+      console.warn('⚠️ Could not enhance with AI analysis:', analysisError)
+      // Continue with basic parsing
+    }
     
     // Create cast data
     const castData = {
