@@ -483,11 +483,14 @@ export default function SavedCasts({ userId }: SavedCastsProps) {
       )}
 
       {/* AI Enhancement Section */}
-      {enhancedStats.total > 0 && enhancedStats.enhanced < enhancedStats.total && (
+      {enhancedStats.total > 0 && (
         <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 backdrop-blur-lg rounded-xl p-6 border border-orange-500/20">
           <h3 className="text-lg font-bold text-white mb-3">🧠 Enhance Your Casts</h3>
           <p className="text-gray-300 text-sm mb-4">
-            Add AI analysis and quality scoring to your existing {enhancedStats.total - enhancedStats.enhanced} unprocessed casts.
+            {enhancedStats.enhanced < enhancedStats.total 
+              ? `Add AI analysis and quality scoring to your existing ${enhancedStats.total - enhancedStats.enhanced} unprocessed casts.`
+              : `All ${enhancedStats.total} casts are enhanced! You can re-run enhancement to update analysis.`
+            }
           </p>
           
           {!isEnhancing ? (
