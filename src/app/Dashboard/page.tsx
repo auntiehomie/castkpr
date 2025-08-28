@@ -2,26 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import SavedCasts from '@/components/Saved            <button
-              onClick={() => setActiveView('mcp')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
-                activeView === 'mcp'
-                  ? 'bg-purple-600 text-white'
-                  : 'text-gray-300 hover:text-white'
-              }`}
-            >
-              🤖 MCP Insights
-            </button>
-            <button
-              onClick={() => setActiveView('ai')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
-                activeView === 'ai'
-                  ? 'bg-purple-600 text-white'
-                  : 'text-gray-300 hover:text-white'
-              }`}
-            >
-              🗣️ Ask Me
-            </button>tCasts from '@/components/RecentCasts'
+import SavedCasts from '@/components/SavedCasts'
+import RecentCasts from '@/components/RecentCasts'
 import AIChatPanel from '@/components/AIChatPanel'
 import VaultManager from '@/components/VaultManager'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
