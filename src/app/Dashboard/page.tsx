@@ -2,15 +2,34 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import SavedCasts from '@/components/SavedCasts'
-import RecentCasts from '@/components/RecentCasts'
+import SavedCasts from '@/components/Saved            <button
+              onClick={() => setActiveView('mcp')}
+              className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                activeView === 'mcp'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              🤖 MCP Insights
+            </button>
+            <button
+              onClick={() => setActiveView('ai')}
+              className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                activeView === 'ai'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              🗣️ Ask Me
+            </button>tCasts from '@/components/RecentCasts'
 import AIChatPanel from '@/components/AIChatPanel'
 import VaultManager from '@/components/VaultManager'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
 import IntelligenceDashboard from '@/components/IntelligenceDashboard'
+import MCPInsightsPanel from '@/components/MCPInsightsPanel'
 
 export default function Dashboard() {
-  const [activeView, setActiveView] = useState<'recent' | 'all' | 'vaults' | 'ai' | 'analytics' | 'intelligence'>('recent')
+  const [activeView, setActiveView] = useState<'recent' | 'all' | 'vaults' | 'ai' | 'analytics' | 'intelligence' | 'mcp'>('recent')
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [currentUser, setCurrentUser] = useState<string>('demo-user')
 
@@ -131,6 +150,16 @@ export default function Dashboard() {
               🧠 @cstkpr
             </button>
             <button
+              onClick={() => setActiveView('mcp')}
+              className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                activeView === 'mcp'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              🤖 MCP Insights
+            </button>
+            <button
               onClick={() => setActiveView('ai')}
               className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
                 activeView === 'ai'
@@ -138,7 +167,7 @@ export default function Dashboard() {
                   : 'text-gray-300 hover:text-white'
               }`}
             >
-              🤖 Ask Me
+              💬 Ask Me
             </button>
           </div>
         </div>
@@ -178,6 +207,12 @@ export default function Dashboard() {
             <IntelligenceDashboard 
               userId={currentUser}
               key={`intelligence-${refreshTrigger}`}
+            />
+          )}
+          
+          {activeView === 'mcp' && (
+            <MCPInsightsPanel 
+              userId={currentUser}
             />
           )}
           

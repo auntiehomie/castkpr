@@ -1,0 +1,22 @@
+{
+  "name": "castkpr-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for enhanced cast analysis and insights",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@supabase/supabase-js": "^2.51.0",
+    "openai": "^5.10.1",
+    "date-fns": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}

@@ -4,12 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "next build && npm run build:mcp",
+    "build:mcp": "cd mcp-server && npm install && npm run build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "mcp:dev": "cd mcp-server && npm run dev",
+    "mcp:start": "cd mcp-server && npm start"
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.1.7",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@supabase/supabase-js": "^2.51.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.539.0",
