@@ -251,19 +251,28 @@ function CastPreviewCard({ cast }: { cast: SavedCast }) {
   )
 }
 
-function MCPInsightsSection({ userId }: { userId: string }) {
-  const [activeTab, setActiveTab] = useState<'analyze' | 'compare' | 'opinion'>('analyze')
+function MCPInsightsSection({ userId, savedCasts }: { userId: string; savedCasts: SavedCast[] }) {
+  const [activeTab, setActiveTab] = useState<'analyze' | 'compare' | 'opinion' | 'bulk'>('analyze')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   
   // Form states
-  const [castHash, setCastHash] = useState('')
-  const [castHash1, setCastHash1] = useState('')
-  const [castHash2, setCastHash2] = useState('')
+  const [selectedCast, setSelectedCast] = useState('')
+  const [selectedCast1, setSelectedCast1] = useState('')
+  const [selectedCast2, setSelectedCast2] = useState('')
   const [perspective, setPerspective] = useState('general')
 
+  // Get cast options for dropdowns
+  const castOptions = savedCasts.slice(0, 50).map(cast => ({
+    value: cast.cast_hash,
+    label: `@${cast.username}: ${cast.cast_content.slice(0, 60)}${cast.cast_content.length > 60 ? '...' : ''}`,
+    fullContent: cast.cast_content,
+    username: cast.username,
+    timestamp: cast.cast_timestamp
+  }))
+
   const analyzeCast = async () => {
-    if (!castHash) return
+    if (!selectedCast) return
     
     setLoading(true)
     setResult(null)
@@ -271,7 +280,7 @@ function MCPInsightsSection({ userId }: { userId: string }) {
       const response = await fetch('/api/mcp/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cast_hash: castHash, user_id: userId })
+        body: JSON.stringify({ cast_hash: selectedCast, user_id: userId })
       })
       
       const data = await response.json()
@@ -284,7 +293,7 @@ function MCPInsightsSection({ userId }: { userId: string }) {
   }
 
   const compareCasts = async () => {
-    if (!castHash1 || !castHash2) return
+    if (!selectedCast1 || !selectedCast2) return
     
     setLoading(true)
     setResult(null)
@@ -293,8 +302,8 @@ function MCPInsightsSection({ userId }: { userId: string }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          cast_hash_1: castHash1, 
-          cast_hash_2: castHash2,
+          cast_hash_1: selectedCast1, 
+          cast_hash_2: selectedCast2,
           user_id: userId 
         })
       })
@@ -330,6 +339,63 @@ function MCPInsightsSection({ userId }: { userId: string }) {
     }
   }
 
+  // Bulk analyze all saved casts
+  const analyzeAllCasts = async () => {
+    if (savedCasts.length === 0) return
+    
+    setLoading(true)
+    setResult(null)
+    try {
+      const results = []
+      // Analyze up to 10 recent casts to avoid overwhelming the API
+      const castsToAnalyze = savedCasts.slice(0, 10)
+      
+      for (const cast of castsToAnalyze) {
+        try {
+          const response = await fetch('/api/mcp/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cast_hash: cast.cast_hash, user_id: userId })
+          })
+          
+          const data = await response.json()
+          if (data.success) {
+            results.push({
+              cast: cast,
+              analysis: data.analysis
+            })
+          }
+          
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 500))
+        } catch (error) {
+          console.error('Error analyzing cast:', cast.cast_hash, error)
+        }
+      }
+      
+      setResult({ bulk_analysis: results, total_analyzed: results.length })
+    } catch (error) {
+      setResult({ error: 'Failed to analyze casts' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (savedCasts.length === 0) {
+    return (
+      <div className="bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
+        <h3 className="text-xl font-bold text-white mb-4">🤖 MCP-Powered Insights</h3>
+        <div className="text-center py-8">
+          <div className="text-4xl mb-4">📊</div>
+          <h4 className="text-lg font-semibold text-white mb-2">No Saved Casts</h4>
+          <p className="text-gray-400">
+            Save some casts first to use MCP insights and analysis tools
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
       <h3 className="text-xl font-bold text-white mb-6">🤖 MCP-Powered Insights</h3>
@@ -339,6 +405,7 @@ function MCPInsightsSection({ userId }: { userId: string }) {
         {[
           { id: 'analyze', label: 'Analyze Cast', icon: '🔍' },
           { id: 'compare', label: 'Compare Casts', icon: '⚖️' },
+          { id: 'bulk', label: 'Bulk Analysis', icon: '📊' },
           { id: 'opinion', label: 'Get Opinion', icon: '💭' }
         ].map((tab) => (
           <button
@@ -361,22 +428,27 @@ function MCPInsightsSection({ userId }: { userId: string }) {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-white mb-2">
-                Cast Hash (0x...)
+                Select Cast to Analyze
               </label>
-              <input
-                type="text"
-                value={castHash}
-                onChange={(e) => setCastHash(e.target.value)}
-                placeholder="Enter cast hash to analyze..."
-                className="w-full p-3 bg-black/30 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-              />
+              <select
+                value={selectedCast}
+                onChange={(e) => setSelectedCast(e.target.value)}
+                className="w-full p-3 bg-black/30 border border-gray-600 rounded-md text-white focus:border-purple-500 focus:outline-none"
+              >
+                <option value="">Choose a saved cast...</option>
+                {castOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <button
               onClick={analyzeCast}
-              disabled={loading || !castHash}
+              disabled={loading || !selectedCast}
               className="w-full py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-purple-600 hover:to-purple-700 transition-all"
             >
-              {loading ? '🔄 Analyzing...' : '🔍 Analyze Cast'}
+              {loading ? '🔄 Analyzing...' : '🔍 Analyze Selected Cast'}
             </button>
           </div>
         )}
@@ -385,34 +457,68 @@ function MCPInsightsSection({ userId }: { userId: string }) {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-white mb-2">
-                First Cast Hash (0x...)
+                First Cast to Compare
               </label>
-              <input
-                type="text"
-                value={castHash1}
-                onChange={(e) => setCastHash1(e.target.value)}
-                placeholder="Enter first cast hash..."
-                className="w-full p-3 bg-black/30 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-              />
+              <select
+                value={selectedCast1}
+                onChange={(e) => setSelectedCast1(e.target.value)}
+                className="w-full p-3 bg-black/30 border border-gray-600 rounded-md text-white focus:border-purple-500 focus:outline-none"
+              >
+                <option value="">Choose first cast...</option>
+                {castOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-white mb-2">
-                Second Cast Hash (0x...)
+                Second Cast to Compare
               </label>
-              <input
-                type="text"
-                value={castHash2}
-                onChange={(e) => setCastHash2(e.target.value)}
-                placeholder="Enter second cast hash..."
-                className="w-full p-3 bg-black/30 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-              />
+              <select
+                value={selectedCast2}
+                onChange={(e) => setSelectedCast2(e.target.value)}
+                className="w-full p-3 bg-black/30 border border-gray-600 rounded-md text-white focus:border-purple-500 focus:outline-none"
+              >
+                <option value="">Choose second cast...</option>
+                {castOptions.filter(option => option.value !== selectedCast1).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <button
               onClick={compareCasts}
-              disabled={loading || !castHash1 || !castHash2}
+              disabled={loading || !selectedCast1 || !selectedCast2}
               className="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-blue-600 hover:to-blue-700 transition-all"
             >
-              {loading ? '🔄 Comparing...' : '⚖️ Compare Casts'}
+              {loading ? '🔄 Comparing...' : '⚖️ Compare Selected Casts'}
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'bulk' && (
+          <div className="space-y-4">
+            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+              <h4 className="font-semibold text-white mb-2">📊 Bulk Analysis</h4>
+              <p className="text-gray-300 text-sm mb-4">
+                Analyze your top {Math.min(savedCasts.length, 10)} saved casts using MCP-powered insights. 
+                This will provide comprehensive analysis for each cast.
+              </p>
+              <div className="text-xs text-gray-400">
+                • Analyzes up to 10 most recent casts<br/>
+                • Each analysis includes content insights, sentiment, and topics<br/>
+                • Results are processed individually with rate limiting
+              </div>
+            </div>
+            <button
+              onClick={analyzeAllCasts}
+              disabled={loading || savedCasts.length === 0}
+              className="w-full py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-green-600 hover:to-green-700 transition-all"
+            >
+              {loading ? '🔄 Analyzing All Casts...' : `📊 Analyze Top ${Math.min(savedCasts.length, 10)} Casts`}
             </button>
           </div>
         )}
@@ -444,14 +550,55 @@ function MCPInsightsSection({ userId }: { userId: string }) {
 
       {/* Results */}
       {result && (
-        <div className="mt-6 p-4 bg-black/40 rounded-lg border border-gray-600">
+        <div className="mt-6">
           {result.error ? (
-            <div className="text-red-400">
-              ❌ Error: {result.error}
+            <div className="p-4 bg-red-500/20 rounded-lg border border-red-500/30">
+              <div className="text-red-400">
+                ❌ Error: {result.error}
+              </div>
+            </div>
+          ) : result.bulk_analysis ? (
+            <div className="space-y-4">
+              <div className="p-4 bg-green-500/20 rounded-lg border border-green-500/30">
+                <h4 className="text-lg font-semibold text-white mb-2">
+                  📊 Bulk Analysis Results
+                </h4>
+                <p className="text-green-300 text-sm">
+                  Successfully analyzed {result.total_analyzed} of your saved casts
+                </p>
+              </div>
+              
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {result.bulk_analysis.map((item: any, index: number) => (
+                  <div key={index} className="p-4 bg-white/5 rounded-lg border border-white/10">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="text-sm text-gray-400 flex-shrink-0">
+                        #{index + 1}
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm text-purple-300 font-medium">
+                          @{item.cast.username}
+                        </div>
+                        <div className="text-sm text-gray-300 line-clamp-2">
+                          {item.cast.cast_content}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-200 bg-black/30 rounded p-3 whitespace-pre-wrap">
+                      {typeof item.analysis === 'string' ? item.analysis : JSON.stringify(item.analysis, null, 2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
-            <div className="text-gray-200">
-              <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(result, null, 2)}</pre>
+            <div className="p-4 bg-black/40 rounded-lg border border-gray-600">
+              <h4 className="text-lg font-semibold text-white mb-3">
+                🔍 Analysis Results
+              </h4>
+              <div className="text-gray-200 bg-black/30 rounded p-3 whitespace-pre-wrap text-sm">
+                {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
+              </div>
             </div>
           )}
         </div>
@@ -863,7 +1010,7 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
       )}
 
       {activeSection === 'insights' && (
-        <MCPInsightsSection userId={userId} />
+        <MCPInsightsSection userId={userId} savedCasts={savedCasts} />
       )}
     </div>
   )
