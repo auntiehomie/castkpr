@@ -85,8 +85,8 @@ async function getTrendingCasts(): Promise<TrendingCast[]> {
   }
 
   try {
-    // Get trending casts from the last 24 hours
-    const response = await fetch('https://api.neynar.com/v2/farcaster/feed/trending?time_window=24h&limit=50', {
+    // Get trending casts from the last 24 hours (Neynar allows max 10 limit)
+    const response = await fetch('https://api.neynar.com/v2/farcaster/feed/trending?time_window=24h&limit=10', {
       headers: {
         'Accept': 'application/json',
         'api_key': NEYNAR_API_KEY,
@@ -148,10 +148,12 @@ async function getTrendingCasts(): Promise<TrendingCast[]> {
 // Generate original autonomous cast based on trending topics and saved cast analysis
 async function generateOriginalCast(trendingTopics: string[]): Promise<string | null> {
   try {
-    // Current context for inspiration
-    const currentHour = new Date().getHours()
+    // Current context for inspiration (use local timezone context)
+    const now = new Date()
+    const currentHour = now.getHours() // Local time
     const timeContext = currentHour < 12 ? 'morning' : currentHour < 17 ? 'afternoon' : 'evening'
-    const dayOfWeek = new Date().toLocaleDateString('en', { weekday: 'long' })
+    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }) // EST timezone
+    const isWeekend = now.getDay() === 0 || now.getDay() === 6
     
     // Get recent saved casts for analysis
     console.log('📚 Analyzing recent saved casts for content inspiration...')
@@ -209,7 +211,7 @@ Current trending topics on Farcaster: ${trendingTopics.length > 0 ? trendingTopi
 
 ${savedCastsInsights}
 
-Context: It's ${timeContext} on ${dayOfWeek}. ${timeBasedContext}
+Context: It's ${timeContext} on ${dayOfWeek}${isWeekend ? ' (weekend)' : ''} in Eastern Time. ${timeBasedContext}
 
 Generate an original cast that:
 - Shares your unique perspective as an AI that helps organize social media content
@@ -259,7 +261,10 @@ Your original cast:`
         cast = cast.replace(/\*\*/g, '') // Remove markdown bold
         cast = cast.replace(/\*/g, '') // Remove markdown emphasis
         cast = cast.replace(/#/g, '') // Remove markdown headers
+        cast = cast.replace(/^\d+\.\s*/g, '') // Remove numbered list formatting (e.g., "1. ")
+        cast = cast.replace(/^-\s*/g, '') // Remove bullet points
         cast = cast.split('\n')[0] // Take only first line if multiple
+        cast = cast.trim() // Clean up whitespace
       }
       
       if (cast && cast.length >= 50 && cast.length <= 280) {
