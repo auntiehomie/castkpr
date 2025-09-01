@@ -1,6 +1,7 @@
 // src/app/api/autonomous-cast/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { CstkprIntelligenceService } from '@/lib/supabase'
+import { CstkprIntelligenceService, CastService } from '@/lib/supabase'
+import { AutonomousCastScheduler } from '@/lib/autonomous-scheduler'
 
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY
 
@@ -31,7 +32,16 @@ async function postCastToFarcaster(text: string): Promise<boolean> {
     return false
   }
 
+  const signerUuid = process.env.NEYNAR_SIGNER_UUID
+  if (!signerUuid) {
+    console.error('❌ NEYNAR_SIGNER_UUID not configured')
+    return false
+  }
+
   try {
+    console.log('📤 Attempting to post cast to Farcaster...')
+    console.log('🔑 Using signer UUID:', signerUuid.substring(0, 8) + '...')
+    
     const response = await fetch('https://api.neynar.com/v2/farcaster/cast', {
       method: 'POST',
       headers: {
@@ -40,18 +50,25 @@ async function postCastToFarcaster(text: string): Promise<boolean> {
         'api_key': NEYNAR_API_KEY,
       },
       body: JSON.stringify({
-        signer_uuid: process.env.NEYNAR_SIGNER_UUID, // You'll need to set this
+        signer_uuid: signerUuid,
         text: text,
       }),
     })
 
     if (response.ok) {
       const result = await response.json()
-      console.log('✅ Successfully posted cast:', result.cast.hash)
+      console.log('✅ Successfully posted cast:', result.cast?.hash)
       return true
     } else {
       const error = await response.text()
       console.error('❌ Failed to post cast:', response.status, error)
+      
+      // Specific error handling for signer issues
+      if (response.status === 404 && error.includes('Signer not found')) {
+        console.error('🔑 Signer UUID is invalid or expired. Please check NEYNAR_SIGNER_UUID in your environment file.')
+        console.error('💡 You may need to create a new signer at https://dev.neynar.com/app')
+      }
+      
       return false
     }
   } catch (error) {
@@ -128,7 +145,7 @@ async function getTrendingCasts(): Promise<TrendingCast[]> {
   }
 }
 
-// Generate original autonomous cast based on trending topics
+// Generate original autonomous cast based on trending topics and saved cast analysis
 async function generateOriginalCast(trendingTopics: string[]): Promise<string | null> {
   try {
     // Current context for inspiration
@@ -136,23 +153,76 @@ async function generateOriginalCast(trendingTopics: string[]): Promise<string | 
     const timeContext = currentHour < 12 ? 'morning' : currentHour < 17 ? 'afternoon' : 'evening'
     const dayOfWeek = new Date().toLocaleDateString('en', { weekday: 'long' })
     
+    // Get recent saved casts for analysis
+    console.log('📚 Analyzing recent saved casts for content inspiration...')
+    let savedCastsInsights = ''
+    try {
+      const recentCasts = await CastService.getAllRecentCasts(20)
+      if (recentCasts.length > 0) {
+        // Analyze common topics and patterns in saved casts
+        const allTopics = new Set<string>()
+        const contentTypes = new Map<string, number>()
+        let totalEngagement = 0
+        
+        recentCasts.forEach(cast => {
+          // Extract topics from saved casts
+          if (cast.parsed_data?.topics) {
+            cast.parsed_data.topics.forEach(topic => allTopics.add(topic))
+          }
+          
+          // Track content types
+          if (cast.parsed_data?.urls && cast.parsed_data.urls.length > 0) {
+            contentTypes.set('links', (contentTypes.get('links') || 0) + 1)
+          }
+          if (cast.parsed_data?.hashtags && cast.parsed_data.hashtags.length > 0) {
+            contentTypes.set('hashtags', (contentTypes.get('hashtags') || 0) + 1)
+          }
+          
+          totalEngagement += (cast.likes_count + cast.replies_count + cast.recasts_count)
+        })
+        
+        const popularSavedTopics = Array.from(allTopics).slice(0, 5)
+        const avgEngagement = Math.round(totalEngagement / recentCasts.length)
+        
+        savedCastsInsights = `Based on ${recentCasts.length} recently saved casts, popular topics include: ${popularSavedTopics.join(', ')}. Average engagement: ${avgEngagement}. `
+        
+        if (contentTypes.size > 0) {
+          const topContentType = Array.from(contentTypes.entries()).sort((a, b) => b[1] - a[1])[0]
+          savedCastsInsights += `Most saved content type: ${topContentType[0]}. `
+        }
+        
+        console.log('📊 Saved casts analysis:', savedCastsInsights)
+      }
+    } catch (error) {
+      console.log('⚠️ Could not analyze saved casts:', error)
+    }
+    
+    // Check if it's a good time to post based on engagement patterns
+    const isOptimalTime = AutonomousCastScheduler.isGoodTimeToPost()
+    const timeBasedContext = isOptimalTime ? 
+      'This is a peak engagement time, so craft something that sparks conversation.' :
+      'This is a quieter time, so share a more thoughtful observation.'
+    
     const prompt = `You are CastKPR, an AI assistant focused on analyzing and organizing Farcaster content. You're posting an original thought to the Farcaster network.
 
 Current trending topics on Farcaster: ${trendingTopics.length > 0 ? trendingTopics.join(', ') : 'technology, social media, AI'}
 
-Context: It's ${timeContext} on ${dayOfWeek}
+${savedCastsInsights}
+
+Context: It's ${timeContext} on ${dayOfWeek}. ${timeBasedContext}
 
 Generate an original cast that:
-- Shares your perspective as an AI that helps organize social media content
-- Can reference trending topics but don't just repeat them
-- Offers insight about social media, content organization, or digital trends
+- Shares your unique perspective as an AI that helps organize social media content
+- Can reference trending topics or saved cast patterns but adds your own insight
+- Offers thoughtful observations about information consumption, content curation, or digital behavior
 - Is conversational and authentic (no corporate speak)
 - No markdown formatting or emojis
 - MUST be between 80-280 characters (this is critical for Farcaster)
-- Could include observations about how people share content, organize information, or discover insights
-- Should feel like a genuine thought, not a promotional message
+- Could include insights about how people discover, save, and organize information
+- Should feel like a genuine observation from an AI curator, not a promotional message
+- Consider the timing and engagement context
 
-Keep it concise and punchy. Aim for 150-200 characters for best engagement.
+Generate 3 different options and pick the best one based on relevance and engagement potential.
 
 Your original cast:`
 
@@ -167,27 +237,44 @@ Your original cast:`
         messages: [
           {
             role: 'system',
-            content: 'You are CastKPR, an AI that helps people organize and analyze their saved social media content. You have thoughtful perspectives on information management, content discovery, and digital organization. Be authentic and conversational, never promotional.'
+            content: 'You are CastKPR, an AI that helps people organize and analyze their saved social media content. You have thoughtful perspectives on information management, content discovery, and digital organization. Be authentic and conversational, never promotional. Focus on insights about how people interact with information.'
           },
           {
             role: 'user',
             content: prompt
           }
         ],
-        max_tokens: 80, // Reduced to ensure shorter output
-        temperature: 0.8,
+        max_tokens: 120, // Increased slightly for better generation
+        temperature: 0.7, // Reduced for more focused content
       }),
     })
 
     if (response.ok) {
       const data = await response.json()
-      const cast = data.choices[0]?.message?.content?.trim()
+      let cast = data.choices[0]?.message?.content?.trim()
       
-      if (cast && cast.length >= 20 && cast.length <= 280) {
+      // Clean up any unwanted formatting
+      if (cast) {
+        cast = cast.replace(/["'`]/g, '') // Remove quotes
+        cast = cast.replace(/\*\*/g, '') // Remove markdown bold
+        cast = cast.replace(/\*/g, '') // Remove markdown emphasis
+        cast = cast.replace(/#/g, '') // Remove markdown headers
+        cast = cast.split('\n')[0] // Take only first line if multiple
+      }
+      
+      if (cast && cast.length >= 50 && cast.length <= 280) {
         console.log(`✅ Generated original cast (${cast.length} chars): "${cast}"`)
-        return cast
+        
+        // Validate content quality
+        const validation = AutonomousCastScheduler.validateContent(cast)
+        if (validation.valid) {
+          return cast
+        } else {
+          console.log('⚠️ Generated cast failed validation:', validation.reason)
+          return null
+        }
       } else {
-        console.log('⚠️ Generated cast was too short or too long:', cast?.length, cast)
+        console.log('⚠️ Generated cast was wrong length:', cast?.length, cast)
         // Try to truncate if too long
         if (cast && cast.length > 280) {
           const truncated = cast.substring(0, 277) + '...'
@@ -266,20 +353,34 @@ export async function POST(request: NextRequest) {
 
     console.log(`💭 Generated original cast: "${originalCast}"`)
 
-    // Post the cast
-    const success = await postCastToFarcaster(originalCast)
+    // Post the cast (or simulate in development)
+    let success = false
+    
+    if (isDevelopment && (!process.env.NEYNAR_SIGNER_UUID || process.env.NEYNAR_SIGNER_UUID.length < 30)) {
+      // Simulate successful posting in development if signer is not properly configured
+      console.log('🧪 Development mode: Simulating successful cast posting')
+      console.log('💡 To actually post, update NEYNAR_SIGNER_UUID in .env.local with a valid signer from https://dev.neynar.com/app')
+      success = true
+    } else {
+      success = await postCastToFarcaster(originalCast)
+    }
     
     if (success) {
       return NextResponse.json({
         success: true,
-        message: 'Original autonomous cast posted successfully',
+        message: isDevelopment && (!process.env.NEYNAR_SIGNER_UUID || process.env.NEYNAR_SIGNER_UUID.length < 30) ? 
+          'Autonomous cast generated successfully (simulated posting in dev mode)' : 
+          'Original autonomous cast posted successfully',
         cast: originalCast,
-        inspired_by_topics: trendingTopics.length > 0 ? trendingTopics : ['general discussion']
+        inspired_by_topics: trendingTopics.length > 0 ? trendingTopics : ['general discussion'],
+        mode: isDevelopment ? 'development' : 'production'
       })
     } else {
       return NextResponse.json({ 
         success: false, 
-        message: 'Failed to post cast to Farcaster' 
+        message: 'Failed to post cast to Farcaster',
+        cast: originalCast,
+        note: 'Cast was generated but posting failed - check signer configuration'
       })
     }
 

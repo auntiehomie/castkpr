@@ -6,16 +6,19 @@ export class AutonomousCastScheduler {
   // Check if it's a good time to post (avoid spam, respect community hours)
   static isGoodTimeToPost(): boolean {
     const now = new Date()
-    const hour = now.getHours() // 0-23
+    const hour = now.getHours() // Use local time instead of UTC
     const dayOfWeek = now.getDay() // 0 = Sunday, 6 = Saturday
     
-    // Post during active hours (6 AM - 10 PM UTC, weekdays preferred)
-    const isActiveHour = hour >= 6 && hour <= 22
-    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5
+    // Post during active hours (6 AM - 11 PM local time)
+    const isActiveHour = hour >= 6 && hour <= 23
     
-    // Boost score for peak times
+    // Peak times in local timezone (9-11 AM, 2-5 PM, 7-9 PM local)
     const isPeakTime = (hour >= 9 && hour <= 11) || (hour >= 14 && hour <= 17) || (hour >= 19 && hour <= 21)
     
+    // Weekdays are generally better, but peak times on weekends are okay
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5
+    
+    // Allow posting during active hours, with preference for peak times and weekdays
     return isActiveHour && (isWeekday || isPeakTime)
   }
 
@@ -24,16 +27,16 @@ export class AutonomousCastScheduler {
     // Return hours between posts
     const baseInterval = 6 // Every 6 hours as baseline
     const now = new Date()
-    const hour = now.getHours()
+    const hour = now.getHours() // Use local time
     
     // Post more frequently during peak hours
     if ((hour >= 9 && hour <= 11) || (hour >= 14 && hour <= 17) || (hour >= 19 && hour <= 21)) {
-      return baseInterval * 0.75 // 4.5 hours during peak
+      return 4 // 4 hours during peak times
     }
     
     // Less frequent during off-peak
     if (hour >= 22 || hour <= 6) {
-      return baseInterval * 2 // 12 hours during night/early morning
+      return 12 // 12 hours during night/early morning
     }
     
     return baseInterval
@@ -41,14 +44,37 @@ export class AutonomousCastScheduler {
 
   // Generate cron schedule for autonomous posting
   static generateCronSchedule(): string {
-    // Post 3-4 times per day at strategic times
-    // 9 AM, 2 PM, 7 PM UTC (adjust for your timezone)
-    return '0 9,14,19 * * *' // Every day at 9:00, 14:00, 19:00 UTC
+    // Post 4 times per day at strategic times
+    // 9 AM, 2 PM, 7 PM, 11 PM UTC (covers different global timezones)
+    return '0 9,14,19,23 * * *' // Every day at 9:00, 14:00, 19:00, 23:00 UTC
+  }
+
+  // Get optimal posting times for today
+  static getOptimalPostingTimes(): Date[] {
+    const now = new Date()
+    const times: Date[] = []
+    
+    // Morning: 9-11 AM UTC
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0))
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 30))
+    
+    // Afternoon: 2-5 PM UTC  
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0))
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 16, 30))
+    
+    // Evening: 7-9 PM UTC
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0))
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 20, 30))
+    
+    // Late evening: 11 PM UTC (good for US West Coast)
+    times.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 0))
+    
+    return times.filter(time => time > now) // Only future times
   }
 
   // Webhook URL for triggering autonomous posts
   static getWebhookUrl(baseUrl: string): string {
-    return `${baseUrl}/api/autonomous-cast`
+    return `${baseUrl}/api/cron/autonomous-cast`
   }
 
   // Example of how to set up with cron service
@@ -61,15 +87,14 @@ export class AutonomousCastScheduler {
     description: string
   } {
     return {
-      service: 'cron-job.org or similar',
+      service: 'cron-job.org or EasyCron',
       schedule: this.generateCronSchedule(),
-      url: 'https://your-domain.com/api/autonomous-cast',
-      method: 'POST',
+      url: 'https://castkpr.vercel.app/api/cron/autonomous-cast?secret=YOUR_SECRET',
+      method: 'GET',
       headers: {
-        'Authorization': 'Bearer YOUR_AUTONOMOUS_CAST_SECRET',
-        'Content-Type': 'application/json'
+        'User-Agent': 'CastKPR-Cron/1.0'
       },
-      description: 'Triggers CastKPR to generate and post autonomous content based on trending casts'
+      description: 'Triggers CastKPR to generate and post autonomous content based on trending topics and saved cast analysis'
     }
   }
 
@@ -87,7 +112,9 @@ export class AutonomousCastScheduler {
         'Comment on social media trends and community behavior',
         'Ask thoughtful questions about information sharing',
         'Be authentic and conversational as an AI helper',
-        'Connect observations about trending topics'
+        'Connect observations about trending topics',
+        'Reference patterns observed in saved casts',
+        'Provide value through unique AI perspective on content curation'
       ],
       donts: [
         'Simply respond to or quote other casts',
@@ -95,7 +122,8 @@ export class AutonomousCastScheduler {
         'Be promotional about CastKPR features',
         'Post generic motivational content',
         'Spam or post too frequently',
-        'Copy other bots or accounts'
+        'Copy other bots or accounts',
+        'Generate empty or low-value observations'
       ],
       topics: [
         'Information organization and discovery',
@@ -104,6 +132,9 @@ export class AutonomousCastScheduler {
         'AI and technology insights',
         'Community building observations',
         'Content curation thoughts',
+        'Data analysis and patterns',
+        'Future of social media',
+        'Information consumption habits',
         'General cultural commentary'
       ],
       style: [
@@ -112,7 +143,9 @@ export class AutonomousCastScheduler {
         'Conversational tone, not corporate',
         'Clear and concise language',
         'No emojis or markdown formatting',
-        '80-280 characters optimal length'
+        '80-280 characters optimal length',
+        'Engaging but not clickbait',
+        'Authentic AI voice with unique insights'
       ]
     }
   }
@@ -161,7 +194,9 @@ export class AutonomousCastScheduler {
       /\?\?{3,}/, // Excessive question marks
       /check out/i, // Promotional language
       /click here/i,
-      /follow me/i
+      /follow me/i,
+      /subscribe/i,
+      /like and share/i
     ]
 
     for (const pattern of spamPatterns) {
@@ -170,6 +205,42 @@ export class AutonomousCastScheduler {
       }
     }
 
+    // Check for authenticity (avoid generic content)
+    const genericPatterns = [
+      /good morning everyone/i,
+      /have a great day/i,
+      /hope everyone is doing well/i,
+      /what do you think/i // This is overused
+    ]
+
+    for (const pattern of genericPatterns) {
+      if (pattern.test(trimmed)) {
+        return { valid: false, reason: 'Content appears generic or overused' }
+      }
+    }
+
     return { valid: true }
+  }
+
+  // Get engagement metrics for timing decisions
+  static getEngagementScore(): number {
+    const now = new Date()
+    const hour = now.getUTCHours()
+    const dayOfWeek = now.getUTCDay()
+    
+    let score = 0.5 // Base score
+    
+    // Hour-based scoring
+    if (hour >= 9 && hour <= 11) score += 0.3 // Morning peak
+    if (hour >= 14 && hour <= 17) score += 0.4 // Afternoon peak  
+    if (hour >= 19 && hour <= 21) score += 0.3 // Evening peak
+    if (hour >= 6 && hour <= 8) score += 0.1 // Early morning
+    if (hour >= 22 && hour <= 23) score += 0.2 // Late evening
+    
+    // Day-based scoring
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) score += 0.2 // Weekdays
+    if (dayOfWeek === 2 || dayOfWeek === 3 || dayOfWeek === 4) score += 0.1 // Mid-week bonus
+    
+    return Math.min(score, 1.0) // Cap at 1.0
   }
 }

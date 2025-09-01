@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "next lint",
     "mcp:dev": "cd mcp-server && npm run dev",
-    "mcp:start": "cd mcp-server && npm start"
+    "mcp:start": "cd mcp-server && npm start",
+    "setup:autonomous": "node setup-autonomous-casting.js",
+    "test:autonomous": "echo 'Visit http://localhost:3000/autonomous-cast-tester to test autonomous casting'"
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.1.7",

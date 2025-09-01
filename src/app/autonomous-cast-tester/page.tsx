@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AutonomousCastScheduler } from '@/lib/autonomous-scheduler'
 
 interface AutonomousCastResult {
@@ -8,6 +8,15 @@ interface AutonomousCastResult {
   message: string
   cast?: string
   inspired_by_topics?: string[]
+  postedAt?: string
+  nextPostAfter?: string
+}
+
+interface SchedulerStatus {
+  active: boolean
+  interval: string | null
+  isGoodTimeToPost: boolean
+  cronSchedule: string
 }
 
 export default function AutonomousCastTester() {
@@ -15,6 +24,25 @@ export default function AutonomousCastTester() {
   const [loading, setLoading] = useState(false)
   const [testContent, setTestContent] = useState('')
   const [contentValidation, setContentValidation] = useState<{ valid: boolean; reason?: string } | null>(null)
+  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
+  const [scheduleLoading, setScheduleLoading] = useState(false)
+
+  // Fetch scheduler status on component mount
+  useEffect(() => {
+    fetchSchedulerStatus()
+  }, [])
+
+  const fetchSchedulerStatus = async () => {
+    try {
+      const response = await fetch('/api/dev-scheduler')
+      const data = await response.json()
+      if (data.status) {
+        setSchedulerStatus(data.status)
+      }
+    } catch (error) {
+      console.error('Error fetching scheduler status:', error)
+    }
+  }
 
   const triggerAutonomousCast = async () => {
     setLoading(true)
@@ -25,9 +53,8 @@ export default function AutonomousCastTester() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_AUTONOMOUS_CAST_SECRET || 'CSTKPR_AUTO_CAST_SECRET_2024'}`,
         },
-        // Note: In production, you would need to implement proper authentication
-        // This test interface works without auth for development purposes
       })
 
       const data = await response.json()
@@ -42,6 +69,33 @@ export default function AutonomousCastTester() {
     }
   }
 
+  const toggleDevScheduler = async (action: 'start' | 'stop' | 'trigger') => {
+    setScheduleLoading(true)
+    try {
+      const response = await fetch('/api/dev-scheduler', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action })
+      })
+
+      const data = await response.json()
+      console.log('Scheduler action result:', data)
+      
+      // Refresh status
+      await fetchSchedulerStatus()
+      
+      if (action === 'trigger' && data.cast) {
+        setResult(data)
+      }
+    } catch (error) {
+      console.error('Error controlling scheduler:', error)
+    } finally {
+      setScheduleLoading(false)
+    }
+  }
+
   const validateTestContent = () => {
     const validation = AutonomousCastScheduler.validateContent(testContent)
     setContentValidation(validation)
@@ -51,12 +105,13 @@ export default function AutonomousCastTester() {
   const recommendedInterval = AutonomousCastScheduler.getRecommendedPostingInterval()
   const cronSchedule = AutonomousCastScheduler.generateCronSchedule()
   const guidelines = AutonomousCastScheduler.getContentGuidelines()
+  const optimalTimes = AutonomousCastScheduler.getOptimalPostingTimes()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-8">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold text-white mb-8">
-          CastKPR Autonomous Cast Tester
+          CastKPR Autonomous Cast Control Center
         </h1>
 
         {/* Status Panel */}
@@ -67,15 +122,55 @@ export default function AutonomousCastTester() {
               <p><strong>Good time to post:</strong> {isGoodTime ? '✅ Yes' : '❌ No'}</p>
               <p><strong>Recommended interval:</strong> {recommendedInterval} hours</p>
               <p><strong>Cron schedule:</strong> <code className="bg-black/30 px-2 py-1 rounded">{cronSchedule}</code></p>
+              <p><strong>Dev scheduler:</strong> {schedulerStatus?.active ? '🟢 Running' : '🔴 Stopped'}</p>
             </div>
             <div>
               <p><strong>Current time:</strong> {new Date().toLocaleString()}</p>
-              <p><strong>Next scheduled:</strong> Based on cron schedule</p>
+              <p><strong>Next optimal times:</strong></p>
+              <ul className="text-sm ml-4">
+                {optimalTimes.slice(0, 3).map((time, i) => (
+                  <li key={i}>• {time.toLocaleTimeString()}</li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>
 
-        {/* Trigger Panel */}
+        {/* Development Scheduler Control */}
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 mb-6">
+          <h2 className="text-2xl font-semibold text-white mb-4">Development Scheduler</h2>
+          <div className="flex gap-4 mb-4">
+            <button
+              onClick={() => toggleDevScheduler('start')}
+              disabled={scheduleLoading || schedulerStatus?.active}
+              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+            >
+              {scheduleLoading ? '⏳' : '▶️'} Start Auto-Scheduler
+            </button>
+            <button
+              onClick={() => toggleDevScheduler('stop')}
+              disabled={scheduleLoading || !schedulerStatus?.active}
+              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+            >
+              {scheduleLoading ? '⏳' : '⏹️'} Stop Auto-Scheduler
+            </button>
+            <button
+              onClick={() => toggleDevScheduler('trigger')}
+              disabled={scheduleLoading}
+              className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+            >
+              {scheduleLoading ? '⏳' : '⚡'} Force Trigger Now
+            </button>
+          </div>
+          <p className="text-gray-400 text-sm">
+            The development scheduler runs locally and will automatically post during optimal times.
+            {schedulerStatus?.active && (
+              <span className="text-green-400"> Currently checking every {schedulerStatus.interval}.</span>
+            )}
+          </p>
+        </div>
+
+        {/* Manual Trigger Panel */}
         <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 mb-6">
           <h2 className="text-2xl font-semibold text-white mb-4">Manual Trigger</h2>
           <button
@@ -95,15 +190,23 @@ export default function AutonomousCastTester() {
               
               {result.cast && (
                 <div className="bg-black/30 p-3 rounded mt-2">
-                  <h4 className="text-white font-semibold mb-1">Generated Original Cast:</h4>
-                  <p className="text-gray-200">"{result.cast}"</p>
+                  <p className="text-white font-mono text-sm">"{result.cast}"</p>
+                  <p className="text-gray-400 text-xs mt-1">
+                    Length: {result.cast.length} characters
+                    {result.inspired_by_topics && (
+                      <span> • Topics: {result.inspired_by_topics.join(', ')}</span>
+                    )}
+                  </p>
                 </div>
               )}
-
-              {result.inspired_by_topics && result.inspired_by_topics.length > 0 && (
-                <div className="mt-2 text-sm text-gray-400">
-                  <p><strong>Inspired by trending topics:</strong> {result.inspired_by_topics.join(', ')}</p>
-                </div>
+              
+              {result.postedAt && (
+                <p className="text-gray-400 text-sm mt-2">
+                  Posted at: {new Date(result.postedAt).toLocaleString()}
+                  {result.nextPostAfter && (
+                    <span> • Next post after: {new Date(result.nextPostAfter).toLocaleString()}</span>
+                  )}
+                </p>
               )}
             </div>
           )}
