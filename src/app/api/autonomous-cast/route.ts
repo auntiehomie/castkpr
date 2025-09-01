@@ -148,12 +148,17 @@ async function getTrendingCasts(): Promise<TrendingCast[]> {
 // Generate original autonomous cast based on trending topics and saved cast analysis
 async function generateOriginalCast(trendingTopics: string[]): Promise<string | null> {
   try {
-    // Current context for inspiration (use local timezone context)
+    // Current context for inspiration (use proper timezone detection)
     const now = new Date()
-    const currentHour = now.getHours() // Local time
+    
+    // Get Eastern Time properly
+    const easternTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
+    const currentHour = easternTime.getHours()
     const timeContext = currentHour < 12 ? 'morning' : currentHour < 17 ? 'afternoon' : 'evening'
-    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }) // EST timezone
-    const isWeekend = now.getDay() === 0 || now.getDay() === 6
+    const dayOfWeek = easternTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' })
+    const isWeekend = easternTime.getDay() === 0 || easternTime.getDay() === 6
+    
+    console.log(`🕐 Current Eastern Time: ${easternTime.toLocaleString()}, Hour: ${currentHour}, Day: ${dayOfWeek}`)
     
     // Get recent saved casts for analysis
     console.log('📚 Analyzing recent saved casts for content inspiration...')

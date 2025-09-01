@@ -5,21 +5,29 @@ export class AutonomousCastScheduler {
   
   // Check if it's a good time to post (avoid spam, respect community hours)
   static isGoodTimeToPost(): boolean {
+    // Get Eastern Time properly
     const now = new Date()
-    const hour = now.getHours() // Use local time instead of UTC
-    const dayOfWeek = now.getDay() // 0 = Sunday, 6 = Saturday
+    const easternTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
+    const hour = easternTime.getHours()
+    const dayOfWeek = easternTime.getDay() // 0 = Sunday, 6 = Saturday
+    const dayName = easternTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' })
     
-    // Post during active hours (6 AM - 11 PM local time)
+    console.log(`🕐 Checking Eastern Time: ${easternTime.toLocaleString()}, Hour: ${hour}, Day: ${dayName}`)
+    
+    // Post during active hours (6 AM - 11 PM Eastern)
     const isActiveHour = hour >= 6 && hour <= 23
     
-    // Peak times in local timezone (9-11 AM, 2-5 PM, 7-9 PM local)
+    // Peak times in Eastern timezone (9-11 AM, 2-5 PM, 7-9 PM)
     const isPeakTime = (hour >= 9 && hour <= 11) || (hour >= 14 && hour <= 17) || (hour >= 19 && hour <= 21)
     
     // Weekdays are generally better, but peak times on weekends are okay
     const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5
     
     // Allow posting during active hours, with preference for peak times and weekdays
-    return isActiveHour && (isWeekday || isPeakTime)
+    const canPost = isActiveHour && (isWeekday || isPeakTime)
+    console.log(`📅 Timing check: ${canPost ? 'GOOD' : 'BAD'} (${hour}:00 EST on ${dayName}, active: ${isActiveHour}, peak: ${isPeakTime}, weekday: ${isWeekday})`)
+    
+    return canPost
   }
 
   // Calculate posting frequency based on engagement and community activity
@@ -27,7 +35,8 @@ export class AutonomousCastScheduler {
     // Return hours between posts
     const baseInterval = 6 // Every 6 hours as baseline
     const now = new Date()
-    const hour = now.getHours() // Use local time
+    const easternTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
+    const hour = easternTime.getHours()
     
     // Post more frequently during peak hours
     if ((hour >= 9 && hour <= 11) || (hour >= 14 && hour <= 17) || (hour >= 19 && hour <= 21)) {
