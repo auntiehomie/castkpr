@@ -58,6 +58,7 @@ export class MCPClient {
       }
 
       let responseData = ''
+      let timeoutId: NodeJS.Timeout
       
       const onData = (data: Buffer) => {
         responseData += data.toString()
@@ -66,6 +67,7 @@ export class MCPClient {
           const response = JSON.parse(responseData)
           if (response.id === requestId) {
             this.process.stdout.removeListener('data', onData)
+            clearTimeout(timeoutId)
             
             if (response.error) {
               reject(new Error(response.error.message))
@@ -78,14 +80,30 @@ export class MCPClient {
         }
       }
 
-      this.process.stdout.on('data', onData)
-      this.process.stdin.write(JSON.stringify(request) + '\n')
-      
-      // Timeout after 30 seconds
-      setTimeout(() => {
+      const onError = (error: any) => {
         this.process.stdout.removeListener('data', onData)
+        this.process.removeListener('error', onError)
+        clearTimeout(timeoutId)
+        reject(new Error(`MCP process error: ${error.message}`))
+      }
+
+      this.process.stdout.on('data', onData)
+      this.process.on('error', onError)
+      
+      try {
+        this.process.stdin.write(JSON.stringify(request) + '\n')
+      } catch (writeError) {
+        clearTimeout(timeoutId)
+        reject(new Error(`Failed to write to MCP process: ${writeError}`))
+        return
+      }
+      
+      // Reduced timeout to 10 seconds
+      timeoutId = setTimeout(() => {
+        this.process.stdout.removeListener('data', onData)
+        this.process.removeListener('error', onError)
         reject(new Error('MCP request timeout'))
-      }, 30000)
+      }, 10000)
     })
   }
 
