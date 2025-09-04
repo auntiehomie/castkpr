@@ -646,11 +646,13 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
 
       let totalProcessed = 0
       let totalEnhanced = 0
+      let totalBatchesProcessed = 0
       let offset = 0
       const batchSize = 20
 
       while (true) {
-        console.log(`🔄 Processing batch starting at offset ${offset}`)
+        totalBatchesProcessed++
+        console.log(`🔄 Processing batch ${totalBatchesProcessed} starting at offset ${offset}`)
         
         const response = await fetch('/api/enhance-casts', {
           method: 'POST',
@@ -668,18 +670,30 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
           throw new Error(result.error || 'Enhancement failed')
         }
 
+        // Log detailed batch results
+        console.log(`📊 Batch ${totalBatchesProcessed} results:`, {
+          enhanced: result.enhanced,
+          processed: result.processed,
+          hasMore: result.hasMore,
+          nextOffset: result.nextOffset,
+          debug: result.debug
+        })
+
         totalProcessed += result.processed
         totalEnhanced += result.enhanced
         
+        // Update progress using the actual total from the API
+        const actualTotal = result.debug?.allCastsCount || savedCasts.length
         setEnhancementProgress({
-          processed: totalProcessed,
-          total: Math.max(savedCasts.length, totalProcessed)
+          processed: result.debug?.nextOffset || (offset + batchSize),
+          total: actualTotal
         })
 
-        console.log(`✅ Batch complete: ${result.enhanced}/${result.processed} enhanced`)
+        console.log(`✅ Batch ${totalBatchesProcessed} complete: ${result.enhanced}/${result.processed} enhanced (${totalEnhanced} total enhanced so far)`)
 
-        // Check if we're done
-        if (!result.hasMore || result.processed < batchSize) {
+        // Check if we're done using the corrected hasMore logic
+        if (!result.hasMore) {
+          console.log(`🏁 All batches complete! Processed ${totalBatchesProcessed} batches`)
           break
         }
 
@@ -690,7 +704,7 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
       }
 
       setEnhancementResults(
-        `🎯 Enhancement complete! Enhanced ${totalEnhanced} out of ${totalProcessed} processed casts.`
+        `🎯 Enhancement complete! Enhanced ${totalEnhanced} casts out of ${totalProcessed} that needed enhancement. Processed ${totalBatchesProcessed} batches total.`
       )
 
       // Refresh the casts to show updated analytics

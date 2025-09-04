@@ -101,15 +101,31 @@ export async function POST(request: NextRequest) {
 
     console.log(`🎯 Enhancement complete: ${enhanced} enhanced, ${failed} failed`)
 
+    // Check if there are more casts to process
+    const hasMore = (offset + limit) < allCasts.length
+    const nextOffset = offset + limit
+
+    console.log(`📊 Batch summary: processed ${castsNeedingEnhancement.length} needing enhancement out of ${casts.length} total in batch`)
+    console.log(`📈 Overall progress: ${nextOffset}/${allCasts.length} casts processed, hasMore: ${hasMore}`)
+
     return NextResponse.json({
       success: true,
       processed: castsNeedingEnhancement.length,
       enhanced,
       failed,
       totalCasts: casts.length,
-      hasMore: casts.length === limit,
-      nextOffset: offset + limit,
-      results
+      hasMore,
+      nextOffset,
+      results,
+      // Additional debug info
+      debug: {
+        allCastsCount: allCasts.length,
+        currentBatchSize: casts.length,
+        offset,
+        limit,
+        nextOffset,
+        hasMore
+      }
     })
 
   } catch (error) {
