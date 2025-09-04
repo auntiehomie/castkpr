@@ -255,6 +255,11 @@ export default function AnalyticsDashboard({ userId = 'demo-user' }: AnalyticsDa
   const [casts, setCasts] = useState<SavedCast[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Enhancement state
+  const [isEnhancing, setIsEnhancing] = useState(false)
+  const [enhancementProgress, setEnhancementProgress] = useState({ processed: 0, total: 0 })
+  const [enhancementResults, setEnhancementResults] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -272,6 +277,78 @@ export default function AnalyticsDashboard({ userId = 'demo-user' }: AnalyticsDa
 
     fetchData()
   }, [userId])
+
+  // Enhancement function to add AI analysis to existing casts
+  const handleEnhanceCasts = async (): Promise<void> => {
+    if (!userId || isEnhancing) return
+
+    try {
+      setIsEnhancing(true)
+      setEnhancementResults(null)
+      setEnhancementProgress({ processed: 0, total: casts.length })
+
+      let totalProcessed = 0
+      let totalEnhanced = 0
+      let offset = 0
+      const batchSize = 20
+
+      while (true) {
+        console.log(`🔄 Processing batch starting at offset ${offset}`)
+        
+        const response = await fetch('/api/enhance-casts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            limit: batchSize,
+            offset
+          })
+        })
+
+        const result = await response.json()
+
+        if (!result.success) {
+          throw new Error(result.error || 'Enhancement failed')
+        }
+
+        totalProcessed += result.processed
+        totalEnhanced += result.enhanced
+        
+        setEnhancementProgress({
+          processed: totalProcessed,
+          total: Math.max(casts.length, totalProcessed)
+        })
+
+        console.log(`✅ Batch complete: ${result.enhanced}/${result.processed} enhanced`)
+
+        // Check if we're done
+        if (!result.hasMore || result.processed < batchSize) {
+          break
+        }
+
+        offset = result.nextOffset
+        
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+
+      setEnhancementResults(
+        `🎯 Enhancement complete! Enhanced ${totalEnhanced} out of ${totalProcessed} processed casts.`
+      )
+
+      // Refresh the casts to show updated analytics
+      const refreshedCasts = await CastService.getUserCasts(userId, 200)
+      setCasts(refreshedCasts)
+
+    } catch (error) {
+      console.error('❌ Enhancement failed:', error)
+      setEnhancementResults(
+        `❌ Enhancement failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    } finally {
+      setIsEnhancing(false)
+    }
+  }
 
   const analyticsData: AnalyticsData = useMemo(() => {
     if (casts.length === 0) {
@@ -480,11 +557,65 @@ export default function AnalyticsDashboard({ userId = 'demo-user' }: AnalyticsDa
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20">
-        <h2 className="text-2xl font-bold text-white mb-2">📊 Your Cast Analytics</h2>
-        <p className="text-gray-300">
-          Insights from your {analyticsData.totalCasts} saved casts
-          {analyticsData.enhancedCasts > 0 && ` • ${analyticsData.enhancedCasts} with enhanced analysis`}
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold text-white mb-2">📊 Your Cast Analytics</h2>
+            <p className="text-gray-300">
+              Insights from your {analyticsData.totalCasts} saved casts
+              {analyticsData.enhancedCasts > 0 && ` • ${analyticsData.enhancedCasts} with enhanced analysis`}
+            </p>
+          </div>
+          
+          {/* Enhancement Button */}
+          {!isEnhancing ? (
+            <button
+              onClick={handleEnhanceCasts}
+              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white px-6 py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg"
+            >
+              🧠 Analyze All Casts
+            </button>
+          ) : (
+            <div className="text-right">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-orange-400"></div>
+                <span className="text-orange-300 font-medium">
+                  Analyzing... {enhancementProgress.processed}/{enhancementProgress.total}
+                </span>
+              </div>
+              <div className="w-48 bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-orange-400 to-red-400 h-2 rounded-full transition-all duration-300"
+                  style={{ 
+                    width: `${enhancementProgress.total > 0 ? (enhancementProgress.processed / enhancementProgress.total) * 100 : 0}%` 
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Enhancement Results */}
+        {enhancementResults && (
+          <div className={`mt-4 p-4 rounded-lg ${
+            enhancementResults.includes('❌') 
+              ? 'bg-red-500/10 border border-red-500/20' 
+              : 'bg-green-500/10 border border-green-500/20'
+          }`}>
+            <p className={enhancementResults.includes('❌') ? 'text-red-300' : 'text-green-300'}>
+              {enhancementResults}
+            </p>
+          </div>
+        )}
+        
+        {/* Enhancement Info */}
+        {analyticsData.enhancedCasts < analyticsData.totalCasts && (
+          <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <p className="text-yellow-300 text-sm">
+              💡 <strong>{analyticsData.totalCasts - analyticsData.enhancedCasts} casts</strong> need AI analysis. 
+              Click "Analyze All Casts" to enhance them with quality scores, topics, sentiment analysis, and more!
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Main Stats */}
