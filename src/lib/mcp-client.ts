@@ -46,7 +46,7 @@ export class MCPClient {
 
     return new Promise((resolve, reject) => {
       const requestId = ++this.requestId
-      let timeoutId: NodeJS.Timeout
+      let timeoutId: NodeJS.Timeout | undefined
       
       const request = {
         jsonrpc: '2.0',
@@ -67,7 +67,7 @@ export class MCPClient {
           const response = JSON.parse(responseData)
           if (response.id === requestId) {
             this.process.stdout.removeListener('data', onData)
-            clearTimeout(timeoutId)
+            if (timeoutId) clearTimeout(timeoutId)
             
             if (response.error) {
               reject(new Error(response.error.message))
@@ -83,7 +83,7 @@ export class MCPClient {
       const onError = (error: any) => {
         this.process.stdout.removeListener('data', onData)
         this.process.removeListener('error', onError)
-        clearTimeout(timeoutId)
+        if (timeoutId) clearTimeout(timeoutId)
         reject(new Error(`MCP process error: ${error.message}`))
       }
 
@@ -93,7 +93,7 @@ export class MCPClient {
       try {
         this.process.stdin.write(JSON.stringify(request) + '\n')
       } catch (writeError) {
-        clearTimeout(timeoutId)
+        if (timeoutId) clearTimeout(timeoutId)
         reject(new Error(`Failed to write to MCP process: ${writeError}`))
         return
       }
