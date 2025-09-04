@@ -46,6 +46,7 @@ export class MCPClient {
 
     return new Promise((resolve, reject) => {
       const requestId = ++this.requestId
+      let timeoutId: NodeJS.Timeout
       
       const request = {
         jsonrpc: '2.0',
@@ -58,7 +59,6 @@ export class MCPClient {
       }
 
       let responseData = ''
-      let timeoutId: NodeJS.Timeout
       
       const onData = (data: Buffer) => {
         responseData += data.toString()
