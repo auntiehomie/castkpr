@@ -612,6 +612,11 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<'overview' | 'insights'>('overview')
+  
+  // Enhancement state
+  const [isEnhancing, setIsEnhancing] = useState(false)
+  const [enhancementProgress, setEnhancementProgress] = useState({ processed: 0, total: 0 })
+  const [enhancementResults, setEnhancementResults] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -629,6 +634,78 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
 
     fetchData()
   }, [userId])
+
+  // Enhancement function to add AI analysis to existing casts
+  const handleEnhanceCasts = async (): Promise<void> => {
+    if (!userId || isEnhancing) return
+
+    try {
+      setIsEnhancing(true)
+      setEnhancementResults(null)
+      setEnhancementProgress({ processed: 0, total: savedCasts.length })
+
+      let totalProcessed = 0
+      let totalEnhanced = 0
+      let offset = 0
+      const batchSize = 20
+
+      while (true) {
+        console.log(`🔄 Processing batch starting at offset ${offset}`)
+        
+        const response = await fetch('/api/enhance-casts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            limit: batchSize,
+            offset
+          })
+        })
+
+        const result = await response.json()
+
+        if (!result.success) {
+          throw new Error(result.error || 'Enhancement failed')
+        }
+
+        totalProcessed += result.processed
+        totalEnhanced += result.enhanced
+        
+        setEnhancementProgress({
+          processed: totalProcessed,
+          total: Math.max(savedCasts.length, totalProcessed)
+        })
+
+        console.log(`✅ Batch complete: ${result.enhanced}/${result.processed} enhanced`)
+
+        // Check if we're done
+        if (!result.hasMore || result.processed < batchSize) {
+          break
+        }
+
+        offset = result.nextOffset
+        
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+
+      setEnhancementResults(
+        `🎯 Enhancement complete! Enhanced ${totalEnhanced} out of ${totalProcessed} processed casts.`
+      )
+
+      // Refresh the casts to show updated analytics
+      const refreshedCasts = await CastService.getUserCasts(userId, 200)
+      setSavedCasts(refreshedCasts)
+
+    } catch (error) {
+      console.error('❌ Enhancement failed:', error)
+      setEnhancementResults(
+        `❌ Enhancement failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    } finally {
+      setIsEnhancing(false)
+    }
+  }
 
   const analyticsData: AnalyticsData = useMemo(() => {
     if (!savedCasts.length) {
@@ -864,6 +941,51 @@ export default function CombinedAnalytics({ userId = 'demo-user' }: CombinedAnal
               Insights from your {analyticsData.totalCasts} saved casts
               {analyticsData.enhancedCasts > 0 && ` • ${analyticsData.enhancedCasts} with enhanced analysis`}
             </p>
+          </div>
+
+          {/* Enhancement Section */}
+          <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 backdrop-blur-lg rounded-xl p-6 border border-blue-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <h3 className="text-xl font-semibold text-white mb-2 flex items-center gap-2">
+                  🤖 Cast Enhancement
+                </h3>
+                <p className="text-gray-300">
+                  Analyze your saved casts with AI to get quality scores, sentiment analysis, and detailed insights
+                </p>
+                {enhancementResults && (
+                  <div className="mt-3 p-3 bg-black/20 rounded-lg border border-white/10">
+                    <p className="text-sm text-white">{enhancementResults}</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex flex-col items-end gap-2 ml-6">
+                <button
+                  onClick={handleEnhanceCasts}
+                  disabled={isEnhancing || savedCasts.length === 0}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed font-medium transition-colors flex items-center gap-2"
+                >
+                  {isEnhancing ? (
+                    <>
+                      <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      🚀 Analyze All Casts
+                    </>
+                  )}
+                </button>
+                
+                {isEnhancing && (
+                  <div className="text-sm text-blue-300 text-center">
+                    <div className="font-medium">{enhancementProgress.processed} / {enhancementProgress.total}</div>
+                    <div className="text-xs opacity-75">processed</div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Main Stats */}
