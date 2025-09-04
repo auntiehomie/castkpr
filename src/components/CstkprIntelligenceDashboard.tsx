@@ -57,21 +57,51 @@ export default function CstkprIntelligenceDashboard({ className = '' }: CstkprIn
         author: "test-user"
       }
       
-      const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
-        testCast.hash,
-        testCast.content,
-        testCast.author,
-        true // Include web research
-      )
+      console.log('📝 Analyzing test cast:', testCast)
       
-      console.log('✅ Generated opinion:', opinion)
-      
-      // Reload dashboard data
-      await loadDashboardData()
-      setSelectedOpinion(opinion)
+      // Test the analysis without database operations for now
+      try {
+        const opinion = await CstkprIntelligenceService.analyzeCastAndFormOpinion(
+          testCast.hash,
+          testCast.content,
+          testCast.author,
+          false // Disable web research for testing
+        )
+        
+        console.log('✅ Generated opinion:', opinion)
+        
+        // Reload dashboard data to show the new opinion
+        await loadDashboardData()
+        setSelectedOpinion(opinion)
+        
+        // Show success message
+        alert(`✅ Test analysis complete! Opinion generated with ${Math.round(opinion.confidence_score * 100)}% confidence.`)
+        
+      } catch (dbError) {
+        console.warn('⚠️ Database operation failed, testing core analysis logic...', dbError)
+        
+        // Test just the opinion generation without saving
+        const topics = CstkprIntelligenceService.extractCastTopics(testCast.content)
+        const mockOpinion = await CstkprIntelligenceService.generateOpinion(
+          testCast.content,
+          testCast.author,
+          topics,
+          [], // No related casts
+          null, // No web research
+          '', // No user quality insight
+          [] // No similar casts
+        )
+        
+        console.log('✅ Core analysis working:', mockOpinion)
+        alert(`✅ Core analysis system working! Generated opinion with ${Math.round(mockOpinion.confidence * 100)}% confidence.\n\n⚠️ Note: Database table needs to be created for full functionality.`)
+      }
       
     } catch (error) {
-      console.error('Error analyzing test cast:', error)
+      console.error('❌ Error analyzing test cast:', error)
+      
+      // Show detailed error to user
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      alert(`❌ Test analysis failed: ${errorMessage}\n\nCheck the browser console for more details.`)
     } finally {
       setAnalyzing(false)
     }
